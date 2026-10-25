@@ -1,0 +1,15 @@
+{
+  "name": "@stickman/art",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@resvg/resvg-js": "^2.6.2",
+    "@stickman/core": "*",
+    "fontkit": "^2.0.4"
+  }
+}
