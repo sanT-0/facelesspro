@@ -28,6 +28,10 @@ class TTSEngine(Protocol):
 class EdgeTTSEngine:
     """Free Microsoft Edge neural voices. No API key."""
 
+    # Part of the cache key. Changing it is how a future adapter that sounds
+    # different avoids reusing these entries.
+    name = "edge"
+
     async def synthesize(self, text: str, voice: str) -> Synthesis:
         communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
 

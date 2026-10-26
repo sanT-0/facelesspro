@@ -4,5 +4,5 @@ import { app } from './app';
 const port = Number(process.env.PORT ?? 3001);
 
 serve({ fetch: app.fetch, port }, (info) => {
-  console.log(`stickman-api listening on http://127.0.0.1:${info.port}`);
+  console.log(`facelesspro-api listening on http://127.0.0.1:${info.port}`);
 });

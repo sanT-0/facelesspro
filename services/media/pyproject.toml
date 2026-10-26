@@ -2,3 +2,13 @@
 pythonpath = ["."]
 testpaths = ["tests"]
 addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "RUF"]
+# The product is multilingual: full-width commas, en dashes and Tamil punctuation
+# are content, not typos.
+ignore = ["RUF001", "RUF002", "RUF003"]

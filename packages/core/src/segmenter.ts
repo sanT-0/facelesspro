@@ -5,38 +5,21 @@
  * piece of text should be spoken with. It never rewrites the text.
  */
 
-import type { Lang, ScriptKind, SegmentOptions, TextRun } from './types';
+import { DEFAULT_LEXICON, isTanglishWord } from './lexicon';
+import type {
+  Lang,
+  Lexicon,
+  OverrideSpan,
+  ScriptKind,
+  SegmentOptions,
+  TextRun,
+} from './types';
+
+export { DEFAULT_TANGLISH } from './lexicon';
 
 const TAMIL_START = 0x0b80;
 const TAMIL_END = 0x0bff;
 const ZERO_WIDTH = new Set(['\u200c', '\u200d']);
-
-/**
- * Common romanised Tamil words. Kept deliberately small and unambiguous:
- * words that are also normal English ("van", "man", "an") are excluded so we
- * do not misroute English narration to the Tamil voice.
- */
-export const DEFAULT_TANGLISH: ReadonlySet<string> = new Set([
-  'vanakkam', 'vanakam', 'machan', 'machi', 'thambi', 'thangachi',
-  'anna', 'akka', 'appa', 'amma', 'ayya', 'naan', 'nee', 'neenga',
-  'avan', 'ava', 'avanga', 'ivan', 'ivanga', 'adhu', 'idhu', 'adhukku',
-  'idhukku', 'adhaan', 'idhaan', 'ellam', 'ellaam', 'romba', 'rombha',
-  'konjam', 'nalla', 'nalladhu', 'mosam', 'semma', 'seri', 'sari',
-  'illa', 'illai', 'irukku', 'iruku', 'irukkum', 'irundhu', 'irunga',
-  'pannu', 'pannunga', 'pannuvom', 'panniten', 'panniruken', 'sollu',
-  'sollunga', 'solren', 'sonna', 'ketta', 'kekka', 'kelunga', 'paaru',
-  'paakka', 'paarunga', 'podu', 'podunga', 'pottu', 'poidu', 'pochu',
-  'vanthu', 'vandhu', 'poga', 'pogalam', 'vaanga', 'venum', 'vendam',
-  'mudiyum', 'mudiyadhu', 'theriyum', 'theriyadhu', 'puriyum', 'puriyala',
-  'enna', 'epdi', 'eppadi', 'yaaru', 'yaar', 'enga', 'inga', 'anga',
-  'eppo', 'ippo', 'appo', 'apram', 'aprom', 'onnu', 'rendu', 'moonu',
-  'naalu', 'anju', 'aaru', 'ezhu', 'ettu', 'onbadhu', 'pathu', 'nooru',
-  'aayiram', 'kaasu', 'panam', 'velai', 'veedu', 'veetla', 'pasanga',
-  'pothu', 'sethu', 'setha', 'saavu', 'sethuru', 'thaan', 'dhaan',
-  'kooda', 'kuda', 'mattum', 'ponnu', 'paiyan', 'payan', 'periya',
-  'chinna', 'pudhu', 'palaya', 'mela', 'keela', 'ulle', 'velila',
-  'nethu', 'innaiku', 'naalai', 'kaalaila', 'raathiri', 'panam',
-]);
 
 function isTamilChar(ch: string): boolean {
   const cp = ch.codePointAt(0);
@@ -57,47 +40,68 @@ function isWordChar(ch: string): boolean {
   return isTamilChar(ch) || isLatinLetter(ch) || isLatinMark(ch);
 }
 
-function normalizeWord(word: string): string {
-  return word.toLowerCase().replace(/[^a-z]/g, '');
-}
-
 interface Token {
   text: string;
   kind: 'word' | 'sep';
+  /** Offset of the token in the input, in UTF-16 code units. */
+  start: number;
+  /** End offset (exclusive). */
+  end: number;
 }
 
 function tokenize(input: string): Token[] {
   const tokens: Token[] = [];
   let buffer = '';
   let bufferKind: Token['kind'] | null = null;
+  let bufferStart = 0;
+  let index = 0;
 
   for (const ch of input) {
     const kind: Token['kind'] = isWordChar(ch) ? 'word' : 'sep';
     if (bufferKind === kind) {
       buffer += ch;
+      index += ch.length;
       continue;
     }
     if (buffer.length > 0 && bufferKind !== null) {
-      tokens.push({ text: buffer, kind: bufferKind });
+      tokens.push({ text: buffer, kind: bufferKind, start: bufferStart, end: index });
     }
     buffer = ch;
     bufferKind = kind;
+    bufferStart = index;
+    index += ch.length;
   }
 
   if (buffer.length > 0 && bufferKind !== null) {
-    tokens.push({ text: buffer, kind: bufferKind });
+    tokens.push({ text: buffer, kind: bufferKind, start: bufferStart, end: index });
   }
   return tokens;
 }
 
+function hasTamilChar(word: string): boolean {
+  for (const ch of word) {
+    if (isTamilChar(ch)) return true;
+  }
+  return false;
+}
+
+/**
+ * Script of a forced span. Tamil is written in Tamil script when the span
+ * contains Tamil letters, and in Latin letters otherwise — which is exactly
+ * what `[[ta:…]]` over an English-looking word means.
+ */
+function scriptForOverride(word: string, lang: Lang): ScriptKind {
+  if (lang === 'en') return 'latin';
+  return hasTamilChar(word) ? 'tamil' : 'tanglish';
+}
+
 function classifyWord(
   word: string,
-  lexicon: ReadonlySet<string>,
+  lexicon: Lexicon,
+  useMorphology: boolean,
 ): { lang: Lang; script: ScriptKind } {
-  for (const ch of word) {
-    if (isTamilChar(ch)) return { lang: 'ta', script: 'tamil' };
-  }
-  if (lexicon.has(normalizeWord(word))) {
+  if (hasTamilChar(word)) return { lang: 'ta', script: 'tamil' };
+  if (isTanglishWord(word, lexicon, useMorphology)) {
     return { lang: 'ta', script: 'tanglish' };
   }
   return { lang: 'en', script: 'latin' };
@@ -122,12 +126,19 @@ export function segmentText(
   input: string,
   options: SegmentOptions = {},
 ): TextRun[] {
-  const lexicon = options.tanglish ?? DEFAULT_TANGLISH;
+  const lexicon: Lexicon =
+    options.lexicon ??
+    (options.tanglish === undefined
+      ? DEFAULT_LEXICON
+      : { ...DEFAULT_LEXICON, words: options.tanglish });
+  const useMorphology = options.morphology ?? true;
+  const overrides: readonly OverrideSpan[] = options.overrides ?? [];
   const tokens = tokenize(input);
 
   const runs: TextRun[] = [];
   let pendingSeparator = '';
   let current: TextRun | null = null;
+  let spanCursor = 0;
 
   const flush = (): void => {
     if (current === null) return;
@@ -148,7 +159,17 @@ export function segmentText(
       continue;
     }
 
-    const { lang, script } = classifyWord(token.text, lexicon);
+    // Spans and tokens are both ordered, so one cursor is enough.
+    while (spanCursor < overrides.length && overrides[spanCursor]!.end <= token.start) {
+      spanCursor += 1;
+    }
+    const span = overrides[spanCursor];
+    const forced =
+      span !== undefined && span.start <= token.start && token.end <= span.end
+        ? { lang: span.lang, script: scriptForOverride(token.text, span.lang) }
+        : null;
+
+    const { lang, script } = forced ?? classifyWord(token.text, lexicon, useMorphology);
 
     if (current !== null && current.lang === lang) {
       current.text += token.text;

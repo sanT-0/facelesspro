@@ -13,7 +13,9 @@ class SegmentRequest(BaseModel):
 
 class SynthesizeRequest(BaseModel):
     segments: list[SegmentRequest] = Field(min_length=1, max_length=500)
-    gap_ms: int = Field(default=150, ge=0, le=2_000)
+    # Explicit override for every join. When omitted, the gap comes from the
+    # punctuation between runs (see `app/boundaries.py`).
+    gap_ms: int | None = Field(default=None, ge=0, le=2_000)
 
 
 class WordTiming(BaseModel):
@@ -25,12 +27,20 @@ class WordTiming(BaseModel):
 class SegmentResult(BaseModel):
     index: int
     voice: str
+    text: str
     audio_path: str
-    duration_ms: int
+    # Exact position of this run in the master track. Captions rely on
+    # `word.start_ms == start_ms + local_start`.
+    start_ms: int = Field(ge=0)
+    duration_ms: int = Field(ge=0)
+    # Milliseconds removed from the head of the provider audio before the words
+    # were rebased. Kept for debugging seams.
+    head_trim_ms: int = Field(ge=0)
     words: list[WordTiming]
 
 
 class SynthesizeResponse(BaseModel):
     request_id: str
     segments: list[SegmentResult]
-    total_duration_ms: int
+    master_path: str
+    total_duration_ms: int = Field(ge=0)

@@ -15,12 +15,15 @@
     "types": ["node"],
     "baseUrl": ".",
     "paths": {
-      "@stickman/core": ["packages/core/src/index.ts"]
+      "@facelesspro/core": ["packages/core/src/index.ts"],
+      "@facelesspro/contracts": ["packages/contracts/src/index.ts"]
     }
   },
   "include": [
     "packages/*/src/**/*.ts",
+    "packages/*/drizzle.config.ts",
     "apps/*/src/**/*.ts",
-    "vitest.config.ts"
+    "vitest.config.ts",
+    "vitest.db.config.ts"
   ]
 }

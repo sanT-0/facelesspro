@@ -1,5 +1,5 @@
 {
-  "name": "@stickman/art",
+  "name": "@facelesspro/art",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
   },
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
-    "@stickman/core": "*",
+    "@facelesspro/core": "*",
     "fontkit": "^2.0.4"
   }
 }

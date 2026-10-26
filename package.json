@@ -1,5 +1,5 @@
 {
-  "name": "stickman-studio",
+  "name": "facelesspro",
   "version": "0.1.0",
   "private": true,
   "type": "module",
@@ -13,8 +13,16 @@
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:db": "vitest run --config vitest.db.config.ts",
     "typecheck": "tsc --noEmit",
-    "dev:api": "npm run dev --workspace @stickman/api"
+    "gate": "npm run typecheck && npm run test",
+    "test:media": "python -m pytest services/media -q",
+    "tts:audit": "tsx scripts/audit-transliteration.ts",
+    "sample:tts": "tsx scripts/sample-tts.ts",
+    "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
+    "db:migrate": "tsx packages/db/src/migrate.ts",
+    "db:seed": "tsx packages/db/src/seed.ts",
+    "dev:api": "npm run dev --workspace @facelesspro/api"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -1,18 +1,18 @@
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: stickman-postgres
+    container_name: facelesspro-postgres
     restart: unless-stopped
     environment:
-      POSTGRES_USER: stickman
-      POSTGRES_PASSWORD: stickman
-      POSTGRES_DB: stickman
+      POSTGRES_USER: faceless
+      POSTGRES_PASSWORD: faceless
+      POSTGRES_DB: faceless
     ports:
       - "5433:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U stickman -d stickman"]
+      test: ["CMD-SHELL", "pg_isready -U faceless -d faceless"]
       interval: 5s
       timeout: 3s
       retries: 20

@@ -8,7 +8,7 @@ describe('GET /health', () => {
 
     const body = (await res.json()) as Record<string, unknown>;
     expect(body.status).toBe('ok');
-    expect(body.service).toBe('stickman-api');
+    expect(body.service).toBe('facelesspro-api');
     expect(typeof body.time).toBe('string');
     expect(Number.isNaN(Date.parse(String(body.time)))).toBe(false);
   });

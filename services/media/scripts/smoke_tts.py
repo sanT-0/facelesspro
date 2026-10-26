@@ -12,9 +12,10 @@ Run:
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import sys
-from dataclasses import dataclass, asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import edge_tts
@@ -169,7 +170,8 @@ async def main() -> int:
     assert timeline == sorted(timeline, key=lambda w: w["start_ms"]), "timings not monotonic"
     assert all(w["end_ms"] > w["start_ms"] for w in timeline), "zero-length word"
     assert all(
-        a["end_ms"] <= b["start_ms"] for a, b in zip(timeline, timeline[1:])
+        a["end_ms"] <= b["start_ms"]
+        for a, b in itertools.pairwise(timeline)
     ), "overlapping words"
     assert timeline[-1]["end_ms"] <= cursor_ms, "timeline drift"
 

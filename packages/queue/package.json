@@ -1,0 +1,19 @@
+{
+  "name": "@facelesspro/queue",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@facelesspro/contracts": "*",
+    "@facelesspro/db": "*",
+    "drizzle-orm": "^0.45.4",
+    "pg-boss": "^10.3.2"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.23.1"
+  }
+}
