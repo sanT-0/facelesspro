@@ -201,7 +201,7 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       build cannot demonstrate for it.
 - [ ] P0 close-out: first green CI run on the remote (needs a push).
 
-## P1 Tamil + English TTS ⭐
+## P1 Tamil + English TTS ⭐ — **closed 2026-10-27** (listening gate approved)
 
 - [x] 2026-10-26 — pre-existing: script-aware segmenter + 170-word Tanglish lexicon, 196 test lines
 - [x] 2026-10-26 — pre-existing: edge-tts engine with `WordBoundary` timings, `/synthesize`
@@ -320,8 +320,114 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       the pydantic re-validation is what stops a hand-edited entry reaching the stitcher as garbage.
       Note: because the cache wraps the engine, `/health.engine` unwraps the decorator so the existing
       contract (`FakeEngine`, `EdgeTTSEngine`) still holds.
-- [x] `sample:tts` 6 clips
-- [ ] **listening gate approved** ← phase cannot close without this
+- [x] 2026-10-27 - `sample:tts` regenerated on this machine (edge-tts 7.3.1, `pallavi-neerja`,
+      network): 10.341 / 9.501 / 16.299 / 7.333 / 4.029 / 16.041 s, 1 / 1 / 5 / 5 / 2 / 4 runs,
+      20 / 24 / 35 / 14 / 9 / 36 words — the same six texts and the same structure as the 2026-10-26
+      run. `samples/tts/{report.json,README.md}` rewritten; both are valid UTF-8 (121 Tamil chars in
+      report, 320 in README, zero U+FFFD, confirmed by codepoint scan — the mojibake is PowerShell's
+      console, not the files).
+      Loudness re-measured on the six new masters rather than copied from the old run: −16.28 /
+      −16.28 / −16.47 / −16.43 / −16.33 / −16.30 LUFS, true peak −1.85 / −1.80 / −1.83 / −1.83 /
+      −1.78 / −1.83 dBTP. Inside the −16 ±1 LU contract, at or below the −1.5 dBTP ceiling, 0.19 LU
+      spread between clips.
+      `timeline.json` checked for all six: every word global and monotonic, every word inside its
+      run, `spans + gaps = total_duration_ms`, `master.wav` exactly `duration × 48` frames at 48 kHz
+      mono 16-bit, and the reported `master.gain_db` reproduces −16.0 LUFS from the measured input.
+      Surprises: (a) `master.input_lufs` is the level *before* the program gain (−17.31 + 1.31 =
+      −16.00 for three clips), so reading it as the final loudness looks like a contract failure and
+      is not; (b) a frame-count check using a fixed 44-byte WAV header flagged all six files — ffmpeg
+      writes a 78-byte header (LIST chunk), and parsing the `data` chunk size showed every file
+      exact. The check was wrong, not the audio.
+      Note: no clip exercises the deferred number-sandhi gap (clip 06 spells it `2024 ஆம் ஆண்டில்`,
+      with a space), so this listening pass cannot confirm or reject that fix.
+- [x] **listening gate run 1: FAILED 2026-10-27** — "*Tamil speech is not good, needs improvement,
+      sounds unnatural, words are separated*"; on follow-up: "*gaps between words, the voice's
+      timbre — this is the problem*". English and the ta/en mix were not the complaint.
+      Measured cause: edge-tts's Tamil voice puts 65–175 ms pauses *between words inside a
+      sentence* (14 silences ≥ 60 ms in the 10.3 s clip 01). The stitcher only owned gaps between
+      runs, and edge-tts's word offsets absorb the pause into the word, so every timing test passed
+      while the delivery sounded word-by-word — a hole in the test set, written into
+      [05](./05-tts-tamil-mixed.md) §3.4/§5.4.
+      **Fixed (gaps):** `audio.compress_pauses` shortens every 60–250 ms silence *inside* a run to
+      50 ms (25 ms kept each side so a consonant onset is never clipped) and leaves sentence
+      breaks alone; `Stitcher` maps each word through the removed intervals, so
+      `global = run.start + word.local` still holds to the frame. `TTS_PAUSE_COMPRESSION=0`
+      reproduces the raw provider delivery for A/B. Measured on the regenerated clip 01: 10.34 →
+      9.99 s, word gaps 13 × 65–175 ms → 11 × 50 ms, silence share 21.3% → 18.5% (the remainder is
+      the 949 ms sentence pause and a 345 ms clause pause). All six clips regenerate with
+      `spans + gaps = total`, `master.wav = duration × 48` frames, words inside their runs.
+      15 new tests (11 in `test_pauses.py`, four in `test_stitch.py`); pytest 106 passed / 3 live
+      skipped; ruff clean.
+      Surprise: the first version of the test fixture windowed each burst with a full-length
+      `sin²` envelope, so ffmpeg's silence detector found pauses 40–90 ms wider than the nominal
+      ones and every exact assertion failed. The fixture now ramps 5 ms at each edge — the test was
+      wrong about its own input, not the code about the audio.
+      **Open (timbre):** the same six texts are rendered through the new pipeline for both paired
+      voices — `samples/tts/prosody/new-pallavi/` (female, 01 9.99 s / 03 15.57 s / 05 3.94 s) and
+      `samples/tts/prosody/new-valluvar/` (male, 9.90 / 15.48 / 3.65 s). P1 stays open until one is
+      accepted; if neither is, the constraint is the free provider and the choice becomes a paid
+      voice or a GPU model — a product decision, not tuning.
+- [x] **2026-10-27 — voice identity fixed; the pair can no longer switch speaker.** Verdict on the
+      rendered comparison: "*all male voice are good but female voice is not good both ava,
+      pallavi and pair tamil and english voice are speck with different voice*". Root cause was
+      structural, not a setting: `plan.ts` did `voice = lang === 'ta' ? ta : en` and `validate_pair`
+      only compared engine/gender/timings, so a "pair" was always two different neural models — the
+      switch *was* the defect, and no gender/accent match could hide it (measured: the pallavi pair
+      and the valluvar pair both switch at every boundary).
+      **Fix:** a pair is one speaker. `validate_pair` rejects a second voice whenever the Tamil
+      voice can already read English (`mixes_english`, or a multilingual model whose `languages`
+      include `en`); a second voice survives only for Piper, whose Tamil model has no English.
+      Pairs are now `valluvar` (default), `pallavi`, `andrew`, `ava`, `indicf5-ta`,
+      `piper-offline`; Ava/Andrew (`*MultilingualNeural`, `ta-IN` documented as supported) are
+      catalogued as the one-model option. Catalogue 9 → 11 voices, 4 → 6 pairs.
+      Migration note: `pallavi-neerja` / `valluvar-prabhat` are gone from the catalogue, so a
+      stale `voiceId` now fails loudly instead of silently switching speaker.
+      Regenerated all six clips with `valluvar`: 9.90 / 8.83 / 14.85 / 6.80 / 3.58 / 15.54 s,
+      −16.26…−16.47 LUFS, TP ≤ −1.78 dBTP, **one unique voice per clip**, `spans + gaps = total`,
+      `master.wav = duration × 48` frames. New tests: the rejection (both rejected pairs, by
+      selector and by hand-built `VoicePair`), one-voice routing for both languages, single-voice
+      pairs must be able to read English, and a TS test that a one-speaker plan carries one voice
+      across a language switch. pytest 108 passed / 3 live skipped; gate 387 tests; ruff clean.
+      Surprise: the two female voices and the male pair were rejected, but *all* male one-voice
+      options (native Valluvar and the US-primary multilingual Andrew) were accepted — timbre was
+      never the whole problem, the switch was.
+- [x] **2026-10-27 — female narrator chosen: `emma`; saranya rejected; both sets rendered.** Verdict:
+      "*emma is good saranya is not good*". `en-US-EmmaMultilingualNeural` is now a first-class
+      pair (`emma`, one speaker for both languages), selected with `TTS_PAIR=emma`; `valluvar`
+      stays the default. `ta-LK-SaranyaNeural` is out of the audition set but stays catalogued and
+      unpaired; `pallavi`/`ava` stay catalogued as the rejected timbres, so a female narrator never
+      disappears from the product.
+      Tests: `emma` pinned in ids + documented-pairs table, `test_emma_is_the_approved_female_speaker`
+      (one voice for both languages, female, valid pair), and `test_both_genders_ship` (a catalogue
+      edit that drops every female pair fails here, not in a render). pytest 110 passed / 3 live
+      skipped; gate 387 tests; ruff clean.
+      Artifact: `TTS_PAIR=emma TTS_OUT_DIR=samples/tts/female npm run sample:tts` → six clips,
+      9.39 / 7.92 / 14.37 / 7.01 / 4.12 / 15.64 s, −16.26…−16.28 LUFS, TP ≤ −1.84 dBTP, one voice
+      per clip, `spans + gaps = total`, `master.wav = duration × 48`. The male set in `samples/tts/`
+      is untouched — `TTS_OUT_DIR` exists so two approved sets cannot overwrite each other.
+      Still open: the ear on the twelve rendered clips (both sets), which is the only thing that
+      closes P1.
+      Surprise: the female winner is a multilingual model whose Tamil is a secondary language, while
+      the native Tamil female (Saranya, ta-LK) was rejected — accent familiarity beat locale
+      nativeness for this listener, so "native is always better" is not a rule we can assume.
+- [x] **2026-10-27 — female audition measurements, kept as evidence.** `pallavi` 9.99 / 9.44 /
+      15.57 s, `ava` 8.23 / 7.86 / 14.22 s, `emma` 9.39 / 7.92 / 14.37 s, `saranya` 10.50 / 9.91 /
+      16.30 s on clips 01/02/03 (`samples/tts/prosody/female/`, gitignored); all one speaker, all
+      frame-exact. `ada` (`en-GB-AdaMultilingualNeural`) produced no audio at all: listed by
+      `--list-voices`, every synthesis returns `502 … NoAudioReceived`, so a pinned-ids test proves
+      existence, not service.
+- [x] **2026-10-27 — P1 closed: listening gate approved.** Verdict on the rendered artefacts:
+      "*pass*" — the six male clips (`valluvar`, `samples/tts/`) and the six female clips
+      (`emma`, `samples/tts/female/`). This is the only acceptance test no assertion replaces, so
+      it is recorded as the user's judgement, not as a test result. Everything below it was
+      measured: 12 clips, one unique voice each, −16.26…−16.47 LUFS, TP ≤ −1.78 dBTP, frame-exact
+      masters, `spans + gaps = total`, word-pause compression intact. P1 is therefore complete;
+      the one deliberately deferred item is Tamil numeral sandhi (§3.6 of
+      [05](./05-tts-tamil-mixed.md)), which has its own listening test and is not part of P1's
+      acceptance.
+- [ ] 2026-10-27 — `rate` joins the cache key if it is adopted (key is `(engine, voice, text)`
+      today; the same text at a different rate is different audio). Not adopted yet: the verdict
+      named gaps and timbre, and `rate=+12%` was only a prototype.
 
 ## P2 … P11
 
@@ -355,3 +461,9 @@ file stays the single "what is actually true today" view.
 | 2026-10-27 | CI pins Python 3.12 while dev runs 3.14 | plan.md declares 3.12 as the runtime; CI should test the promise, not the machine, and 3.14 is the local convenience |
 | 2026-10-27 | CI matrix is node 22 only | 22 is the `engines` floor; a second entry doubles minutes for a runtime no `engines` field claims to support |
 | 2026-10-27 | `test:db` stays out of CI until it brings its own Postgres | a job that green-lights when the service is absent is worse than no job |
+| 2026-10-27 | The listening gate is only ever closed by the user's ears | loudness, frame counts and timing are measured by scripts; "does it sound like one person" is not, and an agent marking it green would be inventing evidence |
+| 2026-10-27 | Provider word pauses are compressed in the stitch, not by picking a "faster" voice | the pause is silence, not speed: shortening it keeps the words' own delivery and leaves sentence breaks alone, and it is reversible with one env flag |
+| 2026-10-27 | A voice pair is **one speaker**, and the catalogue enforces it | two locale-locked voices are two people however well gender and accent match; the switch *is* the defect, so the rejected pair is made unrepresentable rather than deprecated in prose |
+| 2026-10-27 | `valluvar` is the default, not the multilingual Andrew | both male options were accepted by ear; Tamil is the primary language of the channel, and a native `ta-IN` model cannot be beaten by a model where Tamil is a secondary language |
+| 2026-10-27 | A rejected female timbre is replaced, never deleted | male and female narrators are both product requirements; rejecting a voice answers "not this one", not "no women", so `pallavi`/`ava` stay catalogued while better candidates are auditioned |
+| 2026-10-27 | `emma` is the female default; `valluvar` stays the male default | chosen by ear over the native `ta-LK` female; the two sets are separate `sample:tts` runs (`TTS_OUT_DIR`), so neither overwrites the other's listening-gate evidence |

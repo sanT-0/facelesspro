@@ -29,6 +29,16 @@ TTS_CACHE_ENABLED = os.environ.get("TTS_CACHE", "1").strip().lower() not in {
 }
 TTS_CACHE_MAX_MB = int(os.environ.get("TTS_CACHE_MAX_MB", "2048"))
 
+# Shorten provider-internal word pauses (60-250 ms) to 2 x 25 ms. On by default:
+# the free Tamil voice inserts them and they are what "words are separated"
+# sounds like. Set to 0 to reproduce the raw provider delivery.
+TTS_PAUSE_COMPRESSION = os.environ.get("TTS_PAUSE_COMPRESSION", "1").strip().lower() not in {
+    "0",
+    "false",
+    "no",
+    "off",
+}
+
 # Milliseconds of silence inserted between synthesized runs so that a voice
 # change does not sound clipped.
 DEFAULT_GAP_MS = 150

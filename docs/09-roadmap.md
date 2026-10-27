@@ -63,7 +63,7 @@ Goal: the repo can build, migrate, queue and serve, with the new name and the sh
       ([08](./08-testing.md) §2 says so).
       `.env.example` rewritten: ASCII section banners, no trailing-comment traps, `PGBOSS_SCHEMA`
       documented, `FONTCONFIG_FILE` commented until P4 ships the config, script/test knobs
-      (`PYTHON`, `TTS_PORT`, `TTS_PAIR`, `RUN_LIVE`) listed.
+      (`PYTHON`, `TTS_PORT`, `TTS_PAIR`, `TTS_OUT_DIR`, `RUN_LIVE`) listed.
 - [x] CI workflow: gate + pytest on push.
       `.github/workflows/ci.yml`, two jobs: `gate` (node 22 — the `engines` floor — with
       `actions/setup-node` npm cache, `npm ci`, `npm run gate`) and `python` (3.12 per plan.md
@@ -93,30 +93,70 @@ Goal: narration that sounds like one bilingual person. Details: [05](./05-tts-ta
 - [x] Inline overrides `[[ta:…]] [[en:…]] [[tl:…]]`.
 - [x] `transliterate.ts` + dictionary-first golden table (442 dictionary entries, 428 of 647 routed words pinned; 68 tests).
 - [x] `numbers.ts` language-aware expansion (2024 / ₹500 / 3pm / 50% / 1,20,000; 103 tests).
-- [ ] Tamil numeral sandhi for glued case suffixes (`2024-ல்` → `…நான்கில்`, `50%க்கு` →
-      `…சதவீதத்திற்கு`); needs its own listening test, see [05](./05-tts-tamil-mixed.md) §3.6.
+- [ ] **deferred after P1** — Tamil numeral sandhi for glued case suffixes (`2024-ல்` →
+      `…நான்கில்`, `50%க்கு` → `…சதவீதத்திற்கு`); needs its own listening test, see
+      [05](./05-tts-tamil-mixed.md) §3.6. Not part of P1 acceptance: no gate clip exercises it.
 - [x] Voice catalogue with capability tags (`languages`, `mixesEnglish`, `wordTimings`),
       pinned ids, a test that fails if a voice disappears — `services/media/app/voices.py`,
-      9 voices, 35 pytest tests (3 live, skipped without `RUN_LIVE=1`).
-- [x] Voice pairing table (`pallavi-neerja`, `valluvar-prabhat`, `indicf5-ta`, `piper-offline`)
-      with gender/engine/language validation; `ta-LK` voices catalogued but unpaired.
+      12 voices, `test_voices.py` (28 tests) + 3 live tests (`RUN_LIVE=1`).
+- [x] Voice pairing: **one speaker per pair** (`valluvar` male default, `emma` female default,
+      `andrew`, `pallavi`, `ava`, `indicf5-ta`, `piper-offline`). `validate_pair` rejects a second
+      voice whenever the Tamil voice can already read English, so the two-speaker configuration
+      the listening gate rejected cannot be built; `ta-LK` voices stay catalogued but unpaired,
+      and `test_both_genders_ship` fails if every female pair is ever removed.
 - [x] Media service: gap calibration by boundary class, per-run loudness (`loudnorm`), 5 ms
       equal-power cross-fade, silence trim, exact global word offsets — `stitch.py`/`audio.py`/
       `boundaries.py`, 91 pytest tests. Speed-scaling of gaps is implemented but not exposed:
       `speed` arrives with `voiceStyle` at P4. Program stage added: peak-bound runs are fixed on
       the assembled master (−16.28…−16.46 LUFS, TP ≤ −1.79 dBTP, frame-exact).
+- [x] Internal word-pause compression (`audio.compress_pauses`, `TTS_PAUSE_COMPRESSION`): the
+      provider's 60–250 ms silences *inside* a run are cut to 50 ms with 25 ms of guard at each
+      edge, sentence breaks untouched, and words are moved by exactly the removed frames.
+      Measured on clip 01: 10.34 → 9.99 s, 13 × 65–175 ms gaps → 11 × 50 ms. 15 new tests.
 - [x] Cache: `hash(engine, voice, text)` → raw provider audio + words
       (`services/media/app/cache.py`, 13 tests). Atomic two-file entries, bounded oldest-first,
       `GET /cache`. Observed cold 2.15 s → warm 0.48 s with identical duration and words.
-- [x] `npm run sample:tts` → 6 clips in `samples/tts/`; not yet heard.
+- [x] `npm run sample:tts` → 6 clips per pair. Male set in `samples/tts/` (`valluvar`):
+      9.90 / 8.83 / 14.85 / 6.80 / 3.58 / 15.54 s; female set in `samples/tts/female/`
+      (`emma`, via `TTS_OUT_DIR`): 9.39 / 7.92 / 14.37 / 7.01 / 4.12 / 15.64 s. Both
+      −16.26…−16.47 LUFS, TP ≤ −1.78 dBTP, one voice per clip, frame-exact.
+      Heard 2026-10-27: first run **failed** on Tamil naturalness and on the speaker switch —
+      see the status note below.
 - [x] `GET /voices` + `GET /voices/{pair}` exposed on the media service (the sample script
       resolves its pair there instead of hardcoding ids).
 
-**Gate:** all unit + stitch tests green; `pytest` green; **I have listened to all 6 clips and
-approved them**; no seam audible in `03-mixed-paragraph.mp3`; Tamil glyphs correct.
+**Gate:** all unit + stitch tests green; `pytest` green; **I have listened to all 12 clips (male
+and female) and approved them**; no seam audible in `03-mixed-paragraph.mp3`; Tamil glyphs
+correct.
 
 **Artifact check:** `samples/tts/05-tanglish.mp3` — `"vanakkam machan, epdi irukka?
-today we talk about money."` sounds like one Tamil speaker, not two.
+today we talk about money."` sounds like one Tamil speaker, not two; the same sentence in
+`samples/tts/female/05-tanglish.mp3` sounds like one Tamil woman, not two.
+
+Status 2026-10-27: **P1 closed — listening gate approved.** The first run failed on Tamil
+naturalness ("not natural") and the follow-up named *gaps between words* and *the voice's
+timbre*. Both are fixed: pauses inside a run are compressed (65–175 ms → 50 ms) with the words
+re-timed to the frame, and the catalogue now allows only **one speaker per pair**, because the
+second voice was audible as a narrator swap inside a sentence ("pair tamil and english voice are
+spoken with different voice"). The clips were regenerated and measured green on loudness,
+duration, timeline and voice count, and the final listen returned "*pass*" on all twelve.
+
+The female line stays in the catalogue and is **not** optional — a channel may want a woman
+narrating. After a second audition (clips 01/02/03 for each of four female voices) the pick was
+*"emma is good saranya is not good"*, so `emma` (`en-US-EmmaMultilingualNeural`, one speaker for
+both languages) is the female default and `TTS_PAIR=emma` selects it. `saranya` is dropped from
+the audition set (still catalogued, still unpaired), `pallavi`/`ava` remain as the rejected
+timbres, and `en-GB-AdaMultilingualNeural` is unusable: listed by `edge-tts --list-voices` but
+`NoAudioReceived` for every synthesis.
+
+The full female set is rendered next to the male one rather than over it:
+`TTS_PAIR=emma TTS_OUT_DIR=samples/tts/female npm run sample:tts` → six clips at 9.39 / 7.92 /
+14.37 / 7.01 / 4.12 / 15.64 s, −16.26…−16.28 LUFS, TP ≤ −1.84 dBTP, one voice per clip,
+frame-exact. The verdict on the artefacts is the user's; the measurements only prove that what
+was heard is the thing the code produces.
+
+If a timbre is rejected later, the remaining lever is a different engine (paid Azure/ElevenLabs
+or GPU IndicF5), which needs its own decision.
 
 ---
 

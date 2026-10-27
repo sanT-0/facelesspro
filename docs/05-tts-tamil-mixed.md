@@ -35,8 +35,8 @@ Everything below exists to defeat one of those.
 | Number/date/unit expansion | `packages/core/src/numbers.ts` | ✅ built, 103 tests |
 | Per-run synthesis cache (raw audio + words, pre-trim) | `services/media/app/cache.py` | ✅ built, 13 tests |
 | Narration plan (ordering: overrides → numbers → segment → transliterate → voices) | `packages/core/src/plan.ts` | ✅ built, 17 tests |
-| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 6 clips generated, listening gate pending |
-| Tamil voice catalogue + capability tags | `services/media/app/voices.py` | ✅ built, 22 tests + live ids |
+| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 12 clips (male + female), approved by ear 2026-10-27 |
+| Tamil voice catalogue + capability tags | `services/media/app/voices.py` | ✅ built, 28 tests + live ids |
 
 The prototype already does the hard structural thing right: it returns **runs** (not
 sentences), so the same sentence can switch voice mid-clause. P1 turns the prototype into
@@ -191,8 +191,15 @@ Per run, after synthesis:
    Per-run matching is **peak-bound**: edge-tts output already sits near full scale, so a
    short run cannot reach −16 LUFS without breaking the true-peak ceiling. Measured on the
    listening-gate clips, every run landed at exactly −1.50 dBTP and the 1.6 s runs came out
-   at −18.9 LUFS. That is why step 5 exists.
-3. **Gap** between runs, decided by the *text between them*:
+   at −18.9 LUFS. That is why step 6 exists.
+3. **Compress provider-internal pauses** (`audio.compress_pauses`, `TTS_PAUSE_COMPRESSION=0`
+   to disable). Every silence between 60 and 250 ms *inside* a run is shortened to 50 ms,
+   keeping 25 ms at each side so a consonant onset is never clipped; anything longer is a
+   sentence break and stays. This is the fix for "Tamil words sound separated": edge-tts's
+   Tamil voice leaves 65–175 ms between words, which no run-level gap setting can reach.
+   The removed intervals are returned in pre-cut coordinates and subtracted from the words,
+   so `global = run.start_ms + word.local_ms` still holds to the frame.
+4. **Gap** between runs, decided by the *text between them*:
 
    | Boundary | Gap used |
    |---|---|
@@ -207,10 +214,10 @@ Per run, after synthesis:
    mid-sentence to change language. `gap_ms` in the request overrides every boundary.
    `gap_ms_for(boundary, speed=…)` already scales by delivery speed; the request does not
    expose `speed` yet (it arrives with `voiceStyle` at P4).
-4. **Concat** with a 5 ms equal-power fade at each run edge. The fade sits inside the pause,
+5. **Concat** with a 5 ms equal-power fade at each run edge. The fade sits inside the pause,
    so it kills the cut click without smearing consonants. A test measures the sample delta at
    the join (≤ 200 in 16-bit terms); without the fade a 320 Hz tone jumps by thousands.
-5. **Program loudness** (`master_program`) on the assembled `master.wav`. Measure integrated
+6. **Program loudness** (`master_program`) on the assembled `master.wav`. Measure integrated
    loudness and true peak, apply the difference to −16 LUFS as a plain `volume` gain. When
    that gain would push peaks past −1.5 dBTP, a true-peak limiter runs first
    (`alimiter=limit=0.8337:attack=5:release=50:level=false:latency=true` — `latency=true`
@@ -218,49 +225,96 @@ Per run, after synthesis:
    unchanged; without it the audio shifts 239 samples). The result is measured again and a
    final plain gain closes any inter-sample overshoot the sample-domain limiter cannot see.
    The stage refuses to write a file whose frame count moved.
-6. **Timeline** — every run carries `start_ms`, so word timings stay exact after stitching:
+7. **Timeline** — every run carries `start_ms`, so word timings stay exact after stitching:
    `global = run.start_ms + word.local_ms`, clamped inside the run. This is the single most
    important invariant for captions. `timeline.json` records the master stage
    (`gain_db`, `limited`, `input_lufs`, `input_dbtp`) for auditing.
-7. **Output** — `master.wav` (48 kHz mono PCM, the source of truth for duration) plus
+8. **Output** — `master.wav` (48 kHz mono PCM, the source of truth for duration) plus
    `master.mp3` (192 kbps, for listening), per-run WAVs, and `timeline.json` with runs, gaps,
    boundary classes and global words.
 
-Observed on the six listening-gate clips (edge-tts, `pallavi-neerja`, 2026-10-26): master
-−16.28…−16.46 LUFS integrated (0.18 LU spread), true peak −1.79…−1.86 dBTP, program gains
-+0.08…+1.36 dB, and every `master.wav` frame count exactly `total_duration_ms × 48`.
-Before the program stage the same clips spread −16.35…−17.62 LUFS.
+Observed on the six listening-gate clips (edge-tts, `valluvar`, 2026-10-27, with pause
+compression): master −16.26…−16.47 LUFS integrated, true peak ≤ −1.78 dBTP, every
+`master.wav` frame count exactly `total_duration_ms × 48` at 48 kHz mono 16-bit, `spans + gaps =
+total`, every word inside its run, and one voice per clip.
+
+**The defect that started this (2026-10-27, first listening-gate run):** edge-tts's Tamil voice
+put 65–175 ms of silence *between words inside a sentence* — 14 silences ≥ 60 ms in the 10.3 s
+`01-tamil-pure` clip, 2.6 s of the clip in pause, one of them the 0.96 s sentence break. Those
+pauses arrive inside a single run, and the word-boundary offsets absorb them into the word's
+duration, so the timing checks (median inter-word gap 13 ms) never saw them while a listener
+heard word-by-word delivery. Step 3 removes them: the same clip is now 9.99 s with 11 remaining
+50 ms word gaps and the sentence breaks intact (silence share 21.3% → 18.5%; the rest is the
+949 ms sentence pause and a 345 ms clause pause, both deliberate).
 
 ### 3.5 Voice pairing
 
-A "pair" is `{ taVoice, enVoice }` chosen to sound like the same person:
+A "pair" is **one speaker who reads both languages**, so the two halves are usually the same
+voice id:
 
-| Pair | ta | en | Notes |
+| Pair | `ta` | `en` | Notes |
 |---|---|---|---|
-| `pallavi-neerja` | `ta-IN-PallaviNeural` | `en-IN-NeerjaNeural` | default for narration |
-| `valluvar-prabhat` | `ta-IN-ValluvarNeural` | `en-IN-PrabhatNeural` | male, explainer |
-| `indicf5-ta` | IndicF5 (ta) | same model, en prompt | one model, best timbre continuity, slower |
-| `piper-offline` | Piper ta | Piper en | zero network, lowest quality |
+| `valluvar` | `ta-IN-ValluvarNeural` | same | **default**; male, native ta-IN, English in an Indian accent |
+| `emma` | `en-US-EmmaMultilingualNeural` | same | **female default**, approved by ear 2026-10-27; multilingual, Tamil is a secondary language |
+| `andrew` | `en-US-AndrewMultilingualNeural` | same | male multilingual model; approved, kept as a second male option |
+| `pallavi` | `ta-IN-PallaviNeural` | same | female, native ta-IN; timbre rejected 2026-10-27, kept as an option |
+| `ava` | `en-US-AvaMultilingualNeural` | same | female multilingual; timbre rejected 2026-10-27, kept as an option |
+| `indicf5-ta` | IndicF5 | same model | one model, best timbre continuity, slower |
+| `piper-offline` | Piper ta | Piper en | two voices, because the Tamil model has no English |
 
 Pair selection is explicit (`voiceId` can be a pair id) **or** explicit per language
-(`voiceId: { ta, en }`). We never let gender/accent mismatch happen silently.
+(`voiceId: { ta, en }`).
 
-Implemented in `services/media/app/voices.py` (9 voices, 4 pairs, `resolve_pair()` /
+**Both genders ship.** The female line is a requirement, not an alternative: a channel may want a
+woman narrating, and the pair rule above already guarantees she is one person in both languages.
+Four female candidates were auditioned on 2026-10-27: `ta-IN-PallaviNeural`,
+`en-US-AvaMultilingualNeural`, `en-US-EmmaMultilingualNeural`, `ta-LK-SaranyaNeural`. The verdict
+was *"emma is good saranya is not good"*, so `emma` is the female default and `saranya` was
+dropped from the audition set (she stays catalogued and unpaired). The rejected voices remain in
+the catalogue deliberately — rejecting a timbre answers "not this one", not "no women" — and a
+test (`test_both_genders_ship`) fails if a catalogue edit ever removes every female pair.
+
+Observed while auditioning: `en-GB-AdaMultilingualNeural` appears in the live
+`--list-voices` output but every synthesis returns `NoAudioReceived` on the free endpoint. The
+pinned-ids test only checks existence, so a listed-but-unserved voice is a real failure mode —
+recorded here rather than silently skipped.
+
+**Why one voice, and not two well-matched ones.** Two locale-locked neural voices are two
+different people, whatever their gender and accent. `ta-IN-PallaviNeural` + `en-IN-NeerjaNeural`
+share a gender and a country and still sounded like a narrator swap inside one sentence — the
+2026-10-27 listening gate named it directly ("pair tamil and english voice are spoken with
+different voice"). Nothing in the pipeline can hide that, because the switch *is* the defect.
+So the catalogue makes it unrepresentable: `validate_pair` rejects a second voice whenever the
+Tamil voice can already read English (`mixes_english`, or a multilingual model whose
+`languages` include `en`). A second voice survives only for Piper, where the Tamil model
+genuinely cannot speak English.
+
+Implemented in `services/media/app/voices.py` (12 voices, 7 pairs, `resolve_pair()` /
 `voice_for_lang()`), because voice ids are engine knowledge, not pipeline logic:
 
-- A pair is validated on load: Tamil voice really speaks `ta`, English voice really speaks `en`,
-  both come from the same engine and have the same gender and word-timing capability. A
-  hand-built `{ ta: Pallavi, en: Prabhat }` is rejected, not quietly degraded.
-- A bare engine voice id is **not** accepted as a `voiceId`: one edge voice cannot serve both
-  languages, so accepting it would hide the second-language choice.
+- A pair is validated on load: the Tamil side really speaks `ta`; a second voice must really
+  speak `en` and come from the same engine with the same gender and word-timing capability;
+  a single-voice pair must be a voice that can read English.
+- A hand-built `{ ta: Pallavi, en: Prabhat }` or `{ ta: Pallavi, en: Neerja }` is **rejected**
+  with "would make one sentence switch speakers", not quietly accepted. `{ ta: piper-ta,
+  en: piper-ta }` is rejected too, because that voice cannot read English.
+- A bare engine voice id (`voiceId: "ta-IN-ValluvarNeural"`) is still not accepted: it cannot
+  say which speaker was chosen, and the pair is what carries that decision.
 - `ta-LK-SaranyaNeural` and `ta-LK-KumarNeural` are catalogued but deliberately unpaired — a Sri
   Lankan Tamil accent under an Indian English sentence is exactly the mismatch this table exists
   to prevent. Add a `ta-LK + en-LK` pair only when an `en-LK` voice ships.
+- The `en-IN-NeerjaNeural` / `en-IN-PrabhatNeural` voices stay in the catalogue but are paired
+  with nothing: they are the second speaker the rule above forbids.
+- Ava/Andrew are multilingual models; Microsoft documents `ta-IN` as supported for
+  `*MultilingualNeural`, and the measured pacing is consistent across both languages (6.2 s of
+  Tamil where native Valluvar takes ~6.5 s), but Tamil is a secondary language of the model, so
+  their Tamil is an accent risk that only listening can settle.
 - Ids are pinned and snapshotted in `test_voices.py`. `test_live_voices.py` (`RUN_LIVE=1`)
   re-checks them against `edge-tts --list-voices`, because Microsoft adds and removes voices
   without notice; a vanished voice must fail the build, not a render.
-- Verified live on 2026-10-26: the four `ta-IN`/`ta-LK` voices and both `en-IN` voices above
-  exist, plus `en-IN-NeerjaExpressiveNeural` (catalogued later if we want a warmer default).
+- Verified live on 2026-10-26: the four `ta-IN`/`ta-LK` voices, both `en-IN` voices and the
+  `*MultilingualNeural` ids above exist; `en-IN-NeerjaExpressiveNeural` also exists and is
+  catalogued later if we want a warmer default.
 
 > Test transport note: starlette ≥ 1 renamed the TestClient dependency to `httpx2`.
 > `requirements-dev.txt` pins `httpx2`, not the old `httpx`; on Python 3.14 the old pin makes
@@ -417,7 +471,8 @@ test_live_tts.py
 
 ### 5.4 Listening gate — human, required before phase close
 
-`npm run sample:tts` writes six clips to `samples/tts/`:
+`npm run sample:tts` writes six clips to `samples/tts/`; adding `TTS_OUT_DIR` writes a second set
+alongside instead of overwriting that one (the female line lives in `samples/tts/female/`):
 
 ```
 01-tamil-pure.mp3      04-mixed-one-sentence.mp3
@@ -428,6 +483,81 @@ test_live_tts.py
 I listen to all six. Phase P1 is **not done** until each one passes: "does it sound like one
 person, in the right language, without a seam?" That is the acceptance test that no assertion
 can replace — but the assertions above make sure we get there without manual rework every time.
+Both approved sets are heard: `samples/tts/` (male, `valluvar`) and `samples/tts/female/`
+(female, `emma`).
+
+**Run 1 — 2026-10-27 — failed.** Verdict: *"Tamil speech is not good, needs improvement, sounds
+unnatural, words are separated."* The English and the mix were not what failed; the Tamil
+delivery did. Per §3.4 the pauses were inside edge-tts's Tamil output, not created by the
+stitcher, so the fix is prosody, not a stitch setting.
+
+**Fix 1 — pauses (implemented, step 3 above).** Five prototypes isolated the levers before any
+code changed (`samples/tts/prosody/`, gitignored): the shipped master, `rate=+12%`, a pause
+compression, the male voice, and a `ta-LK` voice. The verdict named gaps *and* timbre, so pause
+compression was implemented with tests (`test_pauses.py`, four new `test_stitch.py` cases) and
+`rate` was left alone until the gaps are judged by ear:
+
+| | before | after |
+|---|---|---|
+| `01-tamil-pure.mp3` | 10.34 s, 117 wpm | 9.99 s, 120 wpm |
+| word gaps inside a run | 13 × 65–175 ms | 11 × 50 ms |
+| silence share of the clip | 21.3% | 18.5% (the rest is the 949 ms sentence pause + a 345 ms clause pause) |
+| sentence/clause pauses | untouched | untouched |
+
+**Fix 2 — timbre and the speaker switch (decided by ear 2026-10-27).** Two voices were compared
+through the new pipeline, then five assignments on the mixed paragraph alone (two-speaker pair,
+one Tamil voice, one multilingual voice — male and female for each). The verdict:
+
+> "all male voice are good but female voice is not good both ava, pallavi and pair tamil and
+> english voice are speck with different voice."
+
+So: **any** two-voice pair is out — the switch itself is what he heard, even when the pair shared
+a gender and an accent. Both male single-voice options (native Valluvar, multilingual Andrew) were
+accepted; Valluvar is the default because Tamil is the primary language of the channel and the
+model is native `ta-IN`. The rejected configuration is now impossible to express (§3.5), not
+merely unused.
+
+The female line then got a second audition on clips 01/02/03 — `en-US-EmmaMultilingualNeural` and
+`ta-LK-SaranyaNeural`, both one speaker for both languages:
+
+> "emma is good saranya is not good"
+
+`emma` is therefore the female default (`TTS_PAIR=emma`), `saranya` is dropped from the audition
+set but stays catalogued and unpaired, and `pallavi`/`ava` remain as the rejected timbres.
+
+Male set, `npm run sample:tts` with `valluvar` (one voice for both languages) → `samples/tts/`:
+
+| Clip | Duration | Runs | Words |
+|---|---|---|---|
+| `01-tamil-pure.mp3` | 9.90 s | 1 | 20 |
+| `02-english-pure.mp3` | 8.83 s | 1 | 24 |
+| `03-mixed-paragraph.mp3` | 14.85 s | 5 | 35 |
+| `04-mixed-one-sentence.mp3` | 6.80 s | 5 | 14 |
+| `05-tanglish.mp3` | 3.58 s | 2 | 9 |
+| `06-numbers-dates.mp3` | 15.54 s | 4 | 36 |
+
+Female set, `TTS_PAIR=emma TTS_OUT_DIR=samples/tts/female npm run sample:tts` → `samples/tts/female/`:
+
+| Clip | Duration | Runs | Words |
+|---|---|---|---|
+| `01-tamil-pure.mp3` | 9.39 s | 1 | 20 |
+| `02-english-pure.mp3` | 7.92 s | 1 | 24 |
+| `03-mixed-paragraph.mp3` | 14.37 s | 5 | 36 |
+| `04-mixed-one-sentence.mp3` | 7.01 s | 5 | 14 |
+| `05-tanglish.mp3` | 4.12 s | 2 | 9 |
+| `06-numbers-dates.mp3` | 15.64 s | 4 | 36 |
+
+Measured on all twelve: one unique voice per clip (no speaker change at any boundary), −16.26…
+−16.47 LUFS, true peak ≤ −1.78 dBTP, every `master.wav` exactly `total_duration_ms × 48` frames at
+48 kHz mono 16-bit, `spans + gaps = total`, every word inside its run, and the word-pause
+compression still holds (female clip 01: 12 short pauses, 17.6% silence).
+
+`TTS_OUT_DIR` exists so the two approved sets cannot destroy each other: regenerating one never
+overwrites the listening-gate evidence for the other.
+
+If a timbre is later rejected, the limit is the free provider rather than the pipeline, and the
+choice becomes a paid voice (Azure/ElevenLabs, whose `*IndicNeural` voices can read both languages
+as one speaker) or a GPU model (IndicF5) — a product decision, not a tuning one.
 
 ### 5.5 Regression protection
 
@@ -490,10 +620,10 @@ Public API parity (`/v1/text-to-speech`) stays vsub-shaped: `{text, voiceId, voi
 | 7.1 | lexicon file + loader + morphology heuristic | ✅ unit tests green (47 total) |
 | 7.2 | transliteration table + dictionary + rules | ✅ 428 pinned pairs, 68 tests |
 | 7.3 | number/date/unit expansion (ta/en) | ✅ 103 tests |
-| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 6 gate clips at −16.28…−16.46 LUFS, TP ≤ −1.79 dBTP, frame-exact |
-| 7.5 | voice catalogue + pairing + capability tags | ✅ 9 voices, 4 pairs, live-id test |
+| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 6 gate clips at −16.26…−16.47 LUFS, TP ≤ −1.78 dBTP, frame-exact |
+| 7.5 | voice catalogue + pairing + capability tags | ✅ 12 voices, 7 pairs, one speaker per pair, both genders, live-id test |
 | 7.6 | IndicF5 adapter | A/B vs edge on the 6 samples |
 | 7.7 | forced alignment fallback (ASR) for engines without timings | timing accuracy ≤ 40 ms |
-| 7.8 | listening gate | **I approve all 6 clips** |
+| 7.8 | listening gate | **I approve all 12 clips** (voices chosen by ear 2026-10-27: `valluvar` male, `emma` female; the rendered sets still need the final listen) |
 
 Only after 7.8 do we touch pictures.

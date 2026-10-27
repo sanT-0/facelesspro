@@ -3,10 +3,14 @@ import { buildNarrationPlan, planToSegments } from './plan';
 import type { NarrationPlanOptions } from './plan';
 import { expandNumbersSpanned } from './numbers';
 
+// Core routes each run to the voice of its language and does not validate pairs;
+// the media service is what rejects a two-speaker pair. This fixture therefore
+// keeps a deliberately generic mapping, and the one-speaker case is covered by
+// the "one speaker for both languages" block below.
 const VOICES: NarrationPlanOptions = {
   ta: 'ta-IN-PallaviNeural',
   en: 'en-IN-NeerjaNeural',
-  pair: 'pallavi-neerja',
+  pair: 'routing-fixture',
 };
 
 const LATIN = /[A-Za-z]/u;
@@ -38,7 +42,7 @@ describe('buildNarrationPlan — voice routing', () => {
 
   it('keeps the pair id and the original script', () => {
     const plan = buildNarrationPlan('hello', VOICES);
-    expect(plan.pair).toBe('pallavi-neerja');
+    expect(plan.pair).toBe('routing-fixture');
     expect(plan.script).toBe('hello');
   });
 
@@ -139,6 +143,30 @@ describe('buildNarrationPlan — Tanglish', () => {
     }
     expect(plan.runs.some((run) => run.lang === 'en')).toBe(true);
     expect(plan.spokenText).not.toMatch(/\bvanakkam\b/u);
+  });
+});
+
+describe('buildNarrationPlan — one speaker for both languages', () => {
+  // The media service now refuses to pair a Tamil voice that reads English with
+  // a second English voice: a listener hears two people. The plan therefore has
+  // to carry one voice id across the switch, with the language of each run still
+  // tracked for numbers, transliteration and gaps.
+  const ONE_SPEAKER: NarrationPlanOptions = {
+    ta: 'ta-IN-ValluvarNeural',
+    en: 'ta-IN-ValluvarNeural',
+    pair: 'valluvar',
+  };
+
+  it('keeps every run on one voice while still splitting languages', () => {
+    const plan = buildNarrationPlan(
+      'இன்று நாம் budget planning பண்ணுவோம். today we talk about money.',
+      ONE_SPEAKER,
+    );
+
+    expect(new Set(plan.runs.map((run) => run.voice)).size).toBe(1);
+    expect(plan.runs.some((run) => run.lang === 'ta')).toBe(true);
+    expect(plan.runs.some((run) => run.lang === 'en')).toBe(true);
+    expect(plan.pair).toBe('valluvar');
   });
 });
 

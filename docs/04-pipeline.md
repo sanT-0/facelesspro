@@ -94,8 +94,10 @@ voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
    text *after* transliteration and number expansion — so a retry, or an unchanged scene in a new
    video, costs ffmpeg time instead of a network call. Implemented in
    `services/media/app/cache.py`; see [05 §3.7](./05-tts-tamil-mixed.md).
-3. Trim silence, insert calibrated gap (`120–200 ms`, proportional to punctuation), match
-   loudness run-to-run (`loudnorm` two-pass), then concatenate.
+3. Trim silence, compress the provider's *internal* word pauses (60–250 ms → 50 ms), insert a
+   calibrated gap (`120–200 ms`, proportional to punctuation), match loudness run-to-run
+   (`loudnorm` two-pass), then concatenate. The internal-pause step is what stops edge-tts's
+   Tamil voice from sounding word-by-word; [05 §3.4](./05-tts-tamil-mixed.md) has the numbers.
 4. Word timings: engine-provided (`WordBoundary`) with a global offset per run; if missing,
    forced-align with ASR. Store `start_ms`/`end_ms` per word, plus per-scene ranges.
 5. Probed duration corrects the planner's estimate → scene durations are **re-derived** from

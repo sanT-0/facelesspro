@@ -41,6 +41,55 @@ def make_tone_wav(
     return buffer.getvalue()
 
 
+def make_gapped_wav(
+    *,
+    burst_ms: int = 300,
+    pauses_ms: tuple[int, ...] = (150,),
+    lead_ms: int = 150,
+    tail_ms: int = 150,
+    freq: int = 320,
+    sample_rate: int = 48_000,
+) -> bytes:
+    """Tone bursts separated by real silence, at 48 kHz mono.
+
+    This is the shape edge-tts's Tamil voice produces *inside* one run: words
+    separated by 60-150 ms of silence that no run-level gap setting can reach.
+    `len(pauses_ms) + 1` bursts, so the file starts and ends with speech.
+    """
+    bursts = len(pauses_ms) + 1
+    total_ms = lead_ms + bursts * burst_ms + sum(pauses_ms) + tail_ms
+    total = round(total_ms * sample_rate / 1000)
+    samples = array("h", [0]) * total
+
+    cursor = round(lead_ms * sample_rate / 1000)
+    ramp = max(1, round(0.005 * sample_rate))  # 5 ms, so a burst has no step
+    for index in range(bursts):
+        length = round(burst_ms * sample_rate / 1000)
+        for offset in range(length):
+            phase = 2 * math.pi * freq * offset / sample_rate
+            # A short ramp only at the edges: the level is full inside the
+            # burst, so ffmpeg's silence detector sees the nominal pause length
+            # rather than a slow fade.
+            if offset < ramp:
+                envelope = offset / ramp
+            elif offset >= length - ramp:
+                envelope = (length - 1 - offset) / ramp
+            else:
+                envelope = 1.0
+            samples[cursor + offset] = int(12_000 * envelope * math.sin(phase))
+        cursor += length
+        if index < len(pauses_ms):
+            cursor += round(pauses_ms[index] * sample_rate / 1000)
+
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as handle:
+        handle.setnchannels(1)
+        handle.setsampwidth(2)
+        handle.setframerate(sample_rate)
+        handle.writeframes(samples.tobytes())
+    return buffer.getvalue()
+
+
 def make_peaky_wav(
     duration_ms: int = 1200,
     *,
@@ -113,6 +162,11 @@ def measure_loudness(path: Path) -> tuple[float, float]:
 @pytest.fixture
 def tone_wav() -> Callable[..., bytes]:
     return make_tone_wav
+
+
+@pytest.fixture
+def gapped_wav() -> Callable[..., bytes]:
+    return make_gapped_wav
 
 
 @pytest.fixture

@@ -35,6 +35,18 @@ LIMITER_MARGIN_DB = 0.1
 LIMITER_ATTACK_MS = 5.0
 LIMITER_RELEASE_MS = 50.0
 
+# Provider-internal pauses. edge-tts's Tamil voice leaves 60-150 ms of silence
+# between words inside one run; at ~117 wpm that reads as word-by-word delivery
+# (measured on the listening-gate clip: 14 pauses in 10.3 s, 2.6 s in total).
+# Cutting those to 2 x 25 ms is the fix; `keep_ms` is the guard that stops the
+# splice from touching a consonant onset.
+PAUSE_THRESHOLD_DB = -35
+PAUSE_MIN_MS = 60
+PAUSE_MAX_MS = 250
+PAUSE_KEEP_MS = 25
+# A silence this close to a file edge belongs to the leading/trailing trim.
+EDGE_WINDOW_MS = 20
+
 FFMPEG = "ffmpeg"
 FFPROBE = "ffprobe"
 
@@ -145,6 +157,117 @@ def detect_silence(path: Path, *, threshold_db: int = TRIM_THRESHOLD_DB) -> tupl
     lead = max(0, min(lead, duration_ms))
     tail = max(0, min(tail, duration_ms - lead))
     return lead, tail
+
+
+@dataclass(frozen=True, slots=True)
+class PauseCut:
+    """A slice removed from *inside* a run, in milliseconds of the cut file."""
+
+    start_ms: int
+    end_ms: int
+
+    @property
+    def removed_ms(self) -> int:
+        return self.end_ms - self.start_ms
+
+
+def detect_silence_intervals(
+    path: Path,
+    *,
+    threshold_db: float = PAUSE_THRESHOLD_DB,
+    min_ms: int = PAUSE_MIN_MS,
+) -> list[tuple[int, int]]:
+    """Silence *inside* the file, in ms. Leading and trailing silence excluded.
+
+    The edges are excluded because trimming owns them; this exists only for the
+    pauses a provider leaves between words, which the run-level trim cannot see.
+    """
+    duration_ms = probe_duration_ms(path)
+    if duration_ms <= 0:
+        return []
+
+    log = _stderr(
+        [
+            FFMPEG,
+            "-hide_banner",
+            "-nostdin",
+            "-v",
+            "info",
+            "-i",
+            str(path),
+            "-af",
+            f"silencedetect=noise={threshold_db}dB:d={min_ms / 1000:.3f}",
+            "-f",
+            "null",
+            "-",
+        ]
+    )
+    starts = [float(value) * 1000 for value in _SILENCE_START.findall(log)]
+    ends = [float(value) * 1000 for value in _SILENCE_END.findall(log)]
+
+    intervals: list[tuple[int, int]] = []
+    for start, end in zip(starts, ends, strict=False):
+        # A window that touches either edge is the trim's business, and a
+        # zero-length one cannot be cut without inventing frames.
+        if start <= EDGE_WINDOW_MS or end >= duration_ms - EDGE_WINDOW_MS:
+            continue
+        if end - start >= min_ms:
+            intervals.append((round(start), round(end)))
+    return intervals
+
+
+def compress_pauses(
+    path: Path,
+    *,
+    threshold_db: float = PAUSE_THRESHOLD_DB,
+    min_ms: int = PAUSE_MIN_MS,
+    max_ms: int = PAUSE_MAX_MS,
+    keep_ms: int = PAUSE_KEEP_MS,
+) -> tuple[list[PauseCut], int]:
+    """Shorten provider-internal pauses in place; return the cuts and the frames.
+
+    Every silence in `[min_ms, max_ms]` is reduced to `2 * keep_ms`, keeping
+    `keep_ms` at each side so a consonant's onset is never clipped. Longer
+    silences are left alone: inside a run they are sentence breaks, and the
+    listener needs those. The PCM outside a cut is copied verbatim, so the only
+    claim this makes is "silence is shorter", not "audio is better".
+
+    Returns the removed intervals in the coordinates of the file *before* the
+    cut, which is what lets `Stitcher` move word timings by exactly as much as
+    the audio moved.
+    """
+    intervals = detect_silence_intervals(
+        path, threshold_db=threshold_db, min_ms=min_ms
+    )
+    cuts: list[PauseCut] = []
+    for start_ms, end_ms in intervals:
+        if end_ms - start_ms > max_ms:
+            continue
+        start_frame = ms_to_frames(start_ms + keep_ms)
+        end_frame = ms_to_frames(end_ms - keep_ms)
+        if end_frame <= start_frame:
+            continue
+        cuts.append(
+            PauseCut(
+                start_ms=frames_to_ms(start_frame),
+                end_ms=frames_to_ms(end_frame),
+            )
+        )
+
+    if not cuts:
+        return [], len(read_wav(path))
+
+    samples = read_wav(path)
+    kept: array = array("h")
+    cursor = 0
+    for cut in cuts:
+        start_frame = ms_to_frames(cut.start_ms)
+        end_frame = ms_to_frames(cut.end_ms)
+        kept.extend(samples[cursor:start_frame])
+        cursor = end_frame
+    kept.extend(samples[cursor:])
+    write_wav(path, kept)
+    return cuts, len(kept)
 
 
 def _loudnorm_measurement(filter_chain: str, path: Path) -> dict[str, str] | None:

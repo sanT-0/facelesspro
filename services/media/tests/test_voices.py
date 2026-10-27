@@ -32,9 +32,12 @@ EDGE_VOICE_IDS = {
     "ta-LK-KumarNeural",
     "en-IN-NeerjaNeural",
     "en-IN-PrabhatNeural",
+    "en-US-AvaMultilingualNeural",
+    "en-US-AndrewMultilingualNeural",
+    "en-US-EmmaMultilingualNeural",
 }
 
-PAIR_IDS = {"pallavi-neerja", "valluvar-prabhat", "indicf5-ta", "piper-offline"}
+PAIR_IDS = {"valluvar", "pallavi", "andrew", "ava", "emma", "indicf5-ta", "piper-offline"}
 
 
 def test_ids_are_pinned_so_a_removal_is_a_deliberate_edit() -> None:
@@ -53,12 +56,17 @@ def test_every_voice_is_well_formed() -> None:
         assert voice.label, voice.id
 
 
-def test_edge_voices_are_single_language_and_report_word_boundaries() -> None:
+def test_edge_voices_declare_the_languages_they_can_read() -> None:
     for voice in CATALOGUE.values():
         if voice.engine != "edge":
             continue
-        assert len(voice.languages) == 1, voice.id
         assert voice.word_timings is True, voice.id
+        if len(voice.languages) == 1:
+            # Locale-locked voices: the locale is the language.
+            assert voice.locale.split("-")[0] == voice.languages[0], voice.id
+        else:
+            # A multilingual model is the only edge voice that spans languages.
+            assert "MultilingualNeural" in voice.id, voice.id
 
 
 def test_every_pair_validates() -> None:
@@ -66,30 +74,81 @@ def test_every_pair_validates() -> None:
         validate_pair(pair)
 
 
-def test_pairs_keep_one_speaker_across_languages() -> None:
+def test_a_pair_never_switches_speaker_mid_sentence() -> None:
+    """The rule the 2026-10-27 listening gate produced.
+
+    Two locale-locked voices are two different people, no matter how well the
+    gender and accent are matched; a listener hears the switch. So a pair may
+    only use a second voice when the first one cannot speak English at all.
+    """
     for pair in PAIRS.values():
         ta = get_voice(pair.ta)
         en = get_voice(pair.en)
         assert ta.gender == en.gender, pair.id
         assert "ta" in ta.languages, pair.id
-        assert "en" in en.languages, pair.id
+        assert en.mixes_english or "en" in en.languages, pair.id
+        if pair.ta != pair.en:
+            assert not ta.mixes_english, pair.id
+            assert "en" not in ta.languages, pair.id
 
 
-def test_default_pair_is_the_documented_one() -> None:
-    assert DEFAULT_PAIR_ID == "pallavi-neerja"
-    assert resolve_pair() == get_pair("pallavi-neerja")
-    assert resolve_pair(None) == get_pair("pallavi-neerja")
+def test_default_pair_is_one_male_speaker() -> None:
+    assert DEFAULT_PAIR_ID == "valluvar"
+    pair = resolve_pair()
+    assert pair == resolve_pair(None) == get_pair("valluvar")
+    assert pair.ta == pair.en == "ta-IN-ValluvarNeural"
+    assert get_voice(pair.ta).gender == "male"
+
+
+def test_emma_is_the_approved_female_speaker() -> None:
+    """Chosen by ear on 2026-10-27, after pallavi/ava/saranya were rejected.
+
+    She is the female line of the product, not a variant of the male default:
+    one multilingual voice that reads both languages, so a channel can narrate
+    with a woman without reintroducing the narrator switch.
+    """
+    pair = get_pair("emma")
+    assert pair.ta == pair.en == "en-US-EmmaMultilingualNeural"
+    voice = get_voice(pair.ta)
+    assert voice.gender == "female"
+    assert {"ta", "en"} <= set(voice.languages)
+    validate_pair(pair)
+    assert voice_for_lang(pair, "ta") == voice_for_lang(pair, "en") == pair.ta
+
+
+def test_both_genders_ship() -> None:
+    # A female narrator is a product requirement, so a catalogue edit that
+    # silently drops every female pair must fail here, not in a render.
+    genders = {get_voice(pair.ta).gender for pair in PAIRS.values()}
+    assert {"male", "female"} <= genders
 
 
 def test_resolve_by_pair_id_and_explicit_mapping() -> None:
-    assert resolve_pair("valluvar-prabhat").ta == "ta-IN-ValluvarNeural"
+    assert resolve_pair("andrew").ta == "en-US-AndrewMultilingualNeural"
 
     resolved = resolve_pair(
-        {"ta": "ta-IN-PallaviNeural", "en": "en-IN-NeerjaNeural"}
+        {"ta": "ta-IN-ValluvarNeural", "en": "ta-IN-ValluvarNeural"}
     )
-    assert resolved.ta == "ta-IN-PallaviNeural"
-    assert resolved.en == "en-IN-NeerjaNeural"
+    assert resolved.ta == resolved.en == "ta-IN-ValluvarNeural"
     validate_pair(resolved)
+
+
+def test_two_voices_are_rejected_when_one_voice_could_speak_both() -> None:
+    """The female pair and the male pair the user rejected by ear.
+
+    Both Tamil voices read English already, so the English half is a second
+    person speaking the same sentence. This is what made clip 03 sound like a
+    dialogue, so it must be unreachable through the selector.
+    """
+    for ta, en in (
+        ("ta-IN-PallaviNeural", "en-IN-NeerjaNeural"),
+        ("ta-IN-ValluvarNeural", "en-IN-PrabhatNeural"),
+    ):
+        with pytest.raises(PairMismatchError, match="switch speakers"):
+            resolve_pair({"ta": ta, "en": en})
+
+        with pytest.raises(PairMismatchError, match="switch speakers"):
+            validate_pair(VoicePair(id="x", ta=ta, en=en, notes=""))
 
 
 def test_sri_lankan_voices_are_catalogued_but_unpaired() -> None:
@@ -118,9 +177,7 @@ def test_explicit_selector_must_name_both_languages() -> None:
 
 def test_explicit_selector_rejects_extra_keys_and_unknown_voices() -> None:
     with pytest.raises(InvalidSelectorError):
-        resolve_pair(
-            {"ta": "ta-IN-PallaviNeural", "en": "en-IN-NeerjaNeural", "hi": "x"}
-        )
+        resolve_pair({"ta": "ta-IN-PallaviNeural", "en": "en-IN-NeerjaNeural", "hi": "x"})
     with pytest.raises(UnknownVoiceError):
         resolve_pair({"ta": "ta-IN-Nobody", "en": "en-IN-NeerjaNeural"})
 
@@ -130,8 +187,9 @@ def test_gender_mismatch_is_not_silent() -> None:
         resolve_pair({"ta": "ta-IN-PallaviNeural", "en": "en-IN-PrabhatNeural"})
 
 
-def test_language_mismatch_is_not_silent() -> None:
-    with pytest.raises(PairMismatchError):
+def test_a_tamil_voice_is_not_an_english_half() -> None:
+    # Two Tamil voices: the second one cannot be the English side at all.
+    with pytest.raises(PairMismatchError, match="not an English voice"):
         resolve_pair({"ta": "ta-IN-PallaviNeural", "en": "ta-IN-ValluvarNeural"})
 
 
@@ -145,11 +203,18 @@ def test_unknown_voice_lookup() -> None:
         get_voice("ta-IN-Nobody")
 
 
-def test_pair_of_one_voice_is_only_allowed_when_it_covers_both() -> None:
+def test_single_voice_pair_needs_a_voice_that_can_speak_both() -> None:
+    """Piper's Tamil model has no English, so it cannot be both halves."""
+    with pytest.raises(PairMismatchError, match="cannot speak English"):
+        resolve_pair({"ta": "piper-ta", "en": "piper-ta"})
+
+
+def test_single_voice_pairs_cover_both_languages() -> None:
     for pair in PAIRS.values():
-        if pair.ta == pair.en:
-            voice = get_voice(pair.ta)
-            assert {"ta", "en"} <= set(voice.languages), pair.id
+        if pair.ta != pair.en:
+            continue
+        voice = get_voice(pair.ta)
+        assert voice.mixes_english or {"ta", "en"} <= set(voice.languages), pair.id
 
 
 def test_catalogue_is_json_ready() -> None:
@@ -158,14 +223,17 @@ def test_catalogue_is_json_ready() -> None:
 
     assert len(round_tripped["voices"]) == len(CATALOGUE)
     assert len(round_tripped["pairs"]) == len(PAIRS)
-    assert round_tripped["pairs"][0]["id"] == "pallavi-neerja"
+    assert round_tripped["pairs"][0]["id"] == "valluvar"
     assert isinstance(voice_dict(get_voice("indicf5-ta"))["languages"], list)
 
 
 def test_documented_pairs_match_the_table_in_docs_05() -> None:
     expected = {
-        "pallavi-neerja": ("ta-IN-PallaviNeural", "en-IN-NeerjaNeural"),
-        "valluvar-prabhat": ("ta-IN-ValluvarNeural", "en-IN-PrabhatNeural"),
+        "valluvar": ("ta-IN-ValluvarNeural", "ta-IN-ValluvarNeural"),
+        "pallavi": ("ta-IN-PallaviNeural", "ta-IN-PallaviNeural"),
+        "andrew": ("en-US-AndrewMultilingualNeural", "en-US-AndrewMultilingualNeural"),
+        "ava": ("en-US-AvaMultilingualNeural", "en-US-AvaMultilingualNeural"),
+        "emma": ("en-US-EmmaMultilingualNeural", "en-US-EmmaMultilingualNeural"),
         "indicf5-ta": ("indicf5-ta", "indicf5-ta"),
         "piper-offline": ("piper-ta", "piper-en"),
     }
@@ -190,18 +258,18 @@ def test_voices_endpoint_exposes_the_catalogue(tmp_path) -> None:
 def test_voice_pair_endpoint_resolves_and_rejects(tmp_path) -> None:
     client = TestClient(create_app(data_dir=tmp_path))
 
-    body = client.get("/voices/pallavi-neerja").json()
-    assert body["ta"] == "ta-IN-PallaviNeural"
-    assert body["en"] == "en-IN-NeerjaNeural"
+    body = client.get("/voices/valluvar").json()
+    assert body["ta"] == "ta-IN-ValluvarNeural"
+    assert body["en"] == "ta-IN-ValluvarNeural"
 
     assert client.get("/voices/nobody-nowhere").status_code == 404
     assert client.get("/voices/ta-IN-PallaviNeural").status_code == 422
 
 
-def test_voice_for_lang_routes_each_run_to_its_half_of_the_pair() -> None:
-    pair = resolve_pair("pallavi-neerja")
-    assert voice_for_lang(pair, "ta") == "ta-IN-PallaviNeural"
-    assert voice_for_lang(pair, "en") == "en-IN-NeerjaNeural"
+def test_voice_for_lang_returns_the_one_speaker_for_both_languages() -> None:
+    pair = resolve_pair("valluvar")
+    assert voice_for_lang(pair, "ta") == "ta-IN-ValluvarNeural"
+    assert voice_for_lang(pair, "en") == "ta-IN-ValluvarNeural"
 
     with pytest.raises(InvalidSelectorError):
         voice_for_lang(pair, "hi")

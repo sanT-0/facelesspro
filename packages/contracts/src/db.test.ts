@@ -173,12 +173,12 @@ describe('database rows', () => {
             {
               text: 'வணக்கம்',
               lang: 'ta',
-              voice: 'ta-IN-PallaviNeural',
+              voice: 'ta-IN-ValluvarNeural',
               script: 'tanglish',
             },
           ],
           overrides: [],
-          pair: 'pallavi-neerja',
+          pair: 'valluvar',
         },
       }).word_timings,
     ).toHaveLength(1);

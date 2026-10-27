@@ -18,6 +18,7 @@ from .config import (
     TTS_CACHE_ENABLED,
     TTS_CACHE_MAX_MB,
     TTS_DIR,
+    TTS_PAUSE_COMPRESSION,
 )
 from .models import (
     SegmentResult,
@@ -138,7 +139,7 @@ def create_app(
         output_dir = Path(app.state.data_dir) / request_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        stitcher = Stitcher()
+        stitcher = Stitcher(pause_compression=TTS_PAUSE_COMPRESSION)
         runs = []
         gaps_ms: list[int] = []
         boundaries: list[str] = []

@@ -238,14 +238,14 @@ describe('media service contract', () => {
       script: 'vanakkam machan',
       spokenText: 'வணக்கம் machan',
       runs: [
-        { text: 'வணக்கம்', lang: 'ta', voice: 'ta-IN-PallaviNeural', script: 'tanglish' },
-        { text: 'machan', lang: 'en', voice: 'en-IN-NeerjaNeural', script: 'latin' },
+        { text: 'வணக்கம்', lang: 'ta', voice: 'ta-IN-ValluvarNeural', script: 'tanglish' },
+        { text: 'machan', lang: 'en', voice: 'ta-IN-ValluvarNeural', script: 'latin' },
       ],
       overrides: [],
-      pair: 'pallavi-neerja',
+      pair: 'valluvar',
     });
 
     expect(plan.runs.map((run) => run.lang)).toEqual(['ta', 'en']);
-    expect(plan.pair).toBe('pallavi-neerja');
+    expect(plan.pair).toBe('valluvar');
   });
 });

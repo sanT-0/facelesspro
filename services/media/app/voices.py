@@ -1,9 +1,13 @@
 """Voice catalogue and pairing.
 
-A "pair" is the smallest thing the pipeline asks for: one Tamil voice and one
-English voice that sound like the same person. Mixing a female Tamil voice with
-a male English voice is the classic way a bilingual video stops sounding human,
-so pairs are curated here and validated, never assembled by guessing.
+A "pair" is the smallest thing the pipeline asks for, and it is **one speaker**
+who reads both languages — `{ta: X, en: X}`. Two locale-locked voices are two
+different people: the 2026-10-27 listening gate rejected exactly that, because a
+mixed Tamil/English paragraph audibly changed narrator mid-sentence. Gender and
+accent matching cannot fix it, so `validate_pair` now rejects a second voice
+whenever the Tamil voice can read English itself (`mixes_english` or a
+multilingual model). A second voice survives only where the first one genuinely
+cannot speak English (Piper).
 
 Voice ids are engine-specific and Microsoft adds/removes voices without notice.
 They are therefore pinned in one place, snapshotted by `test_voices.py`, and
@@ -128,6 +132,43 @@ _VOICES: tuple[Voice, ...] = (
         word_timings=True,
         label="Kumar (Tamil, Sri Lanka)",
     ),
+    # Multilingual models: one speaker for every supported language, Tamil
+    # included (Azure documents ta-IN for `*MultilingualNeural`). This is the
+    # only way to get a second-language speaker that is literally the first
+    # speaker, so these are the natural "one voice for both" pairs.
+    Voice(
+        id="en-US-AndrewMultilingualNeural",
+        engine="edge",
+        locale="en-US",
+        languages=("en", "ta"),
+        gender="male",
+        mixes_english=True,
+        word_timings=True,
+        label="Andrew (multilingual, male; Tamil is a secondary language)",
+    ),
+    Voice(
+        id="en-US-AvaMultilingualNeural",
+        engine="edge",
+        locale="en-US",
+        languages=("en", "ta"),
+        gender="female",
+        mixes_english=True,
+        word_timings=True,
+        label="Ava (multilingual, female; Tamil is a secondary language)",
+    ),
+    # Approved by ear 2026-10-27 as the female narrator; the Tamil voice
+    # (Pallavi) and the other multilingual female (Ava) were rejected, and
+    # Saranya's Sri Lankan accent was rejected with them.
+    Voice(
+        id="en-US-EmmaMultilingualNeural",
+        engine="edge",
+        locale="en-US",
+        languages=("en", "ta"),
+        gender="female",
+        mixes_english=True,
+        word_timings=True,
+        label="Emma (multilingual, female; approved female narrator)",
+    ),
     # IndicF5: one model covers both languages, so timbre continuity is best.
     # No word boundaries — alignment happens after synthesis (P1 stitch work).
     Voice(
@@ -168,19 +209,41 @@ CATALOGUE: dict[str, Voice] = {voice.id: voice for voice in _VOICES}
 
 
 # --- pairs -------------------------------------------------------------------
+#
+# One voice per pair is the norm; `ta == en` means "this speaker reads both".
+# A pair with two different voices is only legal when the Tamil voice cannot
+# read English at all — see `validate_pair`.
 
 _PAIRS: tuple[VoicePair, ...] = (
     VoicePair(
-        id="pallavi-neerja",
-        ta="ta-IN-PallaviNeural",
-        en="en-IN-NeerjaNeural",
-        notes="default narration; female",
+        id="valluvar",
+        ta="ta-IN-ValluvarNeural",
+        en="ta-IN-ValluvarNeural",
+        notes="default narration; one male Tamil speaker reads the English too",
     ),
     VoicePair(
-        id="valluvar-prabhat",
-        ta="ta-IN-ValluvarNeural",
-        en="en-IN-PrabhatNeural",
-        notes="male explainer",
+        id="pallavi",
+        ta="ta-IN-PallaviNeural",
+        en="ta-IN-PallaviNeural",
+        notes="female; one speaker, kept while a better female voice is auditioned",
+    ),
+    VoicePair(
+        id="andrew",
+        ta="en-US-AndrewMultilingualNeural",
+        en="en-US-AndrewMultilingualNeural",
+        notes="male multilingual model; one speaker, US-English primary",
+    ),
+    VoicePair(
+        id="emma",
+        ta="en-US-EmmaMultilingualNeural",
+        en="en-US-EmmaMultilingualNeural",
+        notes="female narration, approved by ear 2026-10-27; one speaker for both languages",
+    ),
+    VoicePair(
+        id="ava",
+        ta="en-US-AvaMultilingualNeural",
+        en="en-US-AvaMultilingualNeural",
+        notes="female multilingual model; one speaker, US-English primary",
     ),
     VoicePair(
         id="indicf5-ta",
@@ -192,13 +255,13 @@ _PAIRS: tuple[VoicePair, ...] = (
         id="piper-offline",
         ta="piper-ta",
         en="piper-en",
-        notes="zero network, lowest quality",
+        notes="zero network, lowest quality; two voices, because the Tamil model has no English",
     ),
 )
 
 PAIRS: dict[str, VoicePair] = {pair.id: pair for pair in _PAIRS}
 
-DEFAULT_PAIR_ID = "pallavi-neerja"
+DEFAULT_PAIR_ID = "valluvar"
 
 
 # --- lookup ------------------------------------------------------------------
@@ -224,6 +287,17 @@ def validate_pair(pair: VoicePair) -> None:
 
     if "ta" not in ta.languages:
         raise PairMismatchError(f"pair {pair.id!r}: {ta.id!r} is not a Tamil voice")
+
+    speaks_english = ta.mixes_english or "en" in ta.languages
+
+    if ta.id == en.id:
+        if not speaks_english:
+            raise PairMismatchError(
+                f"pair {pair.id!r}: {ta.id!r} cannot speak English, so it cannot "
+                "be both halves of the pair"
+            )
+        return
+
     if "en" not in en.languages:
         raise PairMismatchError(f"pair {pair.id!r}: {en.id!r} is not an English voice")
     if ta.engine != en.engine:
@@ -239,12 +313,23 @@ def validate_pair(pair: VoicePair) -> None:
             f"pair {pair.id!r}: only one side reports word timings"
         )
 
+    if speaks_english:
+        # The 2026-10-27 listening gate: a Tamil voice that reads English plus a
+        # separate English voice is two people, and the switch is audible even
+        # when gender and accent match. Refusing it here is the only way the
+        # rejected configuration stays unreachable.
+        raise PairMismatchError(
+            f"pair {pair.id!r}: {ta.id!r} can already speak English, so "
+            f"{en.id!r} would make one sentence switch speakers"
+        )
+
 
 def voice_for_lang(pair: VoicePair, lang: str) -> str:
     """The engine voice a pair uses for one language.
 
-    This is the only place the ta/en split happens, so a run can be routed straight
-    from the segmenter's label to a voice id without a second mapping table.
+    This is the only place the ta/en split happens. For a one-speaker pair the
+    two halves are identical, so the split resolves to the same voice id and the
+    sentence never changes narrator; only Piper's two-voice pair differs.
     """
     if lang == "ta":
         return pair.ta

@@ -36,7 +36,7 @@ names its **artifact check** — the concrete thing you can look at, listen to, 
 | `test:db` | `withStep` against live Postgres + pg-boss (`vitest.db.config.ts`) | < 30 s |
 | `pytest` | `services/media` + `services/render` | < 60 s |
 | `test:live` | opt-in `RUN_LIVE=1` (Python) / `LIVE=1` (TS), hits real providers | minutes |
-| `sample:tts` | writes the 6 listening clips | minutes |
+| `sample:tts` | writes the 6 listening clips for one voice pair (`TTS_PAIR`, `TTS_OUT_DIR`) | minutes |
 
 **Default CI runs everything except `live`, `sample:tts` and `test:db`.** Those exist for the
 human gate or need a service; a gate must pass with no database running, or a missing Postgres
@@ -158,11 +158,12 @@ against `docker compose` Postgres:
 | Test | Asserts |
 |---|---|
 | `test_synthesize.py` | real WAV fake → trimmed run per segment, `start_ms` == previous end + gap, boundary gaps from punctuation, words global/monotonic/inside run, 502 on provider failure, 422 on bad voice |
-| `test_stitch.py` | sample-exact starts and master length (48 frames/ms), head trim rebases words, words clamped inside the run, no clipping, join delta ≤ 200 (click check), assembled master inside the delivery window |
+| `test_stitch.py` | sample-exact starts and master length (48 frames/ms), head trim rebases words, words clamped inside the run, no clipping, join delta ≤ 200 (click check), assembled master inside the delivery window, internal word pause shortens the run and moves the later word by exactly the removed frames, the next word still starts where its sound starts, several pauses stay ordered, `pause_compression=False` reproduces the raw delivery |
+| `test_pauses.py` | internal pauses 60–250 ms detected, edge and sentence/long silences left alone, a pause shorter than the floor left alone, kept window configurable (2 × keep), PCM outside the cut byte-identical, frames after == before − removed, ascending non-overlapping cuts, an all-silent file is not cut to nothing |
 | `test_audio.py` | silence detection at −45 dB, 20 ms headroom, 48 kHz mono PCM, −16 ±1.5 LU, fully silent input not trimmed to nothing, program stage keeps every frame, limits only when gain alone would break the true-peak ceiling, is a no-op when already on target |
 | `test_cache.py` | key depends on engine/voice/text, audio+words round-trip exactly, half an entry is never served, corrupt entries are dropped not raised, bounded cache evicts oldest first, a failed synthesis is not cached, an unwritable cache does not fail the request, two identical requests call the engine once |
 | `test_boundaries.py` | punctuation → boundary class, documented midpoint gaps, speed scaling, invalid speed rejected |
-| `test_voices.py` | pinned ids, pair validation (language/gender/engine), explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
+| `test_voices.py` | pinned ids, one speaker per pair (a second voice is rejected when the Tamil voice can already read English), both genders ship (`valluvar` male + `emma` female), a single-voice pair must be able to read English, explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
 | `test_live_voices.py` | (LIVE=1) every pinned edge voice still exists; pairs still validate |
 | `test_segment_plan.py` | ta/en/tanglish plan matches `packages/core` fixtures (cross-language parity) — not built yet |
 | `test_live_tts.py` | (LIVE=1) mixed clip: ≥1 ta + ≥1 en run, one master file, monotonic words |
