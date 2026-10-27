@@ -156,9 +156,10 @@ _VOICES: tuple[Voice, ...] = (
         word_timings=True,
         label="Ava (multilingual, female; Tamil is a secondary language)",
     ),
-    # Approved by ear 2026-10-27 as the female narrator; the Tamil voice
-    # (Pallavi) and the other multilingual female (Ava) were rejected, and
-    # Saranya's Sri Lankan accent was rejected with them.
+    # Approved by ear 2026-10-27 on fresh text as the female narrator. Pallavi
+    # (native ta-IN) won on the product rule that Tamil is the primary language;
+    # this model passed the fixed clips but failed a sentence it had not been
+    # heard on, so it stays catalogued as an option rather than the default.
     Voice(
         id="en-US-EmmaMultilingualNeural",
         engine="edge",
@@ -167,7 +168,40 @@ _VOICES: tuple[Voice, ...] = (
         gender="female",
         mixes_english=True,
         word_timings=True,
-        label="Emma (multilingual, female; approved female narrator)",
+        label="Emma (multilingual, female; Tamil is a secondary language)",
+    ),
+    # Approved on fresh text 2026-10-27 as female options. Their primary languages
+    # are German, French and Portuguese, so Tamil is a secondary language of the
+    # model — they passed by ear, which is the only evidence that matters here.
+    Voice(
+        id="de-DE-SeraphinaMultilingualNeural",
+        engine="edge",
+        locale="de-DE",
+        languages=("en", "ta"),
+        gender="female",
+        mixes_english=True,
+        word_timings=True,
+        label="Seraphina (multilingual, female; Tamil is a secondary language)",
+    ),
+    Voice(
+        id="fr-FR-VivienneMultilingualNeural",
+        engine="edge",
+        locale="fr-FR",
+        languages=("en", "ta"),
+        gender="female",
+        mixes_english=True,
+        word_timings=True,
+        label="Vivienne (multilingual, female; Tamil is a secondary language)",
+    ),
+    Voice(
+        id="pt-BR-ThalitaMultilingualNeural",
+        engine="edge",
+        locale="pt-BR",
+        languages=("en", "ta"),
+        gender="female",
+        mixes_english=True,
+        word_timings=True,
+        label="Thalita (multilingual, female; Tamil is a secondary language)",
     ),
     # IndicF5: one model covers both languages, so timbre continuity is best.
     # No word boundaries — alignment happens after synthesis (P1 stitch work).
@@ -225,7 +259,7 @@ _PAIRS: tuple[VoicePair, ...] = (
         id="pallavi",
         ta="ta-IN-PallaviNeural",
         en="ta-IN-PallaviNeural",
-        notes="female; one speaker, kept while a better female voice is auditioned",
+        notes="female default, approved on fresh text 2026-10-27; native ta-IN, one speaker",
     ),
     VoicePair(
         id="andrew",
@@ -237,7 +271,25 @@ _PAIRS: tuple[VoicePair, ...] = (
         id="emma",
         ta="en-US-EmmaMultilingualNeural",
         en="en-US-EmmaMultilingualNeural",
-        notes="female narration, approved by ear 2026-10-27; one speaker for both languages",
+        notes="female option; passed the six fixed clips, rejected on fresh text 2026-10-27",
+    ),
+    VoicePair(
+        id="seraphina",
+        ta="de-DE-SeraphinaMultilingualNeural",
+        en="de-DE-SeraphinaMultilingualNeural",
+        notes="female option, approved on fresh text 2026-10-27; slowest of the four readers",
+    ),
+    VoicePair(
+        id="vivienne",
+        ta="fr-FR-VivienneMultilingualNeural",
+        en="fr-FR-VivienneMultilingualNeural",
+        notes="female option, approved on fresh text 2026-10-27; fastest of the four readers",
+    ),
+    VoicePair(
+        id="thalita",
+        ta="pt-BR-ThalitaMultilingualNeural",
+        en="pt-BR-ThalitaMultilingualNeural",
+        notes="female option, approved on fresh text 2026-10-27; fewest long pauses",
     ),
     VoicePair(
         id="ava",

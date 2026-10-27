@@ -36,7 +36,7 @@ names its **artifact check** — the concrete thing you can look at, listen to, 
 | `test:db` | `withStep` against live Postgres + pg-boss (`vitest.db.config.ts`) | < 30 s |
 | `pytest` | `services/media` + `services/render` | < 60 s |
 | `test:live` | opt-in `RUN_LIVE=1` (Python) / `LIVE=1` (TS), hits real providers | minutes |
-| `sample:tts` | writes the 6 listening clips for one voice pair (`TTS_PAIR`, `TTS_OUT_DIR`) | minutes |
+| `sample:tts` | writes the 7 listening clips for one voice pair into `samples/tts/<pair>/` (`TTS_PAIR`; `TTS_OUT_DIR` only for scratch) | minutes |
 
 **Default CI runs everything except `live`, `sample:tts` and `test:db`.** Those exist for the
 human gate or need a service; a gate must pass with no database running, or a missing Postgres
@@ -74,6 +74,7 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 | `timeline.test.ts` | global = run.start + word.local; gaps by boundary class; no overlaps |
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
 | `ass.test.ts` | ASS document well-formed, style ids reference real styles, font names bundled |
+| `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
 
 Property tests (fast-check) for the timing invariants: 10k random voice plans must produce a
 monotonic, gap-respecting, non-overlapping timeline.
@@ -163,7 +164,7 @@ against `docker compose` Postgres:
 | `test_audio.py` | silence detection at −45 dB, 20 ms headroom, 48 kHz mono PCM, −16 ±1.5 LU, fully silent input not trimmed to nothing, program stage keeps every frame, limits only when gain alone would break the true-peak ceiling, is a no-op when already on target |
 | `test_cache.py` | key depends on engine/voice/text, audio+words round-trip exactly, half an entry is never served, corrupt entries are dropped not raised, bounded cache evicts oldest first, a failed synthesis is not cached, an unwritable cache does not fail the request, two identical requests call the engine once |
 | `test_boundaries.py` | punctuation → boundary class, documented midpoint gaps, speed scaling, invalid speed rejected |
-| `test_voices.py` | pinned ids, one speaker per pair (a second voice is rejected when the Tamil voice can already read English), both genders ship (`valluvar` male + `emma` female), a single-voice pair must be able to read English, explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
+| `test_voices.py` | pinned ids, one speaker per pair (a second voice is rejected when the Tamil voice can already read English), both genders ship (`valluvar` male + `pallavi` female, both native ta-IN), four female voices are selectable (`pallavi`, `seraphina`, `vivienne`, `thalita`), a rejected female voice stays catalogued, a single-voice pair must be able to read English, explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
 | `test_live_voices.py` | (LIVE=1) every pinned edge voice still exists; pairs still validate |
 | `test_segment_plan.py` | ta/en/tanglish plan matches `packages/core` fixtures (cross-language parity) — not built yet |
 | `test_live_tts.py` | (LIVE=1) mixed clip: ≥1 ta + ≥1 en run, one master file, monotonic words |

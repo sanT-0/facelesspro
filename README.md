@@ -73,8 +73,9 @@ docs                everything in the table above
 | Phase | State |
 |---|---|
 | Docs & plan | ✅ done |
-| P0 foundation | ⬜ next |
-| P1 Tamil/English TTS | 🟡 segmenter + edge-tts prototype exist in repo |
+| P0 foundation | ✅ built locally; remote CI run pending a push |
+| P1 Tamil/English TTS | 🟡 one listen from done — male (`valluvar`) approved; four female voices ship (`pallavi` default, `seraphina`, `vivienne`, `thalita`), each approved on fresh text; the 01–06 clips of the four female sets are pending |
+| P2 scene planner | ⬜ next |
 
 ## Licence
 

@@ -48,3 +48,4 @@ export type {
   NarrationSegment,
   NarrationVoiceIds,
 } from './plan';
+export { SAMPLE_ROOT, sampleSetDir } from './samples';

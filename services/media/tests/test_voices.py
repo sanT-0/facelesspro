@@ -35,9 +35,23 @@ EDGE_VOICE_IDS = {
     "en-US-AvaMultilingualNeural",
     "en-US-AndrewMultilingualNeural",
     "en-US-EmmaMultilingualNeural",
+    "de-DE-SeraphinaMultilingualNeural",
+    "fr-FR-VivienneMultilingualNeural",
+    "pt-BR-ThalitaMultilingualNeural",
 }
 
-PAIR_IDS = {"valluvar", "pallavi", "andrew", "ava", "emma", "indicf5-ta", "piper-offline"}
+PAIR_IDS = {
+    "valluvar",
+    "pallavi",
+    "andrew",
+    "ava",
+    "emma",
+    "seraphina",
+    "vivienne",
+    "thalita",
+    "indicf5-ta",
+    "piper-offline",
+}
 
 
 def test_ids_are_pinned_so_a_removal_is_a_deliberate_edit() -> None:
@@ -100,20 +114,57 @@ def test_default_pair_is_one_male_speaker() -> None:
     assert get_voice(pair.ta).gender == "male"
 
 
-def test_emma_is_the_approved_female_speaker() -> None:
-    """Chosen by ear on 2026-10-27, after pallavi/ava/saranya were rejected.
+def test_pallavi_is_the_approved_female_speaker() -> None:
+    """Chosen by ear on 2026-10-27, from the *fresh* sentence, not the gate clips.
 
-    She is the female line of the product, not a variant of the male default:
-    one multilingual voice that reads both languages, so a channel can narrate
-    with a woman without reintroducing the narrator switch.
+    Emma/Ava were rejected on this text after passing the six fixed clips, and
+    Seraphina/Vivienne/Thalita passed but are not native Tamil. Pallavi won on the
+    product rule: Tamil is the channel's primary language, so the narrator's Tamil
+    is a first language, and her English carries an Indian accent like Valluvar's.
     """
-    pair = get_pair("emma")
-    assert pair.ta == pair.en == "en-US-EmmaMultilingualNeural"
+    pair = get_pair("pallavi")
+    assert pair.ta == pair.en == "ta-IN-PallaviNeural"
     voice = get_voice(pair.ta)
     assert voice.gender == "female"
-    assert {"ta", "en"} <= set(voice.languages)
+    assert voice.locale == "ta-IN"
+    assert voice.mixes_english
     validate_pair(pair)
     assert voice_for_lang(pair, "ta") == voice_for_lang(pair, "en") == pair.ta
+
+
+def test_a_rejected_female_voice_stays_available() -> None:
+    # Emma passed the six fixed clips and failed fresh text. She is kept as an
+    # option rather than deleted: rejecting a timbre answers "not this one".
+    assert get_pair("emma").ta == "en-US-EmmaMultilingualNeural"
+    assert get_pair("ava").ta == "en-US-AvaMultilingualNeural"
+
+
+def test_the_two_defaults_are_native_tamil_and_one_speaker() -> None:
+    # The pair the product actually ships with, in both genders.
+    male = get_pair("valluvar")
+    female = get_pair("pallavi")
+    assert (male.ta, male.en) == ("ta-IN-ValluvarNeural", "ta-IN-ValluvarNeural")
+    assert (female.ta, female.en) == ("ta-IN-PallaviNeural", "ta-IN-PallaviNeural")
+    for pair in (male, female):
+        assert get_voice(pair.ta).locale == "ta-IN", pair.id
+        assert get_voice(pair.ta).mixes_english, pair.id
+        validate_pair(pair)
+
+
+def test_four_female_voices_are_selectable() -> None:
+    """Approved on fresh text 2026-10-27; `pallavi` is the default, not the only option.
+
+    The three multilingual women were each heard on the same sentence and accepted,
+    so they ship as options. Each is one speaker for both languages, which is the
+    only thing that keeps them legal pairs.
+    """
+    for pid in ("pallavi", "seraphina", "vivienne", "thalita"):
+        pair = get_pair(pid)
+        voice = get_voice(pair.ta)
+        assert voice.gender == "female", pid
+        assert pair.ta == pair.en, pid
+        assert voice.mixes_english or "en" in voice.languages, pid
+        validate_pair(pair)
 
 
 def test_both_genders_ship() -> None:
@@ -234,6 +285,9 @@ def test_documented_pairs_match_the_table_in_docs_05() -> None:
         "andrew": ("en-US-AndrewMultilingualNeural", "en-US-AndrewMultilingualNeural"),
         "ava": ("en-US-AvaMultilingualNeural", "en-US-AvaMultilingualNeural"),
         "emma": ("en-US-EmmaMultilingualNeural", "en-US-EmmaMultilingualNeural"),
+        "seraphina": ("de-DE-SeraphinaMultilingualNeural", "de-DE-SeraphinaMultilingualNeural"),
+        "vivienne": ("fr-FR-VivienneMultilingualNeural", "fr-FR-VivienneMultilingualNeural"),
+        "thalita": ("pt-BR-ThalitaMultilingualNeural", "pt-BR-ThalitaMultilingualNeural"),
         "indicf5-ta": ("indicf5-ta", "indicf5-ta"),
         "piper-offline": ("piper-ta", "piper-en"),
     }

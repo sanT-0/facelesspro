@@ -35,7 +35,7 @@ Everything below exists to defeat one of those.
 | Number/date/unit expansion | `packages/core/src/numbers.ts` | ✅ built, 103 tests |
 | Per-run synthesis cache (raw audio + words, pre-trim) | `services/media/app/cache.py` | ✅ built, 13 tests |
 | Narration plan (ordering: overrides → numbers → segment → transliterate → voices) | `packages/core/src/plan.ts` | ✅ built, 17 tests |
-| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 12 clips (male + female), approved by ear 2026-10-27 |
+| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 14 clips (male + female); male set and fresh-text clip approved, female 01–06 pending |
 | Tamil voice catalogue + capability tags | `services/media/app/voices.py` | ✅ built, 28 tests + live ids |
 
 The prototype already does the hard structural thing right: it returns **runs** (not
@@ -255,10 +255,13 @@ voice id:
 | Pair | `ta` | `en` | Notes |
 |---|---|---|---|
 | `valluvar` | `ta-IN-ValluvarNeural` | same | **default**; male, native ta-IN, English in an Indian accent |
-| `emma` | `en-US-EmmaMultilingualNeural` | same | **female default**, approved by ear 2026-10-27; multilingual, Tamil is a secondary language |
+| `pallavi` | `ta-IN-PallaviNeural` | same | **female default**, approved on fresh text 2026-10-27; native ta-IN |
+| `emma` | `en-US-EmmaMultilingualNeural` | same | female option; passed the fixed clips, rejected on fresh text |
+| `seraphina` | `de-DE-SeraphinaMultilingualNeural` | same | female option, approved on fresh text; multilingual, German primary |
+| `vivienne` | `fr-FR-VivienneMultilingualNeural` | same | female option, approved on fresh text; multilingual, French primary |
+| `thalita` | `pt-BR-ThalitaMultilingualNeural` | same | female option, approved on fresh text; multilingual, Portuguese primary |
 | `andrew` | `en-US-AndrewMultilingualNeural` | same | male multilingual model; approved, kept as a second male option |
-| `pallavi` | `ta-IN-PallaviNeural` | same | female, native ta-IN; timbre rejected 2026-10-27, kept as an option |
-| `ava` | `en-US-AvaMultilingualNeural` | same | female multilingual; timbre rejected 2026-10-27, kept as an option |
+| `ava` | `en-US-AvaMultilingualNeural` | same | female multilingual; rejected 2026-10-27, kept as an option |
 | `indicf5-ta` | IndicF5 | same model | one model, best timbre continuity, slower |
 | `piper-offline` | Piper ta | Piper en | two voices, because the Tamil model has no English |
 
@@ -267,12 +270,35 @@ Pair selection is explicit (`voiceId` can be a pair id) **or** explicit per lang
 
 **Both genders ship.** The female line is a requirement, not an alternative: a channel may want a
 woman narrating, and the pair rule above already guarantees she is one person in both languages.
-Four female candidates were auditioned on 2026-10-27: `ta-IN-PallaviNeural`,
-`en-US-AvaMultilingualNeural`, `en-US-EmmaMultilingualNeural`, `ta-LK-SaranyaNeural`. The verdict
-was *"emma is good saranya is not good"*, so `emma` is the female default and `saranya` was
-dropped from the audition set (she stays catalogued and unpaired). The rejected voices remain in
-the catalogue deliberately — rejecting a timbre answers "not this one", not "no women" — and a
-test (`test_both_genders_ship`) fails if a catalogue edit ever removes every female pair.
+Six female candidates were heard on 2026-10-27 — `ta-IN-PallaviNeural`,
+`ta-LK-SaranyaNeural`, `en-US-AvaMultilingualNeural`, `en-US-EmmaMultilingualNeural`,
+`de-DE-SeraphinaMultilingualNeural`, `fr-FR-VivienneMultilingualNeural`,
+`pt-BR-ThalitaMultilingualNeural` — over three rounds:
+
+1. The six fixed gate clips: *"emma is good saranya is not good"* → `emma` promoted.
+2. A **sentence nobody had heard the voice on** (now gate clip `07-fresh-mixed`):
+   *"valluvar is good, emma is not good"* → `emma` demoted.
+3. The same fresh sentence for every remaining female voice: *"all good"* — Pallavi, Seraphina,
+   Vivienne, Thalita and Emma all passed.
+
+Round 3 is the reason the default is `pallavi`: with no audible winner, the tie-break is the
+product rule, not taste. Tamil is this channel's primary language, so the narrator's Tamil is a
+first language, and her English carries an Indian accent like Valluvar's — one accent family for
+both narrators.
+
+**Four female voices ship, not one.** `pallavi` is the default, and `seraphina`, `vivienne` and
+`thalita` are first-class pairs a channel can select (`TTS_PAIR=seraphina`, …) — each approved on
+the same fresh sentence, each rendered as its own seven-clip set under
+`samples/tts/{seraphina,vivienne,thalita}/` so the evidence is per voice rather than a claim
+in a table. They read at visibly different speeds (fresh clip: Vivienne 12.65 s, Thalita 13.26 s,
+Pallavi 14.80 s, Seraphina 15.88 s), which is the practical reason to offer all four — pace is a
+channel-style choice in a way timbre is not. `emma` and `ava` stay in the catalogue as rejected
+timbres, and `test_both_genders_ship` plus `test_four_female_voices_are_selectable` fail if a
+catalogue edit ever removes a female pair.
+
+The lesson is in the gate, not in the prose: a voice approved on six fixed clips can still be
+wrong, so `sample-tts.ts` now renders a seventh clip whose text is deliberately outside the set a
+voice is auditioned on. That is how `emma` was caught.
 
 Observed while auditioning: `en-GB-AdaMultilingualNeural` appears in the live
 `--list-voices` output but every synthesis returns `NoAudioReceived` on the free endpoint. The
@@ -289,7 +315,7 @@ Tamil voice can already read English (`mixes_english`, or a multilingual model w
 `languages` include `en`). A second voice survives only for Piper, where the Tamil model
 genuinely cannot speak English.
 
-Implemented in `services/media/app/voices.py` (12 voices, 7 pairs, `resolve_pair()` /
+Implemented in `services/media/app/voices.py` (15 voices, 10 pairs, `resolve_pair()` /
 `voice_for_lang()`), because voice ids are engine knowledge, not pipeline logic:
 
 - A pair is validated on load: the Tamil side really speaks `ta`; a second voice must really
@@ -471,20 +497,29 @@ test_live_tts.py
 
 ### 5.4 Listening gate — human, required before phase close
 
-`npm run sample:tts` writes six clips to `samples/tts/`; adding `TTS_OUT_DIR` writes a second set
-alongside instead of overwriting that one (the female line lives in `samples/tts/female/`):
+`npm run sample:tts` writes seven clips to `samples/tts/<pair>/` — the directory is named after
+the pair it rendered (`samples/tts/valluvar`, `samples/tts/pallavi`, …), and
+`samples/tts/README.md` indexes every set that exists. The pair id is the only input, so two voices
+cannot overwrite each other's evidence and a set's path says which voice made it. `TTS_OUT_DIR`
+remains for throwaway audition renders under `samples/tts/auditions/`, never for an approved set.
 
 ```
-01-tamil-pure.mp3      04-mixed-one-sentence.mp3
-02-english-pure.mp3    05-tanglish.mp3
-03-mixed-paragraph.mp3 06-numbers-dates.mp3
+01-tamil-pure.mp3       04-mixed-one-sentence.mp3  07-fresh-mixed.mp3
+02-english-pure.mp3     05-tanglish.mp3
+03-mixed-paragraph.mp3  06-numbers-dates.mp3
 ```
 
-I listen to all six. Phase P1 is **not done** until each one passes: "does it sound like one
+I listen to all seven. Phase P1 is **not done** until each one passes: "does it sound like one
 person, in the right language, without a seam?" That is the acceptance test that no assertion
 can replace — but the assertions above make sure we get there without manual rework every time.
-Both approved sets are heard: `samples/tts/` (male, `valluvar`) and `samples/tts/female/`
-(female, `emma`).
+Five sets are rendered, one per voice: `valluvar` (male default) plus the four female voices
+(`pallavi` default, `seraphina`, `vivienne`, `thalita`). What has been heard is the male set plus
+clip 07's text for every voice; the 01–06 clips of all four female sets are pending one listen.
+
+Clip 07 exists because of a failure in this gate, not by design: `emma` passed 01–06 and was
+wrong on the first sentence she had not been heard on. A gate whose text is fixed cannot tell a
+good voice from a lucky one, so the set now includes a sentence written after the voices were
+chosen.
 
 **Run 1 — 2026-10-27 — failed.** Verdict: *"Tamil speech is not good, needs improvement, sounds
 unnatural, words are separated."* The English and the mix were not what failed; the Tamil
@@ -492,7 +527,7 @@ delivery did. Per §3.4 the pauses were inside edge-tts's Tamil output, not crea
 stitcher, so the fix is prosody, not a stitch setting.
 
 **Fix 1 — pauses (implemented, step 3 above).** Five prototypes isolated the levers before any
-code changed (`samples/tts/prosody/`, gitignored): the shipped master, `rate=+12%`, a pause
+code changed (`samples/tts/auditions/`, gitignored): the shipped master, `rate=+12%`, a pause
 compression, the male voice, and a `ta-LK` voice. The verdict named gaps *and* timbre, so pause
 compression was implemented with tests (`test_pauses.py`, four new `test_stitch.py` cases) and
 `rate` was left alone until the gaps are judged by ear:
@@ -522,10 +557,25 @@ The female line then got a second audition on clips 01/02/03 — `en-US-EmmaMult
 
 > "emma is good saranya is not good"
 
-`emma` is therefore the female default (`TTS_PAIR=emma`), `saranya` is dropped from the audition
-set but stays catalogued and unpaired, and `pallavi`/`ava` remain as the rejected timbres.
+`emma` was promoted, `saranya` went back to being catalogued but unpaired, and `pallavi`/`ava`
+stayed as the rejected timbres. Then a **fresh sentence** — one nobody had heard `emma` read —
+was rendered for both approved voices:
 
-Male set, `npm run sample:tts` with `valluvar` (one voice for both languages) → `samples/tts/`:
+> "valluvar is good , emma is not good"
+
+That demoted `emma` on the spot, and the whole remaining female catalogue was run through the
+same sentence (`de-DE-SeraphinaMultilingualNeural`, `fr-FR-VivienneMultilingualNeural`,
+`pt-BR-ThalitaMultilingualNeural`, plus `ta-IN-PallaviNeural` again):
+
+> "all good"
+
+With no audible winner, the tie-break is the product rule: Tamil is the channel's primary
+language, so `pallavi` — the only native `ta-IN` female, with Indian-accented English like
+Valluvar — is the female default (`TTS_PAIR=pallavi`). The other three are selectable pairs with
+their own rendered set (`TTS_PAIR=seraphina|vivienne|thalita`); `emma` and `ava` stay in the
+catalogue as rejected timbres; `saranya` stays catalogued and unpaired.
+
+Male set, `npm run sample:tts` with `valluvar` (one voice for both languages) → `samples/tts/valluvar/`:
 
 | Clip | Duration | Runs | Words |
 |---|---|---|---|
@@ -535,25 +585,52 @@ Male set, `npm run sample:tts` with `valluvar` (one voice for both languages) �
 | `04-mixed-one-sentence.mp3` | 6.80 s | 5 | 14 |
 | `05-tanglish.mp3` | 3.58 s | 2 | 9 |
 | `06-numbers-dates.mp3` | 15.54 s | 4 | 36 |
+| `07-fresh-mixed.mp3` | 13.95 s | 7 | 32 |
 
-Female set, `TTS_PAIR=emma TTS_OUT_DIR=samples/tts/female npm run sample:tts` → `samples/tts/female/`:
+Female set, `TTS_PAIR=pallavi npm run sample:tts` → `samples/tts/pallavi/`:
 
 | Clip | Duration | Runs | Words |
 |---|---|---|---|
-| `01-tamil-pure.mp3` | 9.39 s | 1 | 20 |
-| `02-english-pure.mp3` | 7.92 s | 1 | 24 |
-| `03-mixed-paragraph.mp3` | 14.37 s | 5 | 36 |
-| `04-mixed-one-sentence.mp3` | 7.01 s | 5 | 14 |
-| `05-tanglish.mp3` | 4.12 s | 2 | 9 |
-| `06-numbers-dates.mp3` | 15.64 s | 4 | 36 |
+| `01-tamil-pure.mp3` | 10.00 s | 1 | 20 |
+| `02-english-pure.mp3` | 9.44 s | 1 | 24 |
+| `03-mixed-paragraph.mp3` | 15.57 s | 5 | 35 |
+| `04-mixed-one-sentence.mp3` | 7.13 s | 5 | 14 |
+| `05-tanglish.mp3` | 3.99 s | 2 | 9 |
+| `06-numbers-dates.mp3` | 15.77 s | 4 | 36 |
+| `07-fresh-mixed.mp3` | 14.80 s | 7 | 32 |
 
-Measured on all twelve: one unique voice per clip (no speaker change at any boundary), −16.26…
-−16.47 LUFS, true peak ≤ −1.78 dBTP, every `master.wav` exactly `total_duration_ms × 48` frames at
+Measured on all fourteen: one unique voice per clip (no speaker change at any boundary), −16.26…
+−16.49 LUFS, true peak ≤ −1.76 dBTP, every `master.wav` exactly `total_duration_ms × 48` frames at
 48 kHz mono 16-bit, `spans + gaps = total`, every word inside its run, and the word-pause
-compression still holds (female clip 01: 12 short pauses, 17.6% silence).
+compression still holds (female clip 01: 12 short pauses, 17.8% silence).
 
-`TTS_OUT_DIR` exists so the two approved sets cannot destroy each other: regenerating one never
-overwrites the listening-gate evidence for the other.
+One directory per pair is what keeps those measurements honest: re-rendering `pallavi` writes
+`samples/tts/pallavi/` and cannot touch `samples/tts/valluvar/`, so an approved set is not
+overwritten by the next experiment. `TTS_OUT_DIR` survives only for scratch renders under
+`samples/tts/auditions/`.
+
+The three other female voices a channel can select were each rendered as a full seven-clip set,
+because "approved" should be a measurement per voice rather than a sentence in a table:
+
+| Pair | 01 | 02 | 03 | 04 | 05 | 06 | 07 |
+|---|---|---|---|---|---|---|---|
+| `seraphina` | 10.70 | 8.74 | 16.31 | 8.34 | 4.32 | 17.35 | 15.88 s |
+| `vivienne` | 8.72 | 7.13 | 13.55 | 6.88 | 3.62 | 14.59 | 12.65 s |
+| `thalita` | 9.29 | 7.43 | 14.58 | 7.18 | 3.71 | 15.35 | 13.26 s |
+
+All 21 clips: one unique voice each (equal to the requested pair), `spans + gaps = total`,
+`master.wav = duration × 48` frames at 48 kHz mono 16-bit, every word inside its run,
+−16.22…−16.36 LUFS, true peak ≤ −1.75 dBTP. Pace separates them more than timbre does — the same
+fresh sentence takes 12.65 s with Vivienne and 15.88 s with Seraphina.
+
+**Run 2 — 2026-10-27 — passed.** Verdict on the twelve clips rendered at the time: *"pass"*.
+
+**Run 3 — 2026-10-27 — failed, then the voice was replaced.** Verdict on the fresh sentence:
+*"valluvar is good, emma is not good"* — a female voice that had passed twice failed on new text.
+The replacement audition (*"all good"*) made `pallavi` the female default, and she passed the same
+fresh sentence. Her clips 01–06 were re-rendered with her after the promotion and are **still
+pending one listen**: what was approved is the voice on clip 07's text, not the other six. P1 stays
+open until those six pass as well.
 
 If a timbre is later rejected, the limit is the free provider rather than the pipeline, and the
 choice becomes a paid voice (Azure/ElevenLabs, whose `*IndicNeural` voices can read both languages
@@ -561,7 +638,7 @@ as one speaker) or a GPU model (IndicF5) — a product decision, not a tuning on
 
 ### 5.5 Regression protection
 
-- Golden audio **digests** are stored for the 6 sample scripts. A digest change means "the
+- Golden audio **digests** are stored for the 7 sample scripts. A digest change means "the
   voice or the pipeline changed" and requires re-listening. Not a hard failure — a forcing
   function.
 - Duration/energy invariants **are** hard failures.
@@ -620,10 +697,10 @@ Public API parity (`/v1/text-to-speech`) stays vsub-shaped: `{text, voiceId, voi
 | 7.1 | lexicon file + loader + morphology heuristic | ✅ unit tests green (47 total) |
 | 7.2 | transliteration table + dictionary + rules | ✅ 428 pinned pairs, 68 tests |
 | 7.3 | number/date/unit expansion (ta/en) | ✅ 103 tests |
-| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 6 gate clips at −16.26…−16.47 LUFS, TP ≤ −1.78 dBTP, frame-exact |
-| 7.5 | voice catalogue + pairing + capability tags | ✅ 12 voices, 7 pairs, one speaker per pair, both genders, live-id test |
+| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 14 gate clips at −16.22…−16.49 LUFS, TP ≤ −1.75 dBTP, frame-exact |
+| 7.5 | voice catalogue + pairing + capability tags | ✅ 15 voices, 10 pairs, one speaker per pair, both genders, four selectable female voices, live-id test |
 | 7.6 | IndicF5 adapter | A/B vs edge on the 6 samples |
 | 7.7 | forced alignment fallback (ASR) for engines without timings | timing accuracy ≤ 40 ms |
-| 7.8 | listening gate | **I approve all 12 clips** (voices chosen by ear 2026-10-27: `valluvar` male, `emma` female; the rendered sets still need the final listen) |
+| 7.8 | listening gate | 🟡 voices picked 2026-10-27 (`valluvar` male, `pallavi` female) and both pass the fresh-text clip; female clips 01–06 await one final listen |
 
 Only after 7.8 do we touch pictures.
