@@ -432,7 +432,6 @@ export function expandNumbersSpanned(
   const changes: { start: number; delta: number }[] = [];
   let out = '';
   let cursor = 0;
-  let delta = 0;
 
   for (let i = 0; i < matches.length; i += 1) {
     const match = matches[i]!;
@@ -443,7 +442,6 @@ export function expandNumbersSpanned(
     const change = rendered.length - (match.end - match.start);
     if (change !== 0) {
       changes.push({ start: match.start, delta: change });
-      delta += change;
     }
   }
   out += text.slice(cursor);

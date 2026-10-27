@@ -1,0 +1,81 @@
+# CI: the two gates that must never be red on a branch.
+#
+#   gate    = typecheck + lint + hermetic tests (no database, no network)
+#   python  = ruff + pytest for services/media (real ffmpeg, fake engines)
+#
+# What is deliberately *not* here, and why (docs/08 §2):
+#   - `test:db` needs a live Postgres + pg-boss. It runs from `npm run test:db`
+#     against docker-compose; adding a service container is its own task, and a
+#     gate that silently skips when the DB is missing is worse than no gate.
+#   - `test:live` / `sample:tts` call real providers. They are opt-in, on a
+#     human's machine, next to the listening gate.
+#
+# Python is pinned to 3.12 (plan.md §5) rather than whatever the runner has.
+
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One run per ref: a force-push should cancel the previous attempt, not race it.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  gate:
+    name: gate (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        # 22 is the floor in package.json `engines`: if CI only tested the
+        # newest LTS, a dependency that quietly needs 24 would ship.
+        node: [22]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+
+      # `ci`, not `install`: fails when package-lock.json disagrees with
+      # package.json, which is exactly the drift a lockfile exists to prevent.
+      - run: npm ci
+
+      - run: npm run gate
+
+  python:
+    name: python 3.12
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: services/media
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: services/media/requirements*.txt
+
+      # The media tests run real ffmpeg (trim, loudnorm, limiter latency). A
+      # stub would test nothing that matters.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+        working-directory: .
+
+      - run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - run: ruff check app tests
+
+      - run: python -m pytest

@@ -33,6 +33,7 @@ uvicorn app.main:app --port 8000
 # api + worker
 npm run dev:api
 npm run dev:worker
+npm run ping              # smoke test: the worker completes a real job (exit 0)
 ```
 
 ## Documentation

@@ -174,6 +174,11 @@ write pipeline state:
   must classify transient failures themselves.
 - **No network inside the commit.** The body does provider calls between claim and commit; the
   transaction stays milliseconds long.
+- **`ping` is not a step.** It is a separate queue (`packages/queue/src/ping.ts`,
+  `retryLimit: 0`) used to prove the worker can claim and complete a job against a real
+  database. It is deliberately outside `VIDEO_STEPS`, so the public step vocabulary cannot grow
+  for an operator's convenience. `ensureQueues()` creates it alongside the five step queues, and
+  `checkQueues()` — which backs `/health.queue` — requires all six.
 
 ---
 
@@ -217,6 +222,7 @@ Everything engine-related is env, everything product-related is a row.
 # core
 DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless
 PORT=3001
+PGBOSS_SCHEMA=pgboss
 PUBLIC_BASE_URL=http://127.0.0.1:3001
 MEDIA_SERVICE_URL=http://127.0.0.1:8000
 STORAGE=disk                      # disk | s3
@@ -224,7 +230,7 @@ DATA_DIR=.data
 
 # engines (first healthy wins, left-to-right)
 PLANNER=cloudflare,groq,ollama,heuristic
-IMAGE=cloudflare,pollinations,comfyui
+IMAGE=cloudflare,pollinations,comfyui,procedural
 STYLE=vlm,heuristic
 TTS=edge,indicf5,piper
 ASR=whisper-local,cloudflare

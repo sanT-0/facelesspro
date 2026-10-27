@@ -113,8 +113,93 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       `{ schema }` (the enums are values, not relations).
       Deviation from docs/04 §7, fixed in the same change: a step commits once, so a crash
       redoes that step rather than skipping already-drawn scenes; the spec now says so.
-- [ ] worker skeleton, `/health` with db+queue
-- [ ] `npm run gate` + CI
+- [x] 2026-10-27 - worker skeleton + `/health {db,queue}` (roadmap P0 item).
+      `apps/worker` (`@facelesspro/worker`): `startWorker({ boss })` consumes exactly one queue —
+      `ping` (`retryLimit: 0`) — through the new generic `consume()` in `@facelesspro/queue`;
+      `stop()` calls `offWork` per queue, `main.ts` drains on SIGINT/SIGTERM. Pipeline step
+      handlers are deliberately absent until P5, so an enqueued step job stays visible in
+      `pgboss.job` instead of being failed by a handler that does not exist.
+      `apps/api` now exports `createApp(deps)` with injected probes (no module-level app, so a
+      test can never accidentally become an integration test). `/health` runs `select 1` and
+      `checkQueues()` concurrently under a 2 s deadline each, derives `status`, and answers
+      `200 ok` / `503 degraded`. The body is `healthSchema` in `@facelesspro/contracts`, which
+      also refuses `status:"ok"` when a component is `error`.
+      `checkQueues()` reads pg-boss's own `queue` table and requires all five step queues plus
+      `ping` — a TCP connect cannot see a missing queue.
+      `npm run ping` enqueues one ping and polls until `completed`, so the artifact check is an
+      exit code.
+      gate: `npm run typecheck` clean; `npm test` 386 passed / 19 files; `npm run test:db`
+      14 passed. pytest not run (no media/render files touched).
+      Observed against compose Postgres: `/health` → `200 {"status":"ok",…,"db":"ok","queue":"ok"}`;
+      worker+api booted, `npm run ping -- hello-from-p0` → `completed in 2073 ms`, and
+      `pgboss.job` shows the row with `state=completed`, `started_on` and `completed_on` set and
+      `data={"note":"hello-from-p0"}`; `pgboss.queue` has `ping` at `retry_limit 0`,
+      `expire_seconds 60`. A second api with `DATABASE_URL` pointing at a dead port answered
+      `503 {"db":"error","queue":"error"}`; a third with `PGBOSS_SCHEMA=no_such_schema` answered
+      `503 {"db":"ok","queue":"error"}`.
+      Surprises: (a) pg-boss 10 stores unprefixed tables in the `pgboss` schema
+      (`pgboss.queue`, `pgboss.job`) and keeps its own `__pgboss__send-it` queue row, so the
+      health check must expect **extra** rows, not an exact set; (b) `getJobById(queue, id)`
+      takes the queue first — the ping script found that by failing; (c) 2.07 s for a no-op ping
+      is pg-boss's ~2 s polling interval, not work — a latency budget for P5 must account for it;
+      (d) `JobConsumer.work` cannot be generic and also fakeable, so the consumer contract types
+      the payload as `unknown`: off a queue, that is the honest type anyway.
+      Note: this session started with no `node_modules` and a stopped Docker engine, so
+      `npm install` + starting Docker Desktop were part of the work. The machine also runs an
+      unrelated PostgreSQL 18 service on 5432; everything here used compose on 5433, as
+      `.env.example` says.
+- [x] 2026-10-27 - `npm run gate` is now `typecheck && lint && test`, with boundaries enforced by
+      eslint (`eslint@10.13.0` + `typescript-eslint@8.72.1`, flat `eslint.config.js`, no
+      type-aware rules so lint stays ~2 s). Rules, not prose: `packages/core` may import only
+      relative files and may not use `Date`/`process`/`fetch`/`setTimeout`/`crypto`/`Math.random`;
+      `packages/contracts` may import `zod` only; no package may import `apps/*`; deep
+      `@facelesspro/*/src/*` imports are rejected (barrel only); `apps/api` may not import
+      `pg-boss`/`pg`/`drizzle-orm` and `apps/worker` may not import `pg-boss`/`pg`.
+      `test:unit`/`test:contract` were **not** created — one `test` runs every hermetic suite, and
+      the split becomes a vitest project only when a suite needs different isolation (docs/08 §2
+      amended in the same change, since docs are the contract).
+      `.env.example` rewritten: ASCII banners, trailing comments removed, `PGBOSS_SCHEMA`
+      documented, `FONTCONFIG_FILE` commented until P4 ships `packages/art/fonts/fonts.conf`,
+      script/test knobs (`PYTHON`, `TTS_PORT`, `TTS_PAIR`, `RUN_LIVE`) listed. docs/03 §7 gained
+      `PGBOSS_SCHEMA` and the missing `procedural` image adapter.
+      gate: typecheck clean; `eslint .` 62 files / 0 errors; `npm test` 386 passed / 19 files;
+      `npm run test:db` 14 passed.
+      Artifact check (deliberate violations, then reverted): `import 'node:fs'` + `import 'zod'` +
+      `Date.now()` in `packages/core/src/index.ts` → 3 errors naming "core is dependency-free" and
+      "core takes time as an argument"; `import 'pg-boss'` + `@facelesspro/db/src/client` in
+      `apps/api/src/health.ts` → 2 errors ("must not know the vendor", "import the package
+      barrel"). Clean again after reverting.
+      Lint found three pieces of pre-existing dead code that `tsc` cannot see (`noUnusedLocals` is
+      off): a `delta` accumulator in `numbers.ts` that was incremented and never read, and unused
+      type/table imports in `db/src/schema.ts` and `db/src/schema.test.ts`. Removed; behaviour
+      unchanged (same 386 tests).
+      Surprises: (a) `no-restricted-imports` patterns cannot express "relative imports only" —
+      ESLint normalises `./x` before matching, so `group: ['*', '!./*']` still flagged every
+      relative import; the core rule is now an explicit deny list plus the globals rules, and the
+      `package.json` with zero deps is the backstop for anything unlisted; (b) Node's `.env`
+      loader *does* strip a trailing `# comment` (verified `FOO=bar # note` → `bar`), so the old
+      inline comments were harmless — moved to their own lines anyway for readability.
+- [x] 2026-10-27 - CI workflow (`.github/workflows/ci.yml`): `gate` job (ubuntu, node 22 = the
+      `engines` floor, `actions/setup-node` with npm cache, `npm ci`, `npm run gate`) and `python`
+      job (3.12 per plan.md §5, pip cache on `services/media/requirements*.txt`,
+      `apt-get install ffmpeg`, `ruff check app tests`, `python -m pytest`). Least privilege
+      (`contents: read`), one run per ref with cancel-in-progress, no branch filter,
+      `workflow_dispatch` included. `test:db`/`test:live`/`sample:tts` stay out (docs/08 §2):
+      `test:db` needs a service container, which is its own task.
+      Verified locally, not on GitHub: `npx js-yaml .github/workflows/ci.yml` parses; `npm ci`
+      succeeds against the committed lockfile, then `npm run gate` → typecheck + lint + 386 tests
+      green; `ruff check app tests` clean and `python -m pytest` 91 passed / 3 skipped (live) —
+      but on Python 3.14/ffmpeg 9.0.2, because this machine has no 3.12 interpreter, so the
+      runner's first execution is still the real proof.
+      Surprises: none in the workflow itself. Worth knowing: `on:` unquoted parses as a key
+      under js-yaml's default schema, but GitHub requires the key spelled `on` — it is, and it
+      stays `on` because this file is not parsed by our own code. Also the earlier local
+      `npm install -D eslint` had already refreshed the lockfile, so `npm ci` was a genuine
+      lock-sync test rather than a formality.
+      Assumed until the runner proves it: ubuntu's apt `ffmpeg` (6.x) has every filter the audio
+      tests use (`loudnorm`, `alimiter latency`, `silenceremove`), which this machine's 9.0.2
+      build cannot demonstrate for it.
+- [ ] P0 close-out: first green CI run on the remote (needs a push).
 
 ## P1 Tamil + English TTS ⭐
 
@@ -261,3 +346,12 @@ file stays the single "what is actually true today" view.
 | 2026-10-26 | One commit per step, network work outside it | artifacts + ledger + cursor + next job must be one transaction; a transaction held open during TTS/image calls would pin a connection and row locks for minutes |
 | 2026-10-26 | `attempt` is a fence, not a retry count | it only has to distinguish holders of one lock; resetting on release keeps a retryable failure's retry immediate instead of waiting out the TTL |
 | 2026-10-26 | Unknown step errors are permanent | a blind retry of a validation bug burns provider quota; adapters must mark transient failures `retryable: true` explicitly |
+| 2026-10-27 | `ping` is a queue, not a `video.step` | the step tuple is a public contract; a smoke test must not widen it, and a worker with no step handlers must not look like it handles steps |
+| 2026-10-27 | `queue:"ok"` means the expected queue rows exist, not that a connection opened | the failure that matters is a worker/schema that never created them, which a TCP check cannot see |
+| 2026-10-27 | `/health` reports only components that exist | `media`/`storage` join the shape when their ports land; reporting them `ok` now would be a lie |
+| 2026-10-27 | One `test` command, no `test:unit`/`test:contract` split | a split earns its keep when the halves need different isolation; a script CI forgets to run is worse than one always-run suite |
+| 2026-10-27 | Lint without type-aware rules | boundaries and `no-explicit-any` do not need the type graph; `tsc` already owns types, and `gate` stays seconds long |
+| 2026-10-27 | `FONTCONFIG_FILE` stays commented out | the referenced `fonts.conf` does not exist until P4; pointing libass at a missing file would break fonts earlier than the glyph test can catch it |
+| 2026-10-27 | CI pins Python 3.12 while dev runs 3.14 | plan.md declares 3.12 as the runtime; CI should test the promise, not the machine, and 3.14 is the local convenience |
+| 2026-10-27 | CI matrix is node 22 only | 22 is the `engines` floor; a second entry doubles minutes for a runtime no `engines` field claims to support |
+| 2026-10-27 | `test:db` stays out of CI until it brings its own Postgres | a job that green-lights when the service is absent is worse than no job |

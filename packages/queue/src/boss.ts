@@ -14,6 +14,8 @@ import PgBoss from 'pg-boss';
 
 import { jobData, parseJob, queueFor } from './jobs';
 import type { StepJob } from './jobs';
+import { PING_QUEUE, PING_QUEUE_OPTIONS } from './ping';
+import type { PingPayload } from './ping';
 
 /**
  * Queue policy for every pipeline step.
@@ -78,6 +80,11 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       name: queueFor(step),
     });
   }
+
+  await boss.createQueue(PING_QUEUE, {
+    ...PING_QUEUE_OPTIONS,
+    name: PING_QUEUE,
+  });
 }
 
 export interface EnqueueOptions {
@@ -118,6 +125,57 @@ export interface ConsumedJob extends StepJob {
 }
 
 export type StepHandler = (job: ConsumedJob) => Promise<void>;
+
+/**
+ * Insert one `ping` job. The payload/queue policy lives in `ping.ts`, so the
+ * smoke test cannot drift from the consumer.
+ */
+export async function enqueuePing(
+  boss: PgBoss,
+  payload: PingPayload = {},
+): Promise<string | null> {
+  return boss.send(PING_QUEUE, payload, { ...PING_QUEUE_OPTIONS });
+}
+
+/**
+ * The slice of pg-boss a consumer needs. Narrow enough that a test can supply a
+ * function: the readiness check and the handler wiring are then testable with no
+ * database, and a real `PgBoss` still satisfies it (see `apps/worker`).
+ *
+ * The payload is `unknown`, not a type parameter: a job that came off a queue is
+ * untrusted input, so the only honest type before parsing is `unknown`.
+ */
+export interface JobConsumer {
+  work(
+    name: string,
+    options: { readonly batchSize?: number },
+    handler: (
+      jobs: ReadonlyArray<{ readonly id: string; readonly data: unknown }>,
+    ) => Promise<void>,
+  ): Promise<string>;
+  offWork(name: string): Promise<void>;
+}
+
+/**
+ * Consume one non-step queue.
+ *
+ * `parse` is the boundary: a payload that does not match fails the job loudly
+ * (pg-boss counts the attempt) instead of being skipped, because a payload the
+ * producer and consumer disagree about is a bug to surface.
+ */
+export async function consume<T>(
+  boss: JobConsumer,
+  queue: string,
+  parse: (data: unknown) => T,
+  handler: (job: { readonly id: string; readonly payload: T }) => Promise<void>,
+  options: { readonly batchSize?: number } = {},
+): Promise<string> {
+  return boss.work(queue, { batchSize: options.batchSize ?? 1 }, async (jobs) => {
+    for (const job of jobs) {
+      await handler({ id: job.id, payload: parse(job.data) });
+    }
+  });
+}
 
 /**
  * Run `handler` for every job on a step queue.

@@ -21,7 +21,6 @@ import type {
   CaptionSpec,
   CreditAction,
   Engine,
-  MemberRole,
   NarrationPlan,
   PlanId,
   RenderFormat,
@@ -29,8 +28,6 @@ import type {
   Size,
   VideoError,
   VideoKind,
-  VideoStatus,
-  VideoStep,
   WordTiming,
 } from '@facelesspro/contracts';
 import {

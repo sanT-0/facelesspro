@@ -8,6 +8,9 @@
     "start": "tsx src/server.ts"
   },
   "dependencies": {
+    "@facelesspro/contracts": "*",
+    "@facelesspro/db": "*",
+    "@facelesspro/queue": "*",
     "@hono/node-server": "^1.19.0",
     "hono": "^4.9.0"
   }

@@ -27,10 +27,16 @@ npm run dev:web        # :3000
 Checks:
 
 ```bash
-curl localhost:3001/health          # {db:"ok", queue:"ok", media:"ok"}
+curl localhost:3001/health          # {status:"ok", db:"ok", queue:"ok"}
 curl localhost:8000/health          # media service + active engine
+npm run ping                        # enqueue a job; exit 0 = the worker completed it
 npm run gate
 ```
+
+`/health` is `200` only when every component is `ok`; otherwise it is `503` and the body says
+which one failed (`"db":"error"` / `"queue":"error"`). The queue probe checks that all six
+expected queues exist in the `pgboss` schema, so it fails before `docker compose up` /
+`npm run db:migrate`, and again if the worker never booted (`createBoss` creates the queues).
 
 **Minimum viable local setup, no keys, no GPU:** Postgres + api + worker + media. Images come
 from the procedural renderer if Cloudflare is unset, plans from the heuristic splitter if no
@@ -80,7 +86,7 @@ Pollinations for drafts only.
 | Video stuck at `create-images` | `job_event` for that video, adapter field | provider 429 → lower concurrency, or switch `IMAGE=` order |
 | `failed` at `create-vocal`, "no word boundaries" | engine reported no timings | force alignment fallback is enabled? |
 | Captions drift after 2 minutes | audio resampled after timing was computed | re-probe durations *after* stitching, never before |
-| Tamil text renders as boxes | font not found by libass | `FONTCONFIG_FILE` points at `packages/art/fonts`; run the glyph test |
+| Tamil text renders as boxes | font not found by libass | `FONTCONFIG_FILE=./packages/art/fonts/fonts.conf` (shipped in P4); run the glyph test |
 | Seam / click between voices | gap calibration or cross-fade length | re-run `sample:tts` and listen |
 | Webhook never arrives | `webhook_event` table | non-2xx or slow receiver; check `attempts`/`next_at` |
 | `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |
@@ -130,10 +136,14 @@ while debugging, locally.
 ## 8. Health & limits summary
 
 ```
-GET /health          api: {db, queue, media, storage, version}
+GET /health          api: {status, service, version, time, db, queue}   — 503 when degraded
 GET /health/media    media: {engine, models, ffmpeg, fonts}
 GET /health/fonts    fonts: {notoSans, notoSansTamil, shaping:"ok"}
 ```
+
+`media` and `storage` are not in the api report yet: they are absent rather than reported as
+`ok` before the ports exist. The api's `queue` field is the pg-boss schema check described in
+§1, not a media probe.
 
 `/health/fonts` exists because "Tamil renders as boxes" is the single most likely production
 surprise, and it should be detectable without rendering a video.

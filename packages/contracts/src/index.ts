@@ -11,4 +11,5 @@ export * from './requests';
 export * from './responses';
 export * from './media';
 export * from './webhooks';
+export * from './health';
 export * from './db';

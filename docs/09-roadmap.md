@@ -39,12 +39,46 @@ Goal: the repo can build, migrate, queue and serve, with the new name and the sh
       `advance`). Verified against real Postgres: 14 integration tests (`npm run test:db`)
       including rollback-after-enqueue and two concurrent jobs running the body once, plus 12
       hermetic tests for names/payload/policy. `test:db` is deliberately outside the gate.
-- [ ] `apps/worker` skeleton with a no-op `ping` step; `apps/api` `/health` reports db + queue.
-- [ ] `npm run gate` script; eslint import boundaries; `.env.example` rewritten.
-- [ ] CI workflow: gate + pytest on push.
+- [x] `apps/worker` skeleton with a no-op `ping` step; `apps/api` `/health` reports db + queue.
+      `ping` is its own queue (`retryLimit: 0`), not a `video.step`: the step tuple is a public
+      contract and a smoke test must not widen it. `startWorker({ boss })` consumes it through
+      `consume()`, and `stop()` calls `offWork` so Ctrl-C drains instead of abandoning a job.
+      Pipeline step handlers land in P5; until then a step job stays queued rather than being
+      failed by a handler that does not exist.
+      `/health` runs two injected probes under a 2 s deadline each: `select 1` for db, and
+      `checkQueues()` for the queue — which reads pg-boss's own `queue` table and requires all
+      five step queues plus `ping`, because "TCP connect worked" cannot see a missing queue.
+      `200 {status:"ok", db:"ok", queue:"ok"}` / `503 degraded` with the failing component
+      named. Body is `healthSchema` from `@facelesspro/contracts`. `media`/`storage` join the
+      shape when those ports exist. `npm run ping` enqueues and polls until completed, so the
+      artifact check is an exit code.
+- [x] `npm run gate` script; eslint import boundaries; `.env.example` rewritten.
+      `gate = typecheck && lint && test`; eslint 10 + typescript-eslint 8, flat config, no
+      type-aware rules (so it stays ~2 s). Boundaries are rules, not prose: `core` may import
+      only relative files and may not touch `Date`/`process`/`fetch`/`Math.random`; `contracts`
+      may import `zod` only; no package imports an app; no deep `@facelesspro/*/src/*` imports;
+      the api/worker may not import `pg-boss` (the api not `pg`/`drizzle-orm` either).
+      `test:unit`/`test:contract` were **not** created: one `test` suite runs everything
+      hermetic, and the split becomes a vitest project when a suite needs different isolation
+      ([08](./08-testing.md) §2 says so).
+      `.env.example` rewritten: ASCII section banners, no trailing-comment traps, `PGBOSS_SCHEMA`
+      documented, `FONTCONFIG_FILE` commented until P4 ships the config, script/test knobs
+      (`PYTHON`, `TTS_PORT`, `TTS_PAIR`, `RUN_LIVE`) listed.
+- [x] CI workflow: gate + pytest on push.
+      `.github/workflows/ci.yml`, two jobs: `gate` (node 22 — the `engines` floor — with
+      `actions/setup-node` npm cache, `npm ci`, `npm run gate`) and `python` (3.12 per plan.md
+      §5, pip cache keyed on `services/media/requirements*.txt`, `apt-get install ffmpeg`,
+      `ruff check app tests`, `python -m pytest`). `permissions: contents: read`,
+      `concurrency: ci-${{ github.ref }}` cancels a superseded run, `workflow_dispatch` for
+      manual runs. `test:db`, `test:live` and `sample:tts` stay out, as
+      [08](./08-testing.md) §2 requires. No branch filter: pushing any branch runs it.
 
 **Gate:** `docker compose up -d && npm run db:migrate && npm run gate` green from clean clone;
 `/health` shows `{db:"ok", queue:"ok"}`.
+
+Status 2026-10-27: every task above is done and the gate + `/health` + `npm run ping` were
+observed locally against compose Postgres. P0 is not formally closed until the workflow runs
+green on the remote — that needs a push, not more code.
 
 **Artifact check:** enqueue `ping`, watch it complete in the DB.
 

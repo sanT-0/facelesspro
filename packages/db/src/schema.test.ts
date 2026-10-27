@@ -40,11 +40,9 @@ import {
 } from './seed';
 import {
   captionTemplate,
-  member,
   narration,
   scene,
   schema,
-  user,
   video,
   videoStatusEnum,
   videoStepEnum,

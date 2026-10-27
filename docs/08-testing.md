@@ -25,24 +25,38 @@ names its **artifact check** — the concrete thing you can look at, listen to, 
 ## 2. `npm run gate`
 
 ```json
-"gate": "npm run typecheck && npm run lint && npm run test:unit && npm run test:contract"
+"gate": "npm run typecheck && npm run lint && npm run test"
 ```
 
 | Command | What it covers | Speed target |
 |---|---|---|
-| `typecheck` | `tsc --noEmit`, strict, all packages | < 10 s |
-| `lint` | eslint + import boundaries (`core` may not import `infra`) | < 10 s |
-| `test:unit` | pure functions in `packages/core` | < 3 s |
-| `test:contract` | api routes + worker steps with faked ports (in-memory pg or testcontainers) | < 60 s |
-| `test:e2e` | full pipeline with fake engines + real ffmpeg on a 10 s video | < 90 s |
+| `typecheck` | `tsc --noEmit`, strict, `noUncheckedIndexedAccess`, all packages + apps | < 10 s |
+| `lint` | eslint 10 + typescript-eslint: `core` purity (relative imports only, no `Date`/`process`/`fetch`/`Math.random`), package boundaries, barrel-only imports, `no-explicit-any` | ~2 s |
+| `test` | every hermetic `*.test.ts` in `packages/*/src` and `apps/*/src` — unit, contract and wiring tests in one vitest run | < 5 s |
 | `test:db` | `withStep` against live Postgres + pg-boss (`vitest.db.config.ts`) | < 30 s |
 | `pytest` | `services/media` + `services/render` | < 60 s |
-| `test:live` | opt-in `LIVE=1`, hits real providers | minutes |
+| `test:live` | opt-in `RUN_LIVE=1` (Python) / `LIVE=1` (TS), hits real providers | minutes |
 | `sample:tts` | writes the 6 listening clips | minutes |
 
 **Default CI runs everything except `live`, `sample:tts` and `test:db`.** Those exist for the
 human gate or need a service; a gate must pass with no database running, or a missing Postgres
 looks like green tests.
+
+`.github/workflows/ci.yml` is that sentence as a workflow: a `gate` job (node 22, `npm ci`,
+`npm run gate`) and a `python` job (3.12, real ffmpeg via `apt-get`, `ruff check app tests`,
+`python -m pytest`). Adding `test:db` to CI means adding a Postgres service container in the same
+change — a job that skips when the service is absent would be a green light for a broken queue.
+
+`test` is deliberately **not** split into `test:unit` / `test:contract`: the split only earns its
+keep when one half needs different isolation (an in-memory pg, a testcontainer), and a script CI
+forgets to run is worse than one suite that always runs. When that need appears it becomes a
+vitest project inside `test`, not a second command beside it.
+
+Boundaries are enforced by `eslint.config.js`, not by convention: `packages/core` may import only
+relative files, `packages/contracts` only `zod`, packages may not import `apps/*`, and deep
+`@facelesspro/*/src/*` imports are rejected in favour of the package barrel. `apps/api` and
+`apps/worker` may not import `pg-boss` (or, for the api, `pg`/`drizzle-orm`): the vendor stays in
+`@facelesspro/db` and `@facelesspro/queue`.
 
 ---
 
@@ -79,7 +93,7 @@ and mcp at once — that is the point.
 
 | Test | Asserts |
 |---|---|
-| `health` | shape + version |
+| `health` | `200` when both probes resolve, `503` when either throws or hangs; a hung probe is cut at the deadline, not waited on; `status` is derived from the components; the body parses through `healthSchema` and never contains the probe's error text |
 | `auth` | missing / malformed / revoked / other-workspace key → 401 |
 | `create.ai-videos-v3` | required fields, both script+voiceover → 400, neither → 400, bad size for style → 400 |
 | `create.defaults` | every documented default is applied exactly |
@@ -101,11 +115,13 @@ db:migrate` twice must report `17 tables, 1 migrations applied` then `0 new capt
 
 ### 3.5 `packages/queue` (hermetic) + `test:db` (Postgres)
 
-`jobs.test.ts` runs in `npm run gate`, no database:
+`jobs.test.ts`, `ping.test.ts` and `health.test.ts` run in `npm run gate`, no database:
 
 | Test | Asserts |
 |---|---|
 | `jobs.test.ts` | queue name == step id for every contract step; `parseJob` rejects a non-object payload, a missing/malformed `videoId`, and an unknown queue (before looking at the payload); `jobData` drops everything but `videoId`; `nextStepOf` follows the public order and returns `null` after `render`; queue policy is 2 retries with backoff, 1 h expiry, 1 day retention; the default lock TTL is 30 min |
+| `ping.test.ts` | `ping` payload is a strict object with an optional trimmed note (blank/oversized/non-string rejected); the queue never retries and keeps the row for a day; `consume` subscribes once with `batchSize: 1`, parses every job, and fails the whole batch on the first malformed payload instead of skipping it |
+| `health.test.ts` | `expectedQueueNames()` is the five steps in contract order plus `ping`; `checkQueues` resolves only when every queue row exists, names all missing ones, passes names as a query parameter (never interpolated), honours a custom schema, rejects a schema that is not a plain identifier, and propagates a database error |
 
 `step.db.test.ts` runs only under `npm run test:db` (`vitest.db.config.ts`, `DB_TESTS=1`),
 against `docker compose` Postgres:
@@ -130,6 +146,7 @@ against `docker compose` Postgres:
 
 | Test | Asserts |
 |---|---|
+| `ping` | `startWorker` consumes exactly the `ping` queue while the pipeline is unbuilt; a job is logged and resolves (so pg-boss marks it completed); a malformed payload throws `InvalidJobError` rather than being swallowed; `stop()` calls `offWork` for every queue it started and nothing else |
 | `step.idempotent` | running a step twice charges once, produces one artifact |
 | `step.resume` | kill between `create-images` and `create-captions` → resume skips completed scenes |
 | `adapter.chain` | first adapter throws → second is used → event records `degradedFrom` |
