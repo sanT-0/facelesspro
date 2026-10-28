@@ -29,7 +29,7 @@ const plan = (overrides: Record<string, unknown> = {}) => ({
 
 describe('scene plan contract', () => {
   it('pins the adapter and motion vocabularies', () => {
-    expect(PLANNER_ADAPTERS).toEqual(['cloudflare', 'groq', 'ollama', 'heuristic']);
+    expect(PLANNER_ADAPTERS).toEqual(['cloudflare', 'groq', 'ollama', 'heuristic', 'chain']);
     expect(SCENE_MOTIONS).toContain('kenburns-in');
     expect(SCENE_MOTIONS).toContain('none');
   });

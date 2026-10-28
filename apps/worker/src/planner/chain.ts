@@ -13,7 +13,7 @@
 
 import type { PlannerAdapter, ScenePlan } from '@facelesspro/contracts';
 
-import type { PlanFn, PlanRequest, PlannerPort } from '../ports/planner';
+import type { PlanRequest, PlannerPort } from '../ports/planner';
 
 export interface AdapterFailure {
   adapter: PlannerAdapter;
@@ -34,12 +34,13 @@ export class PlannerChainError extends Error {
   }
 }
 
-export function createPlannerChain(adapters: readonly PlannerPort[]): PlanFn {
+export function createPlannerChain(adapters: readonly PlannerPort[]): PlannerPort {
   if (adapters.length === 0) {
     throw new TypeError('a planner chain needs at least one adapter');
   }
 
   return {
+    name: 'chain',
     plan: async (request: PlanRequest): Promise<ScenePlan> => {
       const failures: AdapterFailure[] = [];
 

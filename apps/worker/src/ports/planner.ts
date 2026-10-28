@@ -14,6 +14,8 @@
 import type { PlannerAdapter, ScenePlan } from '@facelesspro/contracts';
 import type { DurationRates } from '@facelesspro/core';
 
+export type { PlannerAdapter } from '@facelesspro/contracts';
+
 /** Art-style clauses injected into every image prompt (P3 fills these in). */
 export interface PlanStyle {
   /** Prepended: medium/composition, e.g. "flat vector illustration, wide shot". */
