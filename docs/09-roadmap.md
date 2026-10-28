@@ -140,23 +140,24 @@ Goal: narration that sounds like one bilingual person. Details: [05](./05-tts-ta
 - [x] `GET /voices` + `GET /voices/{pair}` exposed on the media service (the sample script
       resolves its pair there instead of hardcoding ids).
 
-**Gate:** all unit + stitch tests green; `pytest` green; **the male set and every female voice's
-fresh-text clip (07) are approved**. The 01–06 clips of the four female sets were rendered for
-those voices and are pending one listen — until they pass, P1 is one listen from closed, not
-closed. No seam audible in `03-mixed-paragraph.mp3`; Tamil glyphs correct.
+**Gate:** all unit + stitch tests green; `pytest` green; **all five sets approved by ear** —
+`valluvar` on 2026-10-27, and the 01–06 clips of the four female sets on 2026-10-28
+(*"i heared all voice now that ok"*), which was the last thing P1 was waiting for. No seam audible
+in `03-mixed-paragraph.mp3`; Tamil glyphs correct. **P1 is closed.**
 
 **Artifact check:** `samples/tts/valluvar/05-tanglish.mp3` — `"vanakkam machan, epdi irukka?
 today we talk about money."` sounds like one Tamil speaker, not two; the same sentence in
 `samples/tts/pallavi/05-tanglish.mp3` sounds like one Tamil woman, not two.
 
-Status 2026-10-27: **P1 is one listen from closed.** The first run failed on Tamil naturalness
+Status 2026-10-28: **P1 is closed.** The first run failed on Tamil naturalness
 ("not natural") and the follow-up named *gaps between words* and *the voice's timbre*. Both are
 fixed: pauses inside a run are compressed (65–175 ms → 50 ms) with the words re-timed to the
 frame, and the catalogue now allows only **one speaker per pair**, because the second voice was
 audible as a narrator swap inside a sentence ("pair tamil and english voice are spoken with
 different voice"). The clips were regenerated and measured green on loudness, duration, timeline
 and voice count; the male set was approved, and the female set was approved with a voice that
-later failed on fresh text — hence the re-open below.
+later failed on fresh text — hence the re-open below. That re-open closed on 2026-10-28, when the
+24 still-unheard clips (`01`–`06` of the four female sets) were played and passed.
 
 The female line stays in the catalogue and is **not** optional — a channel may want a woman
 narrating. Choosing her took three rounds and one instructive failure:
@@ -180,8 +181,8 @@ chosen, so a voice cannot be approved on text it happened to suit.
 The full female set is rendered next to the male one rather than over it:
 `TTS_PAIR=pallavi npm run sample:tts` → `samples/tts/pallavi/`, seven clips at 10.00 /
 9.44 / 15.57 / 7.13 / 3.99 / 15.77 / 14.80 s, −16.26…−16.49 LUFS, TP ≤ −1.76 dBTP, one voice per
-clip, frame-exact. Her clip 07 passed by ear; 01–06 of every female set are the last listen
-between this phase and a close.
+clip, frame-exact. Her clip 07 passed by ear first; all seven of her clips, and all seven of the
+other three female sets, were heard and passed on 2026-10-28.
 
 Each option voice has its own seven-clip set in `samples/tts/{seraphina,vivienne,thalita}/`
 — 21 clips, one voice each, frame-exact, −16.22…−16.36 LUFS, TP ≤ −1.75 dBTP. Their fresh clip
@@ -194,12 +195,55 @@ or GPU IndicF5), which needs its own decision.
 
 ## P2 — Scene planner
 
-- [ ] `PlannerPort` + adapters: cloudflare, groq, ollama, heuristic.
-- [ ] Prompt contract: strict JSON, scene count bounds, char budget, per-scene image prompt.
+- [x] `PlannerPort` + the heuristic adapter —
+      `apps/worker/src/ports/planner.ts` (`PlanFn`, `PlannerPort` with a self-identifying
+      `name`, `PlanRequest`, `PlanStyle`), `apps/worker/src/planner/heuristic.ts`
+      (`createHeuristicPlanner()` over `packScenes()`, `imagePromptFor()`) and
+      `apps/worker/src/planner/chain.ts` (`createPlannerChain()`, `PlannerChainError`). The chain
+      is the `PLANNER=cloudflare,groq,heuristic` mechanism: the first healthy adapter wins, each
+      failure is recorded in `degradedFrom` (owned by the chain, not the adapter), and the step
+      fails only when every adapter fails. The heuristic adapter is also the fake — it is offline
+      and deterministic, so there is no second implementation to drift. 20 tests. Artifact:
+      chain `[cloudflare(down), groq(down), heuristic]` over the P2 fixture → valid plan,
+      `adapter: heuristic`, `degradedFrom: [cloudflare, groq]`, 3 scenes, 41 700 ms, prompts
+      style-injected and ≤1000 chars.
+- [ ] Provider planner adapters behind the same port: cloudflare, groq, ollama.
+- [ ] Prompt contract: strict JSON, scene count bounds, 8–20 s per scene, per-scene image prompt.
 - [ ] Repair loop (one retry with a diff) → deterministic fallback.
-- [ ] Sentence splitter handling Tamil + Latin terminators and abbreviations.
+- [x] Sentence splitter handling Tamil + Latin terminators and abbreviations —
+      `packages/core/src/sentences.ts`: `normalizeScript` (curly quotes → ASCII, whitespace
+      collapsed, zero-width spaces dropped, em dash kept because it is prosody) and
+      `splitSentences` (`.` `!` `?` `…` `।` `॥`; `3.5`, `Rs.500`, `Dr.`, `p.m.`, `A. R.` and
+      `திரு.` stay inside their sentence; a Tamil quotative (`"…?" என்று கேட்டார்`) keeps its
+      quote; a blank line is a boundary; an ellipsis only ends a sentence before a new one;
+      `.` inside `[[…]]` never splits; offsets index the normalised script). 22 tests, including
+      the invariant `join(' ') === normalizeScript(script)`.
+      Artifact: a 408-character mixed Tamil/English script → 8 sentences, every offset slice
+      equal to its text, `concat === script` true.
+- [x] Deterministic scene packing, 8–20 s per scene and ≤120 scenes —
+      `packages/core/src/scenes.ts`: `packScenes(script, { minSeconds?, maxSeconds?, maxScenes?,
+      rates?, sentencePauseSeconds? })` → `{ text, startMs, endMs }[]`. Sentences are the units;
+      a sentence longer than 20 s is cut at word boundaries into balanced parts (no gap at the
+      cut, because no sentence ends there); the plan is chosen by dynamic programming so a short
+      trailing sentence joins a neighbour instead of becoming a 0.5 s runt; the scene cap is met
+      by merging the cheapest adjacent pair, accepting an over-long scene rather than dropping
+      text. Scene spans include their internal 300 ms sentence gaps and the last `endMs` equals
+      `estimateDuration(script)`. 14 tests. Artifact: `fixtures/scripts/tamil-mixed.txt`
+      (627 chars, 12 sentences, 86 words, 41.70 s) → 3 scenes of 14.78 / 14.54 / 11.79 s,
+      contiguous, `concat === script`, plan ends at 41 700 ms = the estimate.
 - [ ] `POST /v1/videos/plan` (dry run, no charge).
-- [ ] Duration estimate per language (ta ≈130 wpm, en ≈150 wpm, mixed ≈140).
+- [x] Duration estimate per language (ta ≈130 wpm, en ≈150 wpm, mixed ≈140) —
+      `packages/core/src/duration.ts`: `estimateDuration(text, { rates?, sentencePauseSeconds? })`
+      → `{ seconds, durationMs, words, taWords, enWords, mixedWords, sentencePauses, rates }`.
+      Per-word language, so one mixed sentence is priced as Tamil words at 130 and English words
+      at 150; numbers are expanded first (`₹1,20,000` is five spoken words, not one token) in the
+      language of their own clause; one 300 ms gap per sentence break, matching
+      `BASE_GAP_MS["sentence"]`. 15 tests. Calibration against the 35 shipped sample clips:
+      Tamil mean −1.5% / MAE 6.2%, mixed (25 clips, the product's core) mean −0.5% / MAE 8.6%,
+      all 10.0% MAE. Pure-English clips are the known bias: the shipped voices read them at
+      153–202 wpm, so `en: 150` estimates ~20% long there; kept because raising it to 165 makes
+      the mixed case worse (−5.5%) and the per-voice spread is larger than the correction.
+      Per-pair `rates` are the supported escape hatch once the planner knows the voice.
 
 **Gate:** `fixtures/scripts/*` → stable plans; `concat(scene.text)` preserves the script;
 every model down → heuristic still produces a valid plan.

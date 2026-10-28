@@ -15,7 +15,8 @@ POST /v1/ai-videos-v3
 3. Resolve `artStyleId` → must exist, be `ready`, and support `size`.
 4. Reject if `script` present **and** `voiceoverUrl` present (exactly one), or neither.
 5. Reject if the script is likely to exceed the plan's max minutes
-   (estimate: 150 wpm × language factor; Tamil ≈ 130 wpm).
+   (`estimateDuration()` in `packages/core`: ta 130 / en 150 / mixed 140 wpm, numbers expanded
+   first; Tamil ≈ 130 wpm is the anchor).
 6. Insert `video` row (`status=processing`, `step=create-scenes`, `request` normalised).
 7. Enqueue `create-scenes`. Return `{id, status, render: bool, createdAt, editorUrl}` in < 100 ms.
 
@@ -36,31 +37,62 @@ script ──► normalise ──► language plan ──► split into beats �
 
 Sub-steps:
 
-1. **Normalise** — unify quotes/dashes, collapse whitespace, keep emoji, split into sentences
-   with an abbreviation-safe splitter (Tamil uses `।`-like `।`? no — Tamil uses `.`, `?`, `!`
-   plus `ஃ` cases; our splitter handles Latin + Tamil terminators).
+1. **Normalise** — unify curly quotes and apostrophes to ASCII, keep dashes (an em dash is
+   prosody: the listening gate approved a clip that has one), collapse whitespace, drop
+   zero-width spaces, keep emoji. Then split into sentences with an abbreviation-safe splitter
+   (`packages/core/src/sentences.ts`): Tamil and Latin both end on `.`, `?`, `!`, plus `…` and
+   the danda; `3.5`, `Rs.500`, `Dr.`, `p.m.`, `A. R.` and `திரு.` stay inside their sentence;
+   a blank line is a boundary; an ellipsis ends a sentence only before a new one; a period
+   inside `[[…]]` never splits; a Tamil quotative stays with the quote it closes
+   (`"நான் வருகிறேன்?" என்று கேட்டார்.` is one sentence). Sentences are slices of the
+   input, so `concat(scene.text) === normalizeScript(script)` is an invariant, not a hope.
 2. **Language plan** — run `segmentText()` from `packages/core`; annotate each sentence with
    its dominant script and a per-run plan. Cheap, deterministic, no model.
-3. **Beat splitting** — LLM returns JSON only:
+3. **Duration estimate** — `estimateDuration()` from `packages/core` turns text into seconds at
+   ta 130 / en 150 / mixed 140 wpm plus one 300 ms sentence gap, expanding numbers first so
+   `₹1,20,000` is priced as the four words the engine speaks. This is the number the request
+   path uses to reject an over-long script (before any audio exists) and the number scene
+   packing targets. Calibrated against the shipped sample sets: Tamil −1.5% mean / 6.2% MAE,
+   mixed −0.5% / 8.6% MAE. Pure-English clips run faster than 150 wpm on the shipped voices
+   (153–202 wpm, +20.5% mean error), so an English-only script is estimated ~15% long; the
+   planner may pass per-pair `rates` once it knows the voice. Commas and clause pauses are
+   deliberately not modelled, which is why a comma-dense 7 s clip can read −20%.
+4. **Beat splitting** — LLM returns JSON only, and never timings:
    ```jsonc
    { "scenes": [
        { "text": "…", "imagePrompt": "…", "motion": "kenburns-in", "emphasis": ["word"] }
    ]}
    ```
-   Constraints enforced *after* the model: scene count, max chars/scene
-   (`target ≈ charsPerSecond × targetSceneSeconds`), no empty scenes, text concatenation must
-   equal the original script (modulo whitespace).
-4. **Repair loop** — if the model output violates constraints, re-ask once with the diff;
-   then fall back to the **deterministic splitter** (sentence packing by duration + a
-   templated image prompt derived from the sentence's nouns). Never fail the video here.
-5. **Image prompts** — one per scene, style-injected:
+   The stored shape is `scenePlanSchema` (`packages/contracts/src/planner.ts`) —
+   `{ scenes: [{ text, imagePrompt, motion, emphasis, startMs, endMs }], adapter, degradedFrom,
+   totalMs }` — where `motion` must be one of `SCENE_MOTIONS` (the presets the render service
+   implements), a prompt is ≤1000 chars, and `startMs`/`endMs` come from `packages/core`, so a
+   model cannot move a cut. `adapter` names who planned it and `degradedFrom` lists the adapters
+   that failed first: a degraded video is explainable afterwards without reading logs.
+   Constraints enforced *after* the model: scene count, 8–20 s per scene measured with
+   `estimateDuration()` (characters are not the budget — Tamil and English do not have the same
+   chars-per-second), no empty scenes, text concatenation must equal the original script
+   (modulo whitespace).
+5. **Repair loop** — if the model output violates constraints, re-ask once with the diff;
+   then fall back to **`packScenes()`** from `packages/core`: a dynamic programme over sentences
+   that keeps every scene inside 8–20 s (splitting an over-long sentence at word boundaries,
+   with no pause at the cut), caps the plan at 120 scenes by merging the cheapest adjacent pair,
+   and makes the scene spans add up to the narration estimate. Never fail the video here.
+   This fallback is a real adapter, not a special case: `planner/heuristic.ts` implements
+   `PlannerPort`, so `PLANNER=cloudflare,groq,heuristic` ends in it and a test can use it as the
+   offline fake. Its image prompts are a templated description of the scene's own words —
+   literal, literal-minded, and honest about it: without a model it cannot say *what the picture
+   is*, only what is being said, so an LLM image adapter is what makes prompts good.
+6. **Image prompts** — one per scene, style-injected:
    `"{style.promptPrefix}, {scene description}, {style.paletteClause}, {style.lineClause},
-     no text, no watermark, {style.negative}"`.
+     no text, no watermark, {style.negative}"`. The heuristic adapter bounds the description to
+   18 whole words / 220 characters (never splitting a Tamil cluster) and keeps the style clauses,
+   because the style carries the look of the whole video.
 
 **Artifacts:** `plan.json`. **Ledger:** planner tokens are not billed to the user in self-host
 mode; recorded as `action=plan` with `units=0` for observability.
 
-**Test hooks:** golden script → snapshot of scene count/char budget; property test
+**Test hooks:** golden script → snapshot of scene count and scene durations; property test
 "concat(scenes.text) preserves script"; fallback determinism test.
 
 ### 1b. `create-scenes` with a voiceover

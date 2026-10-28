@@ -201,7 +201,7 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       build cannot demonstrate for it.
 - [ ] P0 close-out: first green CI run on the remote (needs a push).
 
-## P1 Tamil + English TTS ⭐ — one listen from closed (2026-10-27)
+## P1 Tamil + English TTS ⭐ — closed (2026-10-28)
 
 - [x] 2026-10-26 — pre-existing: script-aware segmenter + 170-word Tanglish lexicon, 196 test lines
 - [x] 2026-10-26 — pre-existing: edge-tts engine with `WordBoundary` timings, `/synthesize`
@@ -458,8 +458,9 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Fresh clip: Vivienne 12.65 s, Thalita 13.26 s, Seraphina 15.88 s (Pallavi 14.80 s).
       Surprise: after a timbre passes, pace is what actually distinguishes these three — the same
       sentence differs by 3.2 s — so "which female voice" is a channel-style choice, not a single
-      right answer. Not yet heard: the 01–06 clips of all four female sets (only clip 07's text was
-      auditioned); P1 still waits on the ear.
+      right answer. Not yet heard at the time: the 01–06 clips of all four female sets (only clip
+      07's text was auditioned); P1 waited on the ear — heard and passed the next day, see the
+      close-out entry below.
 - [x] **2026-10-28 — one canonical path per voice: `samples/tts/<pair>/`.** The sets were split
       three ways (`samples/tts/` for the male default, `samples/tts/female/` for Pallavi,
       `samples/tts/voices/<pair>/` for the options), so a path did not tell you which voice it held
@@ -483,6 +484,22 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       prosody round — duplicates of the canonical sets with stale durations, which is exactly how
       "which file did I listen to?" becomes unanswerable. Kept as history, but they are no longer
       reachable through the documented path.
+
+- [x] **2026-10-28 — P1 CLOSED: the listening gate passed on all five voices.** Verdict on the
+      24 clips that were still unheard (`01`–`06` of `pallavi`, `seraphina`, `vivienne`,
+      `thalita`): *"i heared all voice now that ok"*. With `valluvar`'s set already approved on
+      2026-10-27, every one of the 35 delivered clips has now been heard by the user and none was
+      rejected. Recorded as the user's judgement, **not** as a test result: the measurements
+      (frame-exact master, −16.22…−16.49 LUFS, TP ≤ −1.75 dBTP, one voice per clip) prove the
+      files are well-formed; only the ear can say they sound like one person.
+      What this closes: narration for both languages from one speaker per voice, five selectable
+      narrators (`valluvar` male default, `pallavi` female default, `seraphina`, `vivienne`,
+      `thalita`), gates green (gate 472 tests / 26 files, pytest 113 passed / 3 LIVE-skipped,
+      ruff clean). **Observed**: all 35 files exist at `samples/tts/<pair>/` and were played.
+      **Assumed**: nothing about P1 is assumed by the agent — the audio itself is the evidence,
+      and the verdict is the user's.
+      Still deferred (not acceptance criteria, no gate clip exercises them): numeral sandhi for
+      glued case suffixes, and the dangling hyphen in `channel-க்கு`.
 - [ ] 2026-10-27 — `rate` joins the cache key if it is adopted (key is `(engine, voice, text)`
       today; the same text at a different rate is different audio). Not adopted yet: the verdict
       named gaps and timbre, and `rate=+12%` was only a prototype.
@@ -495,6 +512,111 @@ Format: `[x] date — note`. Anything surprising goes in the note.
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this
 file stays the single "what is actually true today" view.
+
+### P2 — scene planner
+
+- [x] **2026-10-28 — step 1: pure sentence splitter.** `normalizeScript` + `splitSentences` in
+      `packages/core/src/sentences.ts`, exported from the barrel. Sentences are slices of the
+      input, so `concat(sentences.text) === normalizeScript(script)` holds by construction, and
+      offsets index the normalised string so a caller can map back without re-searching.
+      Abbreviation-safe in both scripts: `3.5`, `Rs.500`, `Dr.`, `p.m.`, `A. R. Rahman`, `திரு.`
+      do not split; `...`/`…` end a sentence only when a new one starts after it; a blank line is
+      a boundary; a period inside `[[en:…]]` never splits; closing quotes and brackets stay with
+      the sentence they close. 19 tests (21 files / 409 total), ruff untouched, gate green.
+      Artifact: a 408-character mixed script (Tamil + English + `₹1,20,000` + em dash + emoji +
+      paragraph break) → 8 sentences, every offset slice equals its text, `concat === script`
+      true.
+      Spec deviation, fixed in the same change: `docs/04` said normalise "quotes/dashes" — quotes
+      yes, dashes no. An em dash is prosody and the listening gate approved a clip that contains
+      one, so collapsing it to a hyphen would edit audio that has already passed.
+      Surprise: the Tamil abbreviation case is where the first implementation broke — Tamil vowel
+      signs are Unicode *marks*, so a "letters only" token scan turned `திரு` into `ரு` and split
+      the sentence. Marks have to be part of the token.
+
+- [x] **2026-10-28 — step 2: duration estimate per language.** `estimateDuration()` in
+      `packages/core/src/duration.ts` (exported): ta 130 / en 150 / mixed 140 wpm applied per
+      word, not per text, so one Tamil/English sentence is priced word by word; one 300 ms gap
+      per sentence break (`BASE_GAP_MS["sentence"]`); `seconds` + integer `durationMs` for the
+      planner; optional `rates` / `sentencePauseSeconds`; invalid rates throw. 15 tests
+      (22 files / 425 total), gate green, ruff untouched.
+      Calibrated against all 35 shipped sample clips (`samples/tts/*/report.json`, measured
+      `duration_ms` vs the estimator): Tamil mean −1.5% / MAE 6.2%, mixed (25 clips) mean −0.5% /
+      MAE 8.6%, everything 10.0% MAE. Two findings changed the code rather than the numbers:
+      - Number expansion happens *before* counting now. A digit is not a spoken word:
+        `₹1,20,000` is five words. `06-numbers-dates` moved from −27.3% to −0.9% … +7.1% error
+        (voice-dependent) with that one change alone. This also matches the pipeline order
+        (`plan.ts` expands before segmentation), so the estimate prices what the engine speaks.
+      - Rates were **not** tuned to the corpus. Pure-English clips are the exception: the shipped
+        voices read 24 English words at 153–202 wpm (pallavi 152.6, valluvar 163.0, seraphina
+        164.8, thalita 193.7, vivienne 201.9), so 150 wpm estimates ~20% long on English-only
+        scripts. Setting `en: 165` cuts that to 11.6% MAE but pushes the mixed case, i.e. the
+        product's core, from −0.5% to −5.5% mean. The per-voice spread is wider than the
+        correction, so the defaults stay as specified and `rates` is the escape hatch for a
+        future per-pair estimate.
+      - Residual negative bias (−26% worst) is the comma/clause pauses the estimator deliberately
+        does not model, seen on a 7 s comma-dense clip; the planner gets real durations after TTS.
+      Small fix found while calibrating: `NUMBER_TOKEN` used `\d[\d,]*`, which swallowed the comma
+      in `2025, and the budget`, so the engine lost the clause pause the author wrote. The digits
+      group now ends on a digit; new test in `numbers.test.ts`.
+
+- [x] **2026-10-28 — step 3: deterministic scene packing.** `packScenes()` in
+      `packages/core/src/scenes.ts`, exported, with `DEFAULT_SCENE_MIN_SECONDS = 8`,
+      `DEFAULT_SCENE_MAX_SECONDS = 20`, `DEFAULT_MAX_SCENES = 120` (mirrors `MAX_SCENES`; core has
+      no dependencies, so the number is restated with a comment). Returns `{ text, startMs, endMs }`.
+      Sentences are the units; a sentence over 20 s is cut at word boundaries into balanced parts
+      and the cut carries no gap; the plan is a dynamic programme, so a short trailing sentence
+      joins a neighbour instead of becoming a 0.5 s runt (the greedy version of this left
+      `வாழ்த்துக்கள் 🙏` alone); the 120-scene cap is met by merging the cheapest adjacent pair,
+      accepting a >20 s scene rather than dropping text. Scene spans include their internal
+      300 ms sentence gaps and the last `endMs` equals `estimateDuration(script).durationMs`.
+      14 tests (23 files / 442 total), gate green.
+      Spec deviation, fixed in the same change: `docs/04` specified a char budget per scene
+      (`charsPerSecond × targetSceneSeconds`). Characters are a bad proxy across scripts — Tamil
+      packs fewer words per character than English — so the budget is now 8–20 s of
+      `estimateDuration()` and the dimension is gone from the spec.
+      Artifact: new fixture `fixtures/scripts/tamil-mixed.txt` (627 chars, 12 sentences, 86 words,
+      41.70 s) → 3 scenes of **14.78 / 14.54 / 11.79 s**, contiguous (0–14 777, 15 077–29 615,
+      29 915–41 700 ms), `concat(scene.text) === script` true, plan end 41 700 ms = estimate.
+      Surprise, found by that fixture: the sentence splitter cut `"நான் எப்படி start பண்ணுவது?"`
+      away from its `என்று`, leaving a 0.46 s sentence `என்று.` — a mid-clause cut, because Tamil
+      reported speech puts the quotative after the quote. Fixed in `sentences.ts` in the same
+      change (`என்று / என்றார் / என்றாள் / என்றது / என்றால் / என்பது / என்ற`, whole-word only, so
+      `என்றும்` is not mistaken for one), 3 tests, and the sentence count for the fixture went
+      13 → 12.
+
+- [x] **2026-10-28 — step 4: `PlannerPort` + the heuristic adapter + the chain.**
+      Contract first: `scenePlanSchema` / `plannedSceneSchema` in
+      `packages/contracts/src/planner.ts` with `SCENE_MOTIONS` (the presets the render service
+      implements), `PLANNER_ADAPTERS`, `MAX_IMAGE_PROMPT_CHARS = 1000`,
+      `MAX_EMPHASIS_WORDS = 12`. A plan is `{ scenes[], adapter, degradedFrom, totalMs }`; the
+      schema rejects overlap, a first scene not at 0, `totalMs ≠ last endMs`, an empty plan,
+      >120 scenes and unknown keys, so a bad plan fails at the boundary instead of in the
+      renderer. **Timings are never a model's output** — `startMs`/`endMs` come from
+      `packScenes()`.
+      `apps/worker/src/ports/planner.ts`: `PlanFn`, `PlannerPort` (extends it with a
+      self-identifying `name`), `PlanRequest`, `PlanStyle`.
+      `apps/worker/src/planner/heuristic.ts`: `createHeuristicPlanner()` over `packScenes()` +
+      `imagePromptFor()` (`"{prefix}, {description}, {suffix}, {negative}"`, description trimmed
+      by whole word to 18 words / 220 chars, style clauses never trimmed, motion cycled, emphasis
+      empty because inventing it without a model is worse than none).
+      `apps/worker/src/planner/chain.ts`: `createPlannerChain([…])`, so
+      `PLANNER=cloudflare,groq,heuristic` is the whole config — first healthy adapter wins, the
+      **chain** owns `degradedFrom` (adapters name themselves), all-fail throws
+      `PlannerChainError` with each failure's message. A degraded plan is explainable later
+      without reading logs. 30 tests (26 files / 472 total), gate green.
+      Deviation, fixed in the same change: `docs/08` promised a purpose-built `PlannerPort` fake
+      ("a fixed 5-scene plan derived from the sentence count"). The heuristic adapter is offline
+      and deterministic, so it *is* the fake and is also the last real adapter — one
+      implementation instead of two that drift. The fakes row now says that.
+      Artifact: `createPlannerChain([cloudflare(down), groq(down), heuristic])` over
+      `fixtures/scripts/tamil-mixed.txt` → valid `scenePlanSchema`, `adapter: heuristic`,
+      `degradedFrom: [cloudflare, groq]`, 3 scenes 14.78 / 14.54 / 11.79 s, 41 700 ms, gaps
+      600 ms across 2 boundaries, prompts style-injected, ≤1000 chars, motions alternating.
+      Honest limitation, observed in that artifact: a model-less prompt is the scene's own words
+      (`"flat vector illustration, wide shot, இன்று நாம் பேசுவது about money …"`, with
+      `₹1,20,000` flattened to `1 20 000`). It tells an image model what is *said*, not what to
+      *draw*; that is the provider adapter's job, not the fallback's. Trimming by character count
+      would cut a Tamil cluster in half, so the trim is by word.
 
 ---
 

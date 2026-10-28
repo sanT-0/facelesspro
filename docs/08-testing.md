@@ -68,13 +68,15 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 |---|---|
 | `segmenter.test.ts` | Tamil/en/tanglish labelling, run merging, punctuation preservation, "no two adjacent runs share a lang", overrides |
 | `transliterate.test.ts` | 300-pair golden table, residual passthrough, never throws on emoji/digits/combining marks |
-| `numbers.test.ts` | ta vs en expansion of 2024 / ₹500 / 3pm / 50% / 1,20,000 |
-| `scenes.test.ts` | char budget, min/max scenes, `concat(text) === script`, deterministic fallback |
+| `numbers.test.ts` | ta vs en expansion of 2024 / ₹500 / 3pm / 50% / 1,20,000, and a comma after a number survives (the clause pause) |
+| `scenes.test.ts` | 8–20 s scenes, no runt at the end, over-long sentence split at word boundaries, ≤120 scenes by merging, spans contiguous and ending on the narration estimate, `concat(text) === script`, determinism, bad bounds rejected |
 | `captions.test.ts` | line breaking, word limit, Tamil grapheme clusters never split, cue monotonicity |
 | `timeline.test.ts` | global = run.start + word.local; gaps by boundary class; no overlaps |
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
 | `ass.test.ts` | ASS document well-formed, style ids reference real styles, font names bundled |
 | `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
+| `sentences.test.ts` | Tamil/Latin terminators, abbreviations (`Dr.`, `Rs.500`, `p.m.`, `திரு.`), decimals, initials, ellipsis, closing quotes, Tamil quotatives (`"…?" என்று` stays one sentence), paragraph breaks, offsets into the normalised script, `concat === script` |
+| `duration.test.ts` | ta 130 / en 150 / mixed 140 wpm, per-word blend, numbers expanded before counting, `₹1,20,000` = 5 words not 1 and unspellable digits keep the mixed rate, one 300 ms gap per sentence, `durationMs`, zero for silence, override rates, rate validation |
 
 Property tests (fast-check) for the timing invariants: 10k random voice plans must produce a
 monotonic, gap-respecting, non-overlapping timeline.
@@ -86,6 +88,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 | `requests.test.ts` | every documented default (V3 stability 50, V2 stability 38 + style 50, roblox pitch 140, TTS 38); script limit per aspect; exactly one of script/voiceover; https-only webhook with localhost rejected; unknown keys rejected; all 16 V2 and 9 quiz image styles; unknown `characterId`; `correctIndex` bounds; `{{answer}}` required; 100-item and 1000-message caps; caption-template id 0 invalid |
 | `transport.test.ts` | the error-code table (11 codes → documented statuses); create vs read video shape; webhook body embeds the same video schema; 10 attempts = 9 gaps totalling ~24 h; signature covers `t.body`; synthesize request parity with pydantic; the Python timeline parses including `+00:00`/microseconds; cache-stats union |
 | `db.test.ts` | one realistic row for each of the 17 tables; `credits` required and nullable; caption-template id 0 rejected; the upstream `create image` spelling rejected; narration requires a voice plan |
+| `planner.test.ts` | adapter and motion vocabularies pinned; a heuristic-shaped plan parses; `degradedFrom` keeps the order tried; unknown motion, empty text/prompt, over-long prompt rejected; zero-length scene, overlap, a first scene not at 0, `totalMs ≠ last endMs`, empty plan, >120 scenes, unknown keys all rejected |
 
 Because these schemas are the single shape source, a red contract test blocks api, worker, web
 and mcp at once — that is the point.
@@ -150,6 +153,8 @@ against `docker compose` Postgres:
 | `ping` | `startWorker` consumes exactly the `ping` queue while the pipeline is unbuilt; a job is logged and resolves (so pg-boss marks it completed); a malformed payload throws `InvalidJobError` rather than being swallowed; `stop()` calls `offWork` for every queue it started and nothing else |
 | `step.idempotent` | running a step twice charges once, produces one artifact |
 | `step.resume` | kill between `create-images` and `create-captions` → resume skips completed scenes |
+| `planner.heuristic` | the fixture plans into a valid 8–20 s plan; `concat(text) === script`; style prefix/suffix/negative land in every prompt; prompts ≤1000 chars and trimmed by whole word (never inside a Tamil cluster); punctuation and emoji stripped from descriptions; motion cycles; no emphasis invented without a model; a slower voice gets more scenes; the cap is honoured past 20 s; empty script rejected; deterministic |
+| `planner.chain` | first healthy adapter wins with empty `degradedFrom`; each failure falls through and is recorded in order; all-fail throws `PlannerChainError` with every adapter's message; a non-`Error` rejection survives as text; an empty chain is rejected at construction |
 | `adapter.chain` | first adapter throws → second is used → event records `degradedFrom` |
 | `adapter.allfail` | every adapter down → `failed`, `step` correct, no charge |
 | `ledger.atomic` | a throw after artifact write rolls back both the ledger and the step |
@@ -197,7 +202,7 @@ Every port has a deterministic fake, used by default in tests:
 
 | Port | Fake behaviour |
 |---|---|
-| `PlannerPort` | returns a fixed 5-scene plan derived from the script's sentence count |
+| `PlannerPort` | there is no separate fake: the **heuristic adapter** is deterministic and offline, so tests use `createHeuristicPlanner()` (a plan derived from `packScenes()`, templated prompts, cycled motion, no emphasis). It is also the last link of the real chain, so the fake is exercised in production too. |
 | `TTSPort` | returns a generated sine/silence WAV of `chars/15` seconds + evenly spaced fake word timings |
 | `ASRPort` | returns the known fixture transcript + timings |
 | `ImagePort` | returns a deterministic SVG→PNG with the prompt's hash rendered |

@@ -193,6 +193,17 @@ describe('expandNumbers — forms', () => {
     expect(expandNumbers('  ', 'en')).toBe('  ');
     expect(expandNumbers('', 'en')).toBe('');
   });
+
+  it('keeps a comma that follows a number, so the clause pause survives', () => {
+    // `\d[\d,]*` used to swallow this comma: the engine then spoke
+    // "twenty twenty-five and the budget" with no pause at all.
+    expect(expandNumbers('in 2025, we left', 'en')).toBe(
+      'in twenty twenty-five, we left',
+    );
+    expect(expandNumbers('₹50,000, then more', 'en')).toBe(
+      'fifty thousand rupees, then more',
+    );
+  });
 });
 
 describe('expandNumbers — must not touch identifiers', () => {

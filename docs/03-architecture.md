@@ -55,7 +55,8 @@ pipeline.
 
 ```ts
 // apps/worker/src/ports/
-interface PlannerPort  { plan(script: ScriptCtx): Promise<ScenePlan> }
+interface PlanFn        { plan(request: PlanRequest): Promise<ScenePlan> }
+interface PlannerPort extends PlanFn { readonly name: PlannerAdapter }
 interface TTSPort      { synthesize(plan: VoicePlan): Promise<Narration> }
 interface ASRPort      { transcribe(audio: Buffer): Promise<WordTimings> }
 interface ImagePort    { draw(prompt: ImagePrompt, style: StyleProfile): Promise<Image> }
@@ -64,6 +65,13 @@ interface RenderPort   { render(spec: RenderSpec): Promise<Artifact> }
 interface StoragePort  { put(key, bytes): Promise<Url>; get(key): Promise<Bytes> }
 interface NotifyPort   { deliver(event: WebhookEvent): Promise<DeliveryResult> }
 ```
+
+`PlannerPort` is the one port built so far (`apps/worker/src/ports/planner.ts`), and it is the
+template for the rest: the adapter **names itself** (`name`), returns the stored contract shape
+(`ScenePlan`, parsed with zod at the boundary), and the chain — not the adapter — owns
+`degradedFrom`, so degradation history is written in one place. Timings are never a model's
+output: adapters that ask an LLM for beats still take `startMs`/`endMs` from
+`estimateDuration()`/`packScenes()` in `packages/core`.
 
 Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper}`,
 `asr/{whisper-local,cloudflare}`, `image/{cloudflare,pollinations,comfyui}`,

@@ -233,8 +233,12 @@ function spell(
 
 // Currency prefix, number, optional unit suffix. The lookbehind stops us from
 // rewriting digits that are part of an identifier (`mp3`, `h264`, `v2`).
+//
+// The digits group has to *end on a digit*: `\d[\d,]*` would swallow the comma
+// in `2025, and the budget` and the clause pause the author wrote would vanish
+// from the text the engine speaks.
 const NUMBER_TOKEN =
-  /(?<![A-Za-z0-9])(?:(₹|Rs\.?|INR)\s*)?(\d[\d,]*(?:\.\d+)?)(?:\s*(%|percent|am|pm|a\.m\.|p\.m\.))?(?![A-Za-z0-9])/giu;
+  /(?<![A-Za-z0-9])(?:(₹|Rs\.?|INR)\s*)?(\d(?:[\d,]*\d)?(?:\.\d+)?)(?:\s*(%|percent|am|pm|a\.m\.|p\.m\.))?(?![A-Za-z0-9])/giu;
 
 interface NumberMatch {
   start: number;

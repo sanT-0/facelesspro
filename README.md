@@ -74,8 +74,8 @@ docs                everything in the table above
 |---|---|
 | Docs & plan | ✅ done |
 | P0 foundation | ✅ built locally; remote CI run pending a push |
-| P1 Tamil/English TTS | 🟡 one listen from done — male (`valluvar`) approved; four female voices ship (`pallavi` default, `seraphina`, `vivienne`, `thalita`), each approved on fresh text; the 01–06 clips of the four female sets are pending |
-| P2 scene planner | ⬜ next |
+| P1 Tamil/English TTS | ✅ closed 2026-10-28 — all 35 gate clips approved by ear; five voices (`valluvar` male default, `pallavi` female default, `seraphina`, `vivienne`, `thalita`) |
+| P2 scene planner | 🟡 in progress — splitter, duration estimate, scene packing and `PlannerPort` + heuristic adapter built; provider adapters, prompt contract, repair loop and `POST /v1/videos/plan` next |
 
 ## Licence
 

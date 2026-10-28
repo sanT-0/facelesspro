@@ -49,3 +49,18 @@ export type {
   NarrationVoiceIds,
 } from './plan';
 export { SAMPLE_ROOT, sampleSetDir } from './samples';
+export { normalizeScript, splitSentences } from './sentences';
+export type { Sentence } from './sentences';
+export {
+  DEFAULT_DURATION_RATES,
+  DEFAULT_SENTENCE_PAUSE_SECONDS,
+  estimateDuration,
+} from './duration';
+export type { DurationEstimate, DurationOptions, DurationRates } from './duration';
+export {
+  DEFAULT_MAX_SCENES,
+  DEFAULT_SCENE_MAX_SECONDS,
+  DEFAULT_SCENE_MIN_SECONDS,
+  packScenes,
+} from './scenes';
+export type { PackScenesOptions, SceneDraft } from './scenes';

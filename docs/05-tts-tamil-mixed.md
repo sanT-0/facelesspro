@@ -35,7 +35,7 @@ Everything below exists to defeat one of those.
 | Number/date/unit expansion | `packages/core/src/numbers.ts` | ✅ built, 103 tests |
 | Per-run synthesis cache (raw audio + words, pre-trim) | `services/media/app/cache.py` | ✅ built, 13 tests |
 | Narration plan (ordering: overrides → numbers → segment → transliterate → voices) | `packages/core/src/plan.ts` | ✅ built, 17 tests |
-| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 14 clips (male + female); male set and fresh-text clip approved, female 01–06 pending |
+| Golden audio + listening suite | `scripts/sample-tts.ts` | ✅ 35 clips (5 voices × 7); all five sets approved by ear 2026-10-27 (male) / 2026-10-28 (four female) |
 | Tamil voice catalogue + capability tags | `services/media/app/voices.py` | ✅ built, 28 tests + live ids |
 
 The prototype already does the hard structural thing right: it returns **runs** (not
@@ -513,8 +513,9 @@ I listen to all seven. Phase P1 is **not done** until each one passes: "does it 
 person, in the right language, without a seam?" That is the acceptance test that no assertion
 can replace — but the assertions above make sure we get there without manual rework every time.
 Five sets are rendered, one per voice: `valluvar` (male default) plus the four female voices
-(`pallavi` default, `seraphina`, `vivienne`, `thalita`). What has been heard is the male set plus
-clip 07's text for every voice; the 01–06 clips of all four female sets are pending one listen.
+(`pallavi` default, `seraphina`, `vivienne`, `thalita`). All 35 clips were heard: the male set on
+2026-10-27, the four female sets on 2026-10-28 — verdict *"i heared all voice now that ok"*, a pass
+for every voice. The gate is closed; P1 is done.
 
 Clip 07 exists because of a failure in this gate, not by design: `emma` passed 01–06 and was
 wrong on the first sentence she had not been heard on. A gate whose text is fixed cannot tell a
@@ -628,9 +629,14 @@ fresh sentence takes 12.65 s with Vivienne and 15.88 s with Seraphina.
 **Run 3 — 2026-10-27 — failed, then the voice was replaced.** Verdict on the fresh sentence:
 *"valluvar is good, emma is not good"* — a female voice that had passed twice failed on new text.
 The replacement audition (*"all good"*) made `pallavi` the female default, and she passed the same
-fresh sentence. Her clips 01–06 were re-rendered with her after the promotion and are **still
-pending one listen**: what was approved is the voice on clip 07's text, not the other six. P1 stays
-open until those six pass as well.
+fresh sentence. Her clips 01–06 were re-rendered with her after the promotion.
+
+**Run 4 — 2026-10-28 — passed; the gate is closed.** Verdict on the 24 clips that were still
+unheard (01–06 of all four female sets): *"i heared all voice now that ok"*. With the male set
+already approved on 2026-10-27, every one of the 35 delivered clips has now been heard by the
+person who will listen to the product, and none was rejected. This is the user's judgement, not a
+measurement: the numbers above say the audio is frame-exact and on loudness; only the ear says it
+sounds like one person. P1 is done.
 
 If a timbre is later rejected, the limit is the free provider rather than the pipeline, and the
 choice becomes a paid voice (Azure/ElevenLabs, whose `*IndicNeural` voices can read both languages
@@ -697,10 +703,10 @@ Public API parity (`/v1/text-to-speech`) stays vsub-shaped: `{text, voiceId, voi
 | 7.1 | lexicon file + loader + morphology heuristic | ✅ unit tests green (47 total) |
 | 7.2 | transliteration table + dictionary + rules | ✅ 428 pinned pairs, 68 tests |
 | 7.3 | number/date/unit expansion (ta/en) | ✅ 103 tests |
-| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 14 gate clips at −16.22…−16.49 LUFS, TP ≤ −1.75 dBTP, frame-exact |
+| 7.4 | gap calibration + loudness match + cross-fade + program stage | ✅ stitch/audio tests; 35 gate clips at −16.22…−16.49 LUFS, TP ≤ −1.75 dBTP, frame-exact |
 | 7.5 | voice catalogue + pairing + capability tags | ✅ 15 voices, 10 pairs, one speaker per pair, both genders, four selectable female voices, live-id test |
 | 7.6 | IndicF5 adapter | A/B vs edge on the 6 samples |
 | 7.7 | forced alignment fallback (ASR) for engines without timings | timing accuracy ≤ 40 ms |
-| 7.8 | listening gate | 🟡 voices picked 2026-10-27 (`valluvar` male, `pallavi` female) and both pass the fresh-text clip; female clips 01–06 await one final listen |
+| 7.8 | listening gate | ✅ closed 2026-10-28 — all 35 clips heard and passed (`valluvar` 2026-10-27; the four female sets 2026-10-28) |
 
 Only after 7.8 do we touch pictures.
