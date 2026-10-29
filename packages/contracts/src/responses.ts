@@ -18,6 +18,7 @@ import {
   hexColorSchema,
   idSchema,
   isoDateTimeSchema,
+  MAX_SCENES,
   planIdSchema,
   renderFormatSchema,
   renderStatusSchema,
@@ -30,6 +31,7 @@ import {
   urlOrPathSchema,
 } from './common';
 import { apiErrorBodySchema } from './errors';
+import { plannerAdapterSchema } from './planner';
 
 // --- errors -----------------------------------------------------------------
 
@@ -93,6 +95,94 @@ export const renderResponseSchema = z.strictObject({
 });
 export type RenderResponse = z.infer<typeof renderResponseSchema>;
 
+// --- §2.4 dry-run plan (our addition) ---------------------------------------
+
+/** Languages a script can be estimated in; `mixed` means both voices are used. */
+export const PLAN_LANGUAGE_RUNS = ['ta', 'en', 'mixed'] as const;
+export const planLanguageRunSchema = z.enum(PLAN_LANGUAGE_RUNS);
+export type PlanLanguageRun = z.infer<typeof planLanguageRunSchema>;
+
+export const planLanguageSchema = z.strictObject({
+  run: planLanguageRunSchema,
+  /** Script words routed to each voice, before number expansion. */
+  words: z.strictObject({ ta: z.int().min(0), en: z.int().min(0) }),
+});
+export type PlanLanguage = z.infer<typeof planLanguageSchema>;
+
+/** One cut in the estimate: no prompt or motion yet, those are P3's. */
+export const planScenePreviewSchema = z.strictObject({
+  idx: z.int().min(0),
+  text: z.string().min(1),
+  startMs: z.int().min(0),
+  endMs: z.int().min(0),
+});
+export type PlanScenePreview = z.infer<typeof planScenePreviewSchema>;
+
+/**
+ * `POST /v1/videos/plan` — the deterministic estimate, not a stored plan.
+ * `adapter` is honest about who cut the scenes: a dry run does not call a model,
+ * so it is `heuristic` unless that changes later. There is no `cost` field until
+ * pricing lands with P6 (docs/07 §2.4).
+ */
+export const planVideoResponseSchema = z
+  .strictObject({
+    scenes: z.array(planScenePreviewSchema).min(1).max(MAX_SCENES),
+    sceneCount: z.int().min(1).max(MAX_SCENES),
+    totalMs: z.int().min(0),
+    language: planLanguageSchema,
+    adapter: plannerAdapterSchema,
+  })
+  .superRefine((value, ctx) => {
+    if (value.sceneCount !== value.scenes.length) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['sceneCount'],
+        message: `sceneCount (${value.sceneCount}) must equal scenes.length (${value.scenes.length})`,
+      });
+    }
+    const first = value.scenes[0]!;
+    if (first.startMs !== 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['scenes', 0, 'startMs'],
+        message: 'the first scene must start at 0',
+      });
+    }
+    value.scenes.forEach((scene, index) => {
+      if (scene.idx !== index) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scenes', index, 'idx'],
+          message: `scene idx (${scene.idx}) must equal its position (${index})`,
+        });
+      }
+      if (scene.endMs <= scene.startMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scenes', index, 'endMs'],
+          message: 'a scene must end after it starts',
+        });
+      }
+      const previous = value.scenes[index - 1];
+      if (previous !== undefined && scene.startMs < previous.endMs) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scenes', index, 'startMs'],
+          message: `scene starts (${scene.startMs}) before the previous end (${previous.endMs})`,
+        });
+      }
+    });
+    const last = value.scenes.at(-1)!;
+    if (value.totalMs !== last.endMs) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['totalMs'],
+        message: `totalMs (${value.totalMs}) must equal the last scene endMs (${last.endMs})`,
+      });
+    }
+  });
+export type PlanVideoResponse = z.infer<typeof planVideoResponseSchema>;
+
 /** `POST /v1/text-to-speech`. */
 export const textToSpeechResponseSchema = z.strictObject({
   audioUrl: z.url(),
@@ -102,6 +192,14 @@ export const textToSpeechResponseSchema = z.strictObject({
 export type TextToSpeechResponse = z.infer<typeof textToSpeechResponseSchema>;
 
 // --- §4 art styles ----------------------------------------------------------
+
+/** `POST /v1/art-styles` — immediate response while the style builds. */
+export const createArtStyleResponseSchema = z.strictObject({
+  id: idSchema,
+  status: z.literal('building'),
+  createdAt: isoDateTimeSchema,
+});
+export type CreateArtStyleResponse = z.infer<typeof createArtStyleResponseSchema>;
 
 export const artStyleSchema = z.strictObject({
   id: idSchema,

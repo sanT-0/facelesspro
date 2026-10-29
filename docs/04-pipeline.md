@@ -22,6 +22,19 @@ POST /v1/ai-videos-v3
 
 Nothing expensive happens in the request.
 
+## 0.5 `POST /v1/videos/plan` — dry run (no charge)
+
+A pure estimate: the API validates `{script, size?}`, then runs `estimateScenePlan()` from
+`packages/core` — `packScenes()` for the scene split, `estimateDuration()` for timing,
+`scriptLanguagePlan()` for which voice speaks which word — and returns `adapter: "heuristic"`.
+No model is called, no video row is inserted, nothing is charged. It answers in milliseconds
+and is safe to hit even when Postgres is down.
+
+The shape is `planVideoResponseSchema` (§2.4 in docs/07): `scenes[{idx, text, startMs, endMs}]`,
+`sceneCount`, `totalMs`, `language{run, words{ta, en}}`, `adapter`. There is no `cost` field
+until pricing lands with P6. A blank or wordless script, or one over the size ceiling for the
+requested `size`, is `400 invalid_request` naming `script`.
+
 ---
 
 ## 1. `create-scenes`
@@ -73,21 +86,53 @@ Sub-steps:
    `estimateDuration()` (characters are not the budget — Tamil and English do not have the same
    chars-per-second), no empty scenes, text concatenation must equal the original script
    (modulo whitespace).
-5. **Repair loop** — if the model output violates constraints, re-ask once with the diff;
-   then fall back to **`packScenes()`** from `packages/core`: a dynamic programme over sentences
+   `imagePrompt` from a model is a **description only** — subject, action, setting, shot. The
+   art-style clauses (`prefix`/`suffix`/`negative`) are injected by the adapter around it
+   (`composeImagePrompt()`), because one scene that loses the palette would look like it came
+   from a different video. `buildPlannerPrompt()` states the rules the answer is checked
+   against: the script verbatim between `<<<` markers, cuts only between whole sentences, the
+   word budget implied by 8–20 s at the slowest/fastest rates, the expected scene count, the
+   motion vocabulary, the emphasis cap, and the style clauses it should *not* repeat.
+   The adapter keeps the model's own boundaries: `planFromBeats()` validates and times them,
+   but does not re-pack the script. Re-packing would silently discard the cuts the model chose
+   (and often turn a valid answer into a different plan); the deterministic packer is the
+   *fallback*, not a post-processor.
+   Model output is parsed leniently where that is safe (code fences, prose around the JSON,
+   unknown keys stripped) and strictly where it is not (scene text, motion vocabulary, prompt
+   bound). Failures are typed for the repair loop: `PlannerResponseError` (`invalid-json` vs
+   `invalid-shape`) and `PlannerValidationError` (a list of per-scene `violations`), both
+   `retryable = false` — repeating the same prompt will not fix a plan that needs rephrasing.
+
+5. **Repair loop** — a *rejected answer* is re-asked **once** with the diff quoted back
+   (`planner/repair.ts`): a constraint violation is listed verbatim ("scene 3 is 4.3 s (8 words);
+   minimum is 8 s — merge it with a neighbouring scene"), and an unreadable answer is re-asked for
+   one JSON object (there is no diff to quote from a body that never parsed). The re-ask carries
+   the same script and the same rules, so only the listed defect changes.
+   **Two calls, never three.** If the second answer is still rejected, the *second* error
+   surfaces with its own violations and the chain degrades; the video fails only when the chain is
+   exhausted. A transport failure (`429`, timeout, `5xx`) is **not** repaired here — `postJson`
+   already marked it `retryable`, and the chain/step owns that retry; multiplying it by an
+   adapter-local loop would burn the provider's quota for nothing.
+   Then fall back to **`packScenes()`** from `packages/core`: a dynamic programme over sentences
    that keeps every scene inside 8–20 s (splitting an over-long sentence at word boundaries,
    with no pause at the cut), caps the plan at 120 scenes by merging the cheapest adjacent pair,
-   and makes the scene spans add up to the narration estimate. Never fail the video here.
+   and makes the scene spans add up to the narration estimate. With `heuristic` in `PLANNER` this
+   means the video cannot fail here; a list that omits it is an operator choice to fail instead
+   (docs/03), not an accident.
    This fallback is a real adapter, not a special case: `planner/heuristic.ts` implements
    `PlannerPort`, so `PLANNER=cloudflare,groq,heuristic` ends in it and a test can use it as the
    offline fake. Its image prompts are a templated description of the scene's own words —
    literal, literal-minded, and honest about it: without a model it cannot say *what the picture
    is*, only what is being said, so an LLM image adapter is what makes prompts good.
-6. **Image prompts** — one per scene, style-injected:
-   `"{style.promptPrefix}, {scene description}, {style.paletteClause}, {style.lineClause},
-     no text, no watermark, {style.negative}"`. The heuristic adapter bounds the description to
-   18 whole words / 220 characters (never splitting a Tamil cluster) and keeps the style clauses,
-   because the style carries the look of the whole video.
+6. **Image prompts** — one per scene, composed in one place (`planner/prompt.ts`) for both the
+   heuristic and every model adapter:
+   `"{style.prefix}, {scene description}, {style.suffix}, {negative}"`. The description is
+   trimmed by whole word — never inside a Tamil grapheme cluster — until the composed prompt fits
+   `MAX_IMAGE_PROMPT_CHARS`; the style clauses are never trimmed, because they carry the look of
+   the whole video. A model description is bounded at 600 chars at parse time; the heuristic
+   bounds its own at 18 words / 220 chars. If the style clauses alone exceed the budget that is a
+   configuration bug and fails loudly rather than shipping a truncated prompt.
+
 
 **Artifacts:** `plan.json`. **Ledger:** planner tokens are not billed to the user in self-host
 mode; recorded as `action=plan` with `units=0` for observability.

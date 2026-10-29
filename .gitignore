@@ -2,6 +2,7 @@ node_modules/
 dist/
 .data/
 .env
+storage/
 
 # python media service
 services/media/.venv/

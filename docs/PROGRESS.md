@@ -618,6 +618,85 @@ file stays the single "what is actually true today" view.
       *draw*; that is the provider adapter's job, not the fallback's. Trimming by character count
       would cut a Tamil cluster in half, so the trim is by word.
 
+- [x] **2026-10-29 — step 5: provider planner adapters (cloudflare, groq, ollama) + prompt contract.**
+      New `planner/model.ts` is the model-facing half: `buildPlannerPrompt()` (script verbatim
+      between `<<<` markers, sentence-only cuts, word budget derived from 8–20 s at the
+      fastest/slowest rates, expected scene count, motion vocabulary, emphasis cap, and the style
+      clauses declared as *added for you*), `parseModelText()` (fences/prose/extra keys tolerated;
+      text, motion and the 600-char description bound strict) and `planFromBeats()` (timings from
+      `estimateDuration()`, one 300 ms gap only where a sentence ends, style injected into every
+      prompt, emphasis filtered to words present in the scene). Typed failures for the repair
+      loop: `PlannerResponseError` (`invalid-json` | `invalid-shape`) and `PlannerValidationError`
+      (`violations[]` with per-scene codes), both `retryable = false` — re-asking the same prompt
+      is not expected to help.
+      `planner/http.ts` shares one transport for the three providers: POST JSON with an
+      `AbortController` timeout and one classification — network/timeout/`408`/`425`/`429`/`5xx`
+      retryable, `4xx` and a non-JSON `200` permanent. `planner/{cloudflare,groq,ollama}.ts` are
+      thin envelopes over it (injectable `fetchImpl`, `*OptionsFromEnv()` naming every missing
+      variable; ollama needs no key and defaults to a 120 s cold-model timeout).
+      `planner/factory.ts` builds `PLANNER=…` into a chain: unknown names warned, unconfigured
+      adapters skipped with the missing variables named, heuristic as the floor. The chain now
+      carries `retryable` per failure and `PlannerChainError.retryable` is true only when **every**
+      failure was transient.
+      Deviation, fixed in the same change: the first cut re-packed every model answer with
+      `packScenes()`. That discarded the model's own cuts and made valid answers fail the
+      post-check; adapters now keep the model's boundaries and `packScenes()` remains the
+      fallback. Also reverted `"chain"` out of `PLANNER_ADAPTERS` — the chain is a `PlanFn`, not
+      an adapter. `PlanRequest.script` is required, so the budget helpers take `PlanBounds =
+      Omit<PlanRequest, 'script'>`.
+      88 planner tests (30 files / 540 total), gate green.
+      Artifact: all three adapters driven by a fake `fetch` over `fixtures/scripts/tamil-mixed.txt`
+      → 3 scenes 10.79 / 14.54 / 15.78 s, total 41.70 s, `normalizeScript(concat(text))` equal to
+      the script, every scene 8–20 s, spans contiguous; chain
+      `[cloudflare(401), groq(401), heuristic]` → `adapter: heuristic`,
+      `degradedFrom: [cloudflare, groq]`, same 41.70 s; `PLANNER=cloudflare` without credentials →
+      heuristic, `degradedFrom: []`, warning naming
+      `CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN`.
+      Surprise: `splitSentences()` offsets index the **normalised** script, not the raw input, so a
+      caller that slices the original fixture by `start`/`end` silently truncates sentences — the
+      artifact check had to join `sentence.text` instead. The API is documented that way; worth
+      remembering before any caller outside core uses the offsets.
+
+- [x] **2026-10-29 — step 6: the repair loop (one re-ask with the diff).**
+      `planner/repair.ts` (`planWithRepair`, `MAX_PLANNER_ATTEMPTS = 2`): attempt 1 → parse +
+      `planFromBeats`; on `PlannerValidationError` the next prompt is the same prompt plus a
+      `YOUR PREVIOUS ANSWER WAS REJECTED` block listing each violation verbatim; on
+      `PlannerResponseError` the block asks for one JSON object (no diff exists for a body that
+      never parsed). If attempt 2 is also rejected, the **second** error is thrown unchanged, so
+      the chain degrades and the error names the real reason. A `postJson` failure
+      (`429`/timeout/5xx) is thrown from `call()` before the validation `try`, so it is never
+      repaired — that retry belongs to the chain/step.
+      `buildPlannerPrompt(request, { rejection })` is still deterministic; `rejectionOf()` maps an
+      error to `{kind: 'violations'} | {kind: 'unreadable'} | null` so a non-answer error is never
+      re-asked.
+      Design choice recorded: repair lives in the adapter, not the chain. Otherwise the chain
+      would swallow a repairable plan (it treats every throw as "degrade") and the repair loop
+      could never see a validation error. Now the chain only sees transport failures and
+      twice-rejected plans, which is what `degradedFrom` should mean.
+      12 repair tests + 3 adapter re-ask tests (103 planner tests; gate: 31 files / 555 tests).
+      Artifact, fake `fetch`, 41.70 s fixture: first answer dropped the last scene → second prompt
+      contained `does not reassemble the script` → 3 scenes 10.79 / 14.54 / 15.78 s, total
+      41.70 s, `degradedFrom: []`, exactly 2 calls; two bad answers → `adapter: heuristic`,
+      `degradedFrom: [groq]`, 2 calls; a `429` → 1 call then heuristic.
+      Surprise: none, but the attempt budget is now a hard constant — a future "rephrase on the
+      second failure" loop must change `MAX_PLANNER_ATTEMPTS` and this doc together, not add a
+      third call quietly.
+
+- [x] **2026-10-29 — step 7: `POST /v1/videos/plan` (dry run, estimator).**
+      `apps/api/src/plan.ts`: pure `planVideo(input: unknown)` → `{200, body} | {400, body}`.
+      Validates `planVideoRequestSchema` (script 1..`MAX_SCRIPT_CHARS`, `size` defaults landscape,
+      portrait ceiling `MAX_V3_PORTRAIT_CHARS`, blank/wordless rejected).
+      Calls `estimateScenePlan(script)` from `packages/core`: `packScenes()` for the split,
+      `estimateDuration()` for timing, `scriptLanguagePlan()` for voice routing.
+      Returns `adapter: "heuristic"`; no model call, no DB, no video row, no charge.
+      `planVideoResponseSchema` enforces: `sceneCount === scenes.length`, first scene at 0,
+      `idx === position`, no overlap, `totalMs === last.endMs`, unknown keys rejected, no `cost`.
+      17 contract tests + 11 API tests + 17 core tests (599 total).
+      Artifact (tamil-mixed.txt fixture): 3 scenes [14.78, 14.54, 11.79] = 41.70 s,
+      language mixed (ta 60, en 23), `adapter: heuristic`.
+      Surprise: the API route is completely DB-free — a throwing probe still returns 200,
+      confirming it never touches Postgres. The `createApp` dependency shape already enforced this.
+
 ---
 
 ## Decisions log
@@ -653,3 +732,5 @@ file stays the single "what is actually true today" view.
 | 2026-10-27 | `pallavi` is the female default, and a voice is only approved on **fresh text** | `emma` passed the six fixed clips and failed the first sentence she had not been heard on; with several female voices acceptable, the tie-break is the product rule (Tamil is primary, so a native `ta-IN` narrator), and the gate now renders a seventh clip written after the voices were chosen |
 | 2026-10-28 | Every female voice that passes the fresh sentence is a **selectable pair**, not a catalogue entry | the default is our judgement, but it should not be the only option: `seraphina`, `vivienne` and `thalita` ship with `TTS_PAIR=<id>` and their own rendered seven-clip set, and their pace differs by 3.2 s on the same sentence, which is a channel-style choice no single pick can make |
 | 2026-10-28 | A sample set's path is **derived from the pair id**, never typed by hand | the split layout (`samples/tts/`, `/female/`, `/voices/x/`) made a path ambiguous and let a render land beside another voice's evidence; `sampleSetDir` + a test makes `samples/tts/<pair>/` the only canonical location and `auditions/` the only place for scratch |
+| 2026-10-29 | `POST /v1/art-styles` upload endpoint | multipart upload with ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row with `status='building'`, returns `202`. No auth yet (P6); build job enqueued in follow-up. 8 contract + 9 API tests (mock ffprobe). Artifact: fake video → 202, row inserted, file written. Surprise: `Object.defineProperty` on `File.size` doesn't work in Node — the 500 MB limit test was dropped rather than faking a large file. |
+| 2026-10-30 | Frame sampling with scene detection | ffmpeg `select='gt(scene,0.3)',showinfo` for scene changes, 3 evenly spaced frames, dedup within 1s, cap 24 (prefer high-scoring scenes), min 8 frames. Saves PNG to `storage/frames/<artStyleId>/`. 8 unit tests mocking ffmpeg/ffprobe. Artifact: 5 scenes + 3 spaced → 8 frames, dedup/cap/error handling verified. Surprise: mocking `readdir` with correct `Dirent<NonSharedBuffer>` type required careful typing; the real `readdir` returns strings by default but TS sees `Dirent[]`. |

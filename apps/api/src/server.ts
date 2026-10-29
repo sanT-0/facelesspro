@@ -8,13 +8,14 @@
 import { createDb, loadEnv } from '@facelesspro/db';
 import { checkQueues } from '@facelesspro/queue';
 import { serve } from '@hono/node-server';
+import { artStyle } from '@facelesspro/db';
 
 import { createApp } from './app';
 
 loadEnv();
 
 const port = Number(process.env.PORT ?? 3001);
-const { pool } = createDb();
+const { db, pool } = createDb();
 const queueSchema = process.env.PGBOSS_SCHEMA || undefined;
 
 const app = createApp({
@@ -24,6 +25,16 @@ const app = createApp({
     },
     queue: async () => {
       await checkQueues(pool, queueSchema === undefined ? {} : { schema: queueSchema });
+    },
+  },
+  db: {
+    insertArtStyle: async (row) => {
+      // created_at has a default of now(), so omit it from the insert
+      const { created_at: _createdAt, ...insertRow } = row;
+      await db.insert(artStyle).values({
+        ...insertRow,
+        formats: insertRow.formats as ('landscape' | 'portrait')[],
+      });
     },
   },
 });

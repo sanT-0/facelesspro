@@ -1,107 +1,78 @@
 /**
- * Planner adapter factory.
+ * `PLANNER=cloudflare,groq,ollama,heuristic` → an adapter chain.
  *
- * Builds the adapter chain from the PLANNER environment variable.
- * `PLANNER=cloudflare,groq,ollama,heuristic` (order matters — first healthy wins).
- * Adapters that are not configured (missing env vars) are skipped with a warning.
+ * Order is the whole configuration: the first adapter that answers plans the
+ * video. An adapter whose credentials are absent is skipped with a warning
+ * rather than included and failed at request time — a misconfiguration should
+ * look like a misconfiguration in the log, not like a provider outage.
+ *
+ * The heuristic adapter is the floor: it needs nothing and cannot fail, so the
+ * chain always ends with a plan.
  */
 
-import type { PlannerPort } from '../ports/planner';
+import type { PlannerAdapter } from '@facelesspro/contracts';
+import type { PlanFn } from '../ports/planner';
 
-import { createHeuristicPlanner } from './heuristic';
-import { createCloudflarePlanner } from './cloudflare';
-import { createGroqPlanner } from './groq';
-import { createOllamaPlanner } from './ollama';
+import { createCloudflarePlanner, cloudflareOptionsFromEnv } from './cloudflare';
 import { createPlannerChain } from './chain';
+import { createGroqPlanner, groqOptionsFromEnv } from './groq';
+import { createHeuristicPlanner } from './heuristic';
+import { createOllamaPlanner, ollamaOptionsFromEnv } from './ollama';
 
 export interface PlannerFactoryOptions {
-  /** Force-enable/disable specific adapters for testing. */
-  forceEnabled?: Record<string, boolean>;
-  /** Logger for warnings (e.g. console.warn). */
-  logger?: (msg: string) => void;
+  /** Defaults to `process.env`; injected so tests never read the real environment. */
+  env?: Record<string, string | undefined>;
+  /** Defaults to `console.warn`. */
+  logger?: (message: string) => void;
+  /** Injected into the HTTP adapters; tests pass a fake. */
+  fetchImpl?: typeof fetch;
 }
 
-const ADAPTER_CREATORS: Record<string, () => PlannerPort> = {
-  cloudflare: createCloudflarePlanner,
-  groq: createGroqPlanner,
-  ollama: createOllamaPlanner,
-  heuristic: createHeuristicPlanner,
-} as const;
+type Env = Record<string, string | undefined>;
 
-export function createPlannerChainFromEnv(
-  options: PlannerFactoryOptions = {},
-): PlannerPort {
-  const { forceEnabled = {}, logger = console.warn } = options;
+const CREATORS: Record<PlannerAdapter, (env: Env, fetchImpl?: typeof fetch) => ReturnType<typeof createHeuristicPlanner>> = {
+  cloudflare: (env, fetchImpl) => createCloudflarePlanner({ ...cloudflareOptionsFromEnv(env), fetchImpl }),
+  groq: (env, fetchImpl) => createGroqPlanner({ ...groqOptionsFromEnv(env), fetchImpl }),
+  ollama: (env, fetchImpl) => createOllamaPlanner({ ...ollamaOptionsFromEnv(env), fetchImpl }),
+  heuristic: () => createHeuristicPlanner(),
+};
 
-  const plannerEnv = process.env.PLANNER?.trim();
-  if (!plannerEnv) {
-    logger('PLANNER not set, defaulting to heuristic only');
-    return createHeuristicPlanner();
+const isAdapter = (name: string): name is PlannerAdapter =>
+  Object.prototype.hasOwnProperty.call(CREATORS, name);
+
+/** Build the chain described by `PLANNER`, degrading to the heuristic alone. */
+export function createPlannerChainFromEnv(options: PlannerFactoryOptions = {}): PlanFn {
+  const env = options.env ?? process.env;
+  const logger = options.logger ?? ((message: string) => console.warn(message));
+
+  const requested = (env.PLANNER ?? '')
+    .split(',')
+    .map((name) => name.trim())
+    .filter((name) => name.length > 0);
+
+  if (requested.length === 0) {
+    logger('PLANNER is not set; planning with the heuristic adapter only');
+    return createPlannerChain([createHeuristicPlanner()]);
   }
 
-  const requested = plannerEnv.split(',').map((s) => s.trim()).filter((s) => s.length > 0);
-  const adapters: PlannerPort[] = [];
-
+  const adapters = [];
   for (const name of requested) {
-    const creator = ADAPTER_CREATORS[name];
-    if (!creator) {
-      logger(`Unknown planner adapter "${name}", skipping`);
+    if (!isAdapter(name)) {
+      logger(`PLANNER names an unknown adapter "${name}"; ignoring it`);
       continue;
     }
-
-    // Check if forceEnabled explicitly disables it
-    if (forceEnabled[name] === false) {
-      logger(`Planner adapter "${name}" disabled by forceEnabled`);
-      continue;
-    }
-
-    // Check if forceEnabled explicitly enables it (skips env check)
-    if (forceEnabled[name] === true) {
-      try {
-        adapters.push(creator());
-        continue;
-      } catch (e) {
-        logger(`Failed to create forced-enabled adapter "${name}": ${e instanceof Error ? e.message : String(e)}`);
-        continue;
-      }
-    }
-
-    // Normal path: try to create, skip if config is missing
     try {
-      adapters.push(creator());
-    } catch (e) {
-      // The adapter constructor throws if required env vars are missing
-      logger(`Planner adapter "${name}" unavailable: ${e instanceof Error ? e.message : String(e)}`);
+      adapters.push(CREATORS[name](env, options.fetchImpl));
+    } catch (error) {
+      logger(
+        `PLANNER adapter "${name}" is not available: ${error instanceof Error ? error.message : String(error)}`,
+      );
     }
   }
 
   if (adapters.length === 0) {
-    logger('No planner adapters available, falling back to heuristic');
-    return createHeuristicPlanner();
-  }
-
-  return createPlannerChain(adapters);
-}
-
-/**
- * For tests: build a chain with specific adapters, bypassing env.
- */
-export function createPlannerChainForTest(
-  adapterNames: string[],
-  overrides: Record<string, PlannerPort> = {},
-): PlannerPort {
-  const adapters: PlannerPort[] = [];
-
-  for (const name of adapterNames) {
-    if (overrides[name]) {
-      adapters.push(overrides[name]);
-      continue;
-    }
-    const creator = ADAPTER_CREATORS[name];
-    if (!creator) {
-      throw new Error(`Unknown test adapter: ${name}`);
-    }
-    adapters.push(creator());
+    logger('no configured PLANNER adapter is available; planning with the heuristic adapter');
+    return createPlannerChain([createHeuristicPlanner()]);
   }
 
   return createPlannerChain(adapters);

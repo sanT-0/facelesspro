@@ -55,6 +55,7 @@ export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,
   estimateDuration,
+  spokenWordTokens,
 } from './duration';
 export type { DurationEstimate, DurationOptions, DurationRates } from './duration';
 export {
@@ -64,3 +65,10 @@ export {
   packScenes,
 } from './scenes';
 export type { PackScenesOptions, SceneDraft } from './scenes';
+export { EmptyScriptError, estimateScenePlan, scriptLanguagePlan } from './estimate';
+export type {
+  PlanLanguageRun,
+  PlanSceneEstimate,
+  ScenePlanEstimate,
+  ScriptLanguagePlan,
+} from './estimate';

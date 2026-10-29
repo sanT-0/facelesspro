@@ -19,6 +19,7 @@ import {
   MAX_QUIZ_ITEMS,
   MAX_QUIZ_TEXT_CHARS,
   MAX_ROBLOX_SCRIPT_CHARS,
+  MAX_SCRIPT_CHARS,
   MAX_TTS_CHARS,
   MAX_V2_SCRIPT_CHARS,
   MAX_V3_LANDSCAPE_CHARS,
@@ -390,6 +391,60 @@ export const fakeTextScreenshotRequestSchema = z.strictObject({
 export type FakeTextScreenshotRequest = z.input<
   typeof fakeTextScreenshotRequestSchema
 >;
+
+// --- §2.4 dry-run plan ------------------------------------------------------
+
+/**
+ * `POST /v1/videos/plan` — a pure estimate, not a creation: no video row, no
+ * charge, no model call. `size` only applies the script ceiling that creation
+ * would apply, so a script that cannot be created is not "plannable" either.
+ */
+export const planVideoRequestSchema = z
+  .strictObject({
+    script: z.string().min(1).max(MAX_SCRIPT_CHARS),
+    size: sizeSchema.default('landscape'),
+  })
+  .superRefine((value, ctx) => {
+    const limit = value.size === 'portrait' ? MAX_V3_PORTRAIT_CHARS : MAX_V3_LANDSCAPE_CHARS;
+    if (value.script.length > limit) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['script'],
+        message: `script must be at most ${limit} characters for ${value.size}`,
+      });
+    }
+    if (value.script.trim().length === 0) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['script'],
+        message: 'script must not be blank',
+      });
+    }
+  });
+export type PlanVideoRequest = z.input<typeof planVideoRequestSchema>;
+export type PlanVideoRequestParsed = z.output<typeof planVideoRequestSchema>;
+
+// --- §3.8 Art Style (multipart upload) -------------------------------------------
+
+/**
+ * The JSON half of `POST /v1/art-styles`. The multipart form posts the file
+ * plus these fields as strings; the api layer parses them with this schema
+ * after JSON-decoding the `formats` field. Keeping the shape here means a JSON
+ * `url` call and a multipart call validate identically (future-proofing).
+ */
+export const artStyleMetaSchema = z.strictObject({
+  name: z.string().min(1).max(128).optional(),
+  formats: z.array(sizeSchema).min(1).max(2).default(['landscape']),
+  published: z.boolean().default(false),
+});
+export type ArtStyleMeta = z.output<typeof artStyleMetaSchema>;
+
+/** Multipart request: `file` (required) + the meta fields above. */
+export const createArtStyleRequestSchema = artStyleMetaSchema.extend({
+  /** The reference video file. Validated by the handler with ffprobe. */
+  file: z.instanceof(File).optional(),
+});
+export type CreateArtStyleRequest = z.input<typeof createArtStyleRequestSchema>;
 
 // --- internal render spec ---------------------------------------------------
 

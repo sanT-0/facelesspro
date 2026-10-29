@@ -81,6 +81,23 @@ Selection is **capability-first, not vendor-first**: config says
 `PLANNER=cloudflare,groq,heuristic` and the first healthy adapter wins; a failed adapter
 degrades to the next one and records why.
 
+The three hosted/local planner transports share one call path (`planner/http.ts`): POST JSON
+with an `AbortController` timeout, the provider error body truncated into the message, and one
+classification that the chain and the step runner both rely on — **`retryable`**. Network
+failure, timeout, `408`, `425`, `429` and `5xx` are retryable; `400`/`401`/`403`/`404`/`422` and a
+`200` whose body is not JSON are permanent, because a retry of a rejected request or a bad key
+only burns quota. `PlannerChainError.retryable` is true only when **every** adapter failed
+transiently; if any failure was permanent the step fails now and the video is not retried in a
+loop. Each adapter takes `fetchImpl` by injection, so unit tests never open a socket.
+A *rejected answer* is repaired inside the adapter (`planWithRepair`: one re-ask quoting the
+violations) before the chain sees it, so `degradedFrom` means "this adapter could not plan", not
+"this adapter needed one more prompt"; a *transport failure* is never repaired there.
+
+**`POST /v1/videos/plan` (dry run)** is the estimator, not a model call: the API cuts the script
+with the same `packScenes()`/`estimateDuration()`/`scriptLanguagePlan()` layer the worker falls
+back to, returns `adapter: "heuristic"`, and charges nothing — no video row, no ledger write, no
+socket. It is the floor the video cannot fall below, and `cost` lands with P6 (credits).
+
 ---
 
 ## 3. Data model (Postgres)

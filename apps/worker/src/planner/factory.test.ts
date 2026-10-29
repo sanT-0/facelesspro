@@ -1,134 +1,120 @@
 import { describe, expect, it, vi } from 'vitest';
 
-import type { PlannerPort } from '../ports/planner';
+import { createPlannerChainFromEnv } from './factory';
 
-import { createPlannerChainForTest, createPlannerChainFromEnv } from './factory';
-import { createHeuristicPlanner } from './heuristic';
+const word = 'வார்த்தை';
+/** 25 Tamil words ≈ 11.5 s: one valid scene. */
+const SENTENCE = `${Array.from({ length: 25 }, () => word).join(' ')}.`;
 
-// Mock adapters for testing
-const createMockAdapter = (name: string, shouldFail = false): PlannerPort => ({
-  name: name as 'heuristic' | 'cloudflare' | 'groq' | 'ollama',
-  plan: async (request) => {
-    if (shouldFail) throw new Error(`${name} failed`);
-    const { scenePlanSchema } = await import('@facelesspro/contracts');
-    return scenePlanSchema.parse({
-      scenes: [
-        {
-          text: request.script,
-          imagePrompt: 'test prompt',
-          motion: 'none',
-          emphasis: [],
-          startMs: 0,
-          endMs: 5000,
-        },
-      ],
-      adapter: name,
-      degradedFrom: [],
-      totalMs: 5000,
-    });
-  },
+const answer = JSON.stringify({
+  scenes: [{ text: SENTENCE, imagePrompt: 'a desk by a window', motion: 'none', emphasis: [] }],
 });
 
-describe('planner factory', () => {
-  describe('createPlannerChainForTest', () => {
-    it('creates a chain with the given adapters', async () => {
-      const chain = createPlannerChainForTest(['heuristic', 'cloudflare'], {
-        cloudflare: createMockAdapter('cloudflare'),
-      });
+const json = (body: unknown, status = 200) =>
+  new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
 
-      expect(chain.name).toBe('chain');
-      const plan = await chain.plan({ script: 'test script' });
-      expect(plan.adapter).toBe('heuristic'); // First healthy wins
-      expect(plan.degradedFrom).toEqual([]);
-    });
+const warnings = () => {
+  const messages: string[] = [];
+  return { messages, logger: (message: string) => messages.push(message) };
+};
 
-    it('falls back when first adapter fails', async () => {
-      const chain = createPlannerChainForTest(['cloudflare', 'heuristic'], {
-        cloudflare: createMockAdapter('cloudflare', true), // fails
-        heuristic: createHeuristicPlanner(),
-      });
+describe('createPlannerChainFromEnv', () => {
+  it('plans with the heuristic alone when PLANNER is unset, and says so', async () => {
+    const { messages, logger } = warnings();
+    const chain = createPlannerChainFromEnv({ env: {}, logger });
 
-      const plan = await chain.plan({ script: 'test script' });
-      expect(plan.adapter).toBe('heuristic');
-      expect(plan.degradedFrom).toEqual(['cloudflare']);
-    });
+    const plan = await chain.plan({ script: SENTENCE });
 
-    it('records all failures when all adapters fail', async () => {
-      const chain = createPlannerChainForTest(['cloudflare', 'groq'], {
-        cloudflare: createMockAdapter('cloudflare', true),
-        groq: createMockAdapter('groq', true),
-      });
-
-      await expect(chain.plan({ script: 'test' })).rejects.toThrow('every planner adapter failed');
-    });
-
-    it('throws on empty adapter list', () => {
-      expect(() => createPlannerChainForTest([])).toThrow('at least one adapter');
-    });
-
-    it('throws on unknown adapter name', () => {
-      expect(() => createPlannerChainForTest(['unknown'])).toThrow('Unknown test adapter');
-    });
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.degradedFrom).toEqual([]);
+    expect(messages.join('\n')).toMatch(/PLANNER is not set/u);
   });
 
-  describe('createPlannerChainFromEnv', () => {
-    const originalEnv = { ...process.env };
+  it('ignores an unknown adapter name with a warning', async () => {
+    const { messages, logger } = warnings();
+    const chain = createPlannerChainFromEnv({ env: { PLANNER: 'bogus,heuristic' }, logger });
 
-    afterEach(() => {
-      process.env = { ...originalEnv };
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(plan.adapter).toBe('heuristic');
+    expect(messages.join('\n')).toContain('unknown adapter "bogus"');
+  });
+
+  it('skips a provider whose credentials are missing instead of failing at request time', async () => {
+    const { messages, logger } = warnings();
+    const chain = createPlannerChainFromEnv({ env: { PLANNER: 'cloudflare,heuristic' }, logger });
+
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(plan.adapter).toBe('heuristic');
+    expect(messages.join('\n')).toContain('"cloudflare" is not available');
+    expect(messages.join('\n')).toContain('CLOUDFLARE_ACCOUNT_ID');
+  });
+
+  it('preserves the configured order; the first healthy adapter plans the video', async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({ result: { response: answer } }),
+    ) as unknown as typeof fetch;
+    const chain = createPlannerChainFromEnv({
+      env: {
+        PLANNER: 'cloudflare,heuristic',
+        CLOUDFLARE_ACCOUNT_ID: 'acct-1',
+        CLOUDFLARE_API_TOKEN: 'token-1',
+      },
+      logger: () => {},
+      fetchImpl,
     });
 
-    it('defaults to heuristic when PLANNER is not set', () => {
-      delete process.env.PLANNER;
-      const chain = createPlannerChainFromEnv({ logger: vi.fn() });
-      expect(chain.name).toBe('chain');
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(plan.adapter).toBe('cloudflare');
+    expect(plan.degradedFrom).toEqual([]);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it('degrades an upstream 500 to the next adapter and records it', async () => {
+    const fetchImpl = (async () =>
+      new Response('upstream exploded', { status: 500 })) as unknown as typeof fetch;
+    const chain = createPlannerChainFromEnv({
+      env: { PLANNER: 'groq,heuristic', GROQ_API_KEY: 'gsk-1' },
+      logger: () => {},
+      fetchImpl,
     });
 
-    it('skips unknown adapters with warning', () => {
-      process.env.PLANNER = 'unknown,heuristic';
-      const logger = vi.fn();
-      const chain = createPlannerChainFromEnv({ logger });
-      expect(logger).toHaveBeenCalledWith(expect.stringContaining('unknown'));
-      expect(chain.name).toBe('chain');
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.degradedFrom).toEqual(['groq']);
+  });
+
+  it('falls back to the heuristic when every named provider is unavailable', async () => {
+    const { messages, logger } = warnings();
+    const chain = createPlannerChainFromEnv({
+      env: { PLANNER: 'cloudflare,groq' },
+      logger,
     });
 
-    it('skips adapters with missing env vars', () => {
-      process.env.PLANNER = 'cloudflare,heuristic';
-      // CF_ACCOUNT_ID and CF_API_TOKEN not set
-      const logger = vi.fn();
-      const chain = createPlannerChainFromEnv({ logger });
-      expect(logger).toHaveBeenCalledWith(expect.stringContaining('unavailable'));
-      // Should fall back to heuristic
-      expect(chain.name).toBe('chain');
-    });
+    const plan = await chain.plan({ script: SENTENCE });
 
-    it('respects forceEnabled true', () => {
-      process.env.PLANNER = 'cloudflare,heuristic';
-      // Force enable cloudflare even without env vars
-      const chain = createPlannerChainFromEnv({
-        forceEnabled: { cloudflare: true },
-        logger: vi.fn(),
-      });
-      // The chain should have been created with the forced adapter
-      expect(chain.name).toBe('chain');
-    });
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.degradedFrom).toEqual([]);
+    expect(messages.join('\n')).toContain('no configured PLANNER adapter is available');
+  });
 
-    it('respects forceEnabled false', () => {
-      process.env.PLANNER = 'cloudflare,heuristic';
-      const chain = createPlannerChainFromEnv({
-        forceEnabled: { heuristic: false },
-        logger: vi.fn(),
-      });
-      // Heuristic should be disabled, but chain still works
-      expect(chain.name).toBe('chain');
-    });
-
-    it('falls back to heuristic when all requested adapters unavailable', () => {
-      process.env.PLANNER = 'cloudflare,groq,ollama'; // None have env vars
-      const logger = vi.fn();
-      const chain = createPlannerChainFromEnv({ logger });
-      expect(logger).toHaveBeenCalledWith(expect.stringContaining('falling back to heuristic'));
-      expect(chain.name).toBe('chain');
-    });
+  it('does not consult the real environment when one is injected', async () => {
+    const previous = process.env.PLANNER;
+    process.env.PLANNER = 'groq';
+    process.env.GROQ_API_KEY = 'from-process';
+    try {
+      const { messages, logger } = warnings();
+      const chain = createPlannerChainFromEnv({ env: {}, logger });
+      const plan = await chain.plan({ script: SENTENCE });
+      expect(plan.adapter).toBe('heuristic');
+      expect(messages.join('\n')).toMatch(/PLANNER is not set/u);
+    } finally {
+      if (previous === undefined) delete process.env.PLANNER;
+      else process.env.PLANNER = previous;
+      delete process.env.GROQ_API_KEY;
+    }
   });
 });

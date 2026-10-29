@@ -207,9 +207,34 @@ or GPU IndicF5), which needs its own decision.
       chain `[cloudflare(down), groq(down), heuristic]` over the P2 fixture → valid plan,
       `adapter: heuristic`, `degradedFrom: [cloudflare, groq]`, 3 scenes, 41 700 ms, prompts
       style-injected and ≤1000 chars.
-- [ ] Provider planner adapters behind the same port: cloudflare, groq, ollama.
-- [ ] Prompt contract: strict JSON, scene count bounds, 8–20 s per scene, per-scene image prompt.
-- [ ] Repair loop (one retry with a diff) → deterministic fallback.
+- [x] Provider planner adapters behind the same port: cloudflare, groq, ollama —
+      `planner/{cloudflare,groq,ollama}.ts` (one transport contract, injectable `fetchImpl`,
+      `*OptionsFromEnv()` naming every missing variable), `planner/model.ts` (prompt, lenient
+      parse, `planFromBeats`), `planner/http.ts` (`postJson`, `UpstreamError.retryable`) and
+      `planner/factory.ts` (`createPlannerChainFromEnv`: unknown names warned, unconfigured
+      adapters skipped with the reason, heuristic floor). A model adapter **keeps the model's
+      boundaries**; `packScenes()` is the fallback, not a post-processor. 88 planner tests.
+      Artifact: all three adapters driven by a fake `fetch` over the 41.70 s fixture →
+      3 scenes 10.79 / 14.54 / 15.78 s, `concat(text) === script`; chain
+      `[cloudflare(401), groq(401), heuristic]` → `adapter: heuristic`,
+      `degradedFrom: [cloudflare, groq]`, same 41.70 s; `PLANNER=cloudflare` with no credentials
+      → heuristic with `degradedFrom: []` and a warning naming
+      `CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN`.
+- [x] Prompt contract: strict JSON, scene count bounds, 8–20 s per scene, per-scene image prompt —
+      `buildPlannerPrompt()` states the verbatim script, sentence-only cuts, the word budget
+      implied by 8–20 s, the expected count, the motion vocabulary and the style clauses the
+      model must not repeat; the answer is checked by `planFromBeats()` with typed violations.
+- [x] Repair loop (one retry with a diff) → deterministic fallback —
+      `planner/repair.ts` (`planWithRepair`, `MAX_PLANNER_ATTEMPTS = 2`): a rejected answer is
+      re-asked once with the violations quoted back, an unreadable one for one JSON object; a
+      transport failure is **not** repaired (it is `retryable`, and the chain/step owns that
+      retry); a second rejection surfaces the second error and the chain degrades. Every model
+      adapter calls it, so `degradedFrom` means "could not plan", not "needed a nudge".
+      12 repair tests + 3 adapter re-ask tests.
+      Artifact over the 41.70 s fixture: first answer drops a scene → repair prompt carries
+      `does not reassemble the script` → 3 scenes 10.79 / 14.54 / 15.78 s, 41.70 s,
+      `degradedFrom: []`, 2 calls; two bad answers → heuristic, `degradedFrom: [groq]`, 2 calls;
+      a 429 → 1 call, then heuristic.
 - [x] Sentence splitter handling Tamil + Latin terminators and abbreviations —
       `packages/core/src/sentences.ts`: `normalizeScript` (curly quotes → ASCII, whitespace
       collapsed, zero-width spaces dropped, em dash kept because it is prosody) and
@@ -231,7 +256,15 @@ or GPU IndicF5), which needs its own decision.
       `estimateDuration(script)`. 14 tests. Artifact: `fixtures/scripts/tamil-mixed.txt`
       (627 chars, 12 sentences, 86 words, 41.70 s) → 3 scenes of 14.78 / 14.54 / 11.79 s,
       contiguous, `concat === script`, plan ends at 41 700 ms = the estimate.
-- [ ] `POST /v1/videos/plan` (dry run, no charge).
+- [x] `POST /v1/videos/plan` (dry run, no charge) — `apps/api/src/plan.ts`:
+      `estimateScenePlan()` from `packages/core` (same `packScenes()`/`estimateDuration()`/`scriptLanguagePlan()`
+      the worker falls back to); `adapter: "heuristic"`; no model, no DB, no charge, no video row.
+      Request: `{script, size?}` with the same size ceiling creation uses; response:
+      `planVideoResponseSchema` — `scenes[{idx,text,startMs,endMs}]`, `sceneCount`, `totalMs`,
+      `language{run, words{ta,en}}`, `adapter`. No `cost` until P6 (docs/07 §2.4).
+      17 contract tests + 11 API tests + 17 core tests.
+      Artifact (tamil-mixed.txt fixture): 3 scenes [14.78, 14.54, 11.79] = 41.70 s,
+      language mixed (ta 60, en 23), `adapter: heuristic`.
 - [x] Duration estimate per language (ta ≈130 wpm, en ≈150 wpm, mixed ≈140) —
       `packages/core/src/duration.ts`: `estimateDuration(text, { rates?, sentencePauseSeconds? })`
       → `{ seconds, durationMs, words, taWords, enWords, mixedWords, sentencePauses, rates }`.
@@ -254,8 +287,24 @@ every model down → heuristic still produces a valid plan.
 
 ## P3 — Art style + images
 
-- [ ] `POST /v1/art-styles` (multipart reference video): probe, reject <30 s/silent/>10 min.
-- [ ] Frame sampling with scene detection (8–24 frames).
+- [x] `POST /v1/art-styles` (multipart reference video) — `apps/api/src/art-styles.ts`:
+      accepts `multipart/form-data` with `file` (required, MP4/MOV ≤500 MB), `name?`,
+      `formats?` (default `['landscape']`), `published?` (default `false`).
+      Validates with ffprobe: duration ≥30 s, has audio track, ≤10 min (600 s).
+      Stores reference video to `storage/references/`, inserts `art_style` row with
+      `status='building'`, returns `202 {id, status: 'building', createdAt}`.
+      No auth yet (P6); background build job enqueued in follow-up.
+      8 contract tests + 9 API tests (mock ffprobe).
+      Artifact: fake video → 202, `art_style` row inserted with `status='building'`,
+      file written to `storage/references/<uuid>-<name>`.
+- [x] Frame sampling with scene detection (8–24 frames) — `apps/worker/src/art-style/frame-sampling.ts`:
+      Runs ffmpeg `select='gt(scene,0.3)',showinfo` to detect scene changes,
+      extracts one PNG per scene change, adds 3 evenly spaced frames (25%/50%/75%),
+      deduplicates within 1s, caps at 24 frames (prefers highest-scoring scene frames),
+      ensures minimum 8 frames. Saves to `storage/frames/<artStyleId>/`.
+      8 unit tests (mock ffmpeg/ffprobe).
+      Artifact: fake video with 5 scenes + 3 spaced → 8 frames, dedup tested,
+      cap at 24 with highest scores kept, error handling for ffmpeg/ffprobe failures.
 - [ ] Numeric analysis: k-means palette, stroke density, edge energy, saturation.
 - [ ] VLM pass → medium / composition / character bible / typography.
 - [ ] `StyleProfile` schema + merge of numeric + VLM output.

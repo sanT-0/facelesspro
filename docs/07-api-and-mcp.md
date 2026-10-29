@@ -94,12 +94,12 @@ before every video."*
 
 | Method | Path | Why |
 |---|---|---|
-| POST | `/v1/videos/plan` | dry-run: scene count, est. duration, cost, language plan. **No charge.** |
+| POST | `/v1/videos/plan` | dry-run: scene split, est. duration, language plan. **No charge, no model call, no video row.** `adapter: "heuristic"`; `cost` lands with P6 (credits). |
 | GET | `/v1/videos/:id/plan` | the stored plan + voice plan, for the editor inspector |
 | POST | `/v1/videos/:id/scenes/:idx/redraw` | redraw one scene with an optional prompt nudge |
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
-| POST | `/v1/art-styles` | build a style from a reference video (multipart) |
+| POST | `/v1/art-styles` | upload reference video (multipart) → ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row `status='building'`, returns `202 {id, status, createdAt}`. Build job enqueued asynchronously. |
 | GET | `/v1/art-styles/:id/export` | portable style JSON |
 | POST | `/v1/voices/import` | consent-gated voice import |
 

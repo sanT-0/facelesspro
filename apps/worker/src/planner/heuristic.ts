@@ -17,6 +17,7 @@ import type { PlannedScene, SceneMotion, ScenePlan } from '@facelesspro/contract
 import { normalizeScript, packScenes } from '@facelesspro/core';
 
 import type { PlanRequest, PlanStyle, PlannerPort } from '../ports/planner';
+import { composeImagePrompt } from './prompt';
 
 /** Cycled so consecutive scenes do not all move the same way. */
 const MOTION_CYCLE: readonly SceneMotion[] = [
@@ -26,7 +27,6 @@ const MOTION_CYCLE: readonly SceneMotion[] = [
   'pan-right',
 ];
 
-const DEFAULT_NEGATIVE = 'no text, no watermark';
 /** Enough for an image model to see the subject, short enough to stay a prompt. */
 const MAX_DESCRIPTION_WORDS = 18;
 const MAX_DESCRIPTION_CHARS = 220;
@@ -78,24 +78,7 @@ function buildPlan(request: PlanRequest): ScenePlan {
  * description taken from the scene text instead of a model.
  */
 export function imagePromptFor(text: string, style: PlanStyle = {}): string {
-  const prefix = style.prefix?.trim() ?? '';
-  const suffix = style.suffix?.trim() ?? '';
-  const negative = style.negative?.trim() ?? DEFAULT_NEGATIVE;
-
-  let words = describe(text).split(' ').filter((word) => word.length > 0);
-  const build = (): string =>
-    [prefix, words.join(' '), suffix, negative]
-      .filter((part) => part.length > 0)
-      .join(', ');
-
-  let prompt = build();
-  // The contract bounds prompts at 1000 chars; trim the description, never the
-  // style clauses (they carry the look of the whole video).
-  while (prompt.length > 1000 && words.length > 1) {
-    words = words.slice(0, -1);
-    prompt = build();
-  }
-  return prompt;
+  return composeImagePrompt(describe(text), style);
 }
 
 /** Scene words as a description: no punctuation, no emoji, no double spaces. */

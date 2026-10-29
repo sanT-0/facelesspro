@@ -1,113 +1,83 @@
 /**
- * Cloudflare Workers AI planner adapter.
+ * Cloudflare Workers AI planner.
  *
- * Calls Cloudflare's Workers AI REST API to get scene beats from an LLM.
- * Requires: CF_ACCOUNT_ID and CF_API_TOKEN environment variables.
- * Model: configurable, defaults to @cf/meta/llama-3.1-8b-instruct
+ * `POST /accounts/{id}/ai/run/{model}` returns `{ result: { response } }`.
+ * Free-tier friendly and the default in docs/03; the account id and token are
+ * the only configuration, so an unconfigured adapter fails at construction and
+ * the factory simply skips it.
  */
+
+import type { PlannerAdapter, ScenePlan } from '@facelesspro/contracts';
 
 import type { PlanRequest, PlannerPort } from '../ports/planner';
-import type { ScenePlan } from '@facelesspro/contracts';
+import { UpstreamError, postJson } from './http';
+import { planWithRepair } from './repair';
 
-import { buildPlannerPrompt, buildScenePlanFromLLM, parseLLMResponse, validateScenePlan } from './llm';
-
-interface CloudflareConfig {
-  accountId: string;
-  apiToken: string;
-  model: string;
-  /** Request timeout in ms. */
-  timeoutMs: number;
-}
-
-const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
+const ADAPTER: PlannerAdapter = 'cloudflare';
+export const DEFAULT_CLOUDFLARE_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const DEFAULT_TIMEOUT_MS = 30_000;
 
-function getConfig(): CloudflareConfig {
-  const accountId = process.env.CF_ACCOUNT_ID?.trim();
-  const apiToken = process.env.CF_API_TOKEN?.trim();
-  const model = process.env.CF_PLANNER_MODEL?.trim() ?? DEFAULT_MODEL;
-  const timeoutMs = Number(process.env.CF_PLANNER_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
+export interface CloudflareOptions {
+  accountId: string;
+  apiToken: string;
+  model?: string;
+  timeoutMs?: number;
+  /** Injected for tests; defaults to the global fetch. */
+  fetchImpl?: typeof fetch;
+}
+
+/** Read the adapter's configuration, or explain exactly what is missing. */
+export function cloudflareOptionsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): CloudflareOptions {
+  const accountId = env.CLOUDFLARE_ACCOUNT_ID?.trim();
+  const apiToken = env.CLOUDFLARE_API_TOKEN?.trim();
+  const missing = [
+    accountId ? null : 'CLOUDFLARE_ACCOUNT_ID',
+    apiToken ? null : 'CLOUDFLARE_API_TOKEN',
+  ].filter((name): name is string => name !== null);
 
   if (!accountId || !apiToken) {
-    throw new Error(
-      'Cloudflare planner adapter requires CF_ACCOUNT_ID and CF_API_TOKEN environment variables',
-    );
+    throw new Error(`cloudflare planner is not configured: missing ${missing.join(', ')}`);
   }
 
-  return { accountId, apiToken, model, timeoutMs };
-}
-
-/**
- * Call Cloudflare Workers AI with the given prompt.
- * Returns the raw text response from the model.
- */
-async function callCloudflare(prompt: string, config: CloudflareConfig): Promise<string> {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${config.accountId}/ai/run/${config.model}`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        messages: [
-          { role: 'system', content: 'You are a scene planner. Return ONLY valid JSON.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 2048,
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'unknown error');
-      throw new Error(`Cloudflare API error ${response.status}: ${errorText}`);
-    }
-
-    const data = (await response.json()) as {
-      result?: { response?: string };
-      errors?: Array<{ message: string }>;
-    };
-
-    if (data.errors?.length) {
-      throw new Error(`Cloudflare API error: ${data.errors.map((e) => e.message).join(', ')}`);
-    }
-
-    const text = data.result?.response?.trim();
-    if (!text) {
-      throw new Error('Cloudflare returned empty response');
-    }
-
-    return text;
-  } catch (error) {
-    clearTimeout(timeout);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Cloudflare request timed out after ${config.timeoutMs} ms`);
-    }
-    throw error;
-  }
-}
-
-export function createCloudflarePlanner(): PlannerPort {
   return {
-    name: 'cloudflare',
+    accountId,
+    apiToken,
+    model: env.CLOUDFLARE_PLANNER_MODEL?.trim() || DEFAULT_CLOUDFLARE_MODEL,
+    timeoutMs: Number(env.CLOUDFLARE_PLANNER_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+  };
+}
+
+export function createCloudflarePlanner(options: CloudflareOptions = cloudflareOptionsFromEnv()): PlannerPort {
+  const model = options.model ?? DEFAULT_CLOUDFLARE_MODEL;
+
+  return {
+    name: ADAPTER,
     plan: async (request: PlanRequest): Promise<ScenePlan> => {
-      const config = getConfig();
-      const prompt = buildPlannerPrompt(request.script, request.style);
+      return planWithRepair(request, ADAPTER, async (prompt) => {
+        const payload = await postJson({
+          url: `https://api.cloudflare.com/client/v4/accounts/${options.accountId}/ai/run/${model}`,
+          headers: { Authorization: `Bearer ${options.apiToken}` },
+          body: {
+            messages: [
+              { role: 'system', content: 'You plan scenes. Answer with JSON only.' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.3,
+            max_tokens: 4096,
+          },
+          adapter: ADAPTER,
+          timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          fetchImpl: options.fetchImpl,
+        });
 
-      const rawResponse = await callCloudflare(prompt, config);
-      const llmResponse = parseLLMResponse(rawResponse);
-      const plan = buildScenePlanFromLLM(llmResponse, request, 'cloudflare');
-
-      return validateScenePlan(plan);
+        const text = (payload as { result?: { response?: unknown } } | null)?.result?.response;
+        if (typeof text !== 'string' || text.trim().length === 0) {
+          throw new UpstreamError(ADAPTER, 'response contained no text', { retryable: false });
+        }
+        return text;
+      });
     },
   };
 }

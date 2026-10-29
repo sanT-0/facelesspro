@@ -10,7 +10,14 @@ function appWith(probes: {
   db: () => Promise<void>;
   queue: () => Promise<void>;
 }) {
-  return createApp({ probes, now: () => NOW, timeoutMs: 20 });
+  return createApp({
+    probes,
+    now: () => NOW,
+    timeoutMs: 20,
+    db: {
+      insertArtStyle: async () => {},
+    },
+  });
 }
 
 const healthy = async () => {};

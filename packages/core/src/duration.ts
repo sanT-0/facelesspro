@@ -65,6 +65,19 @@ const DIGIT = /\p{Nd}/u;
 // in this class, or Tamil vowel signs (`வார்த்தை`) would be trimmed away.
 const EDGE = /^[\p{P}\p{S}\p{Z}]+|[\p{P}\p{S}\p{Z}]+$/gu;
 
+/**
+ * The tokens that will actually be spoken, in order, with edge punctuation
+ * trimmed. Shared with `scriptLanguagePlan()` so \"word\" means one thing.
+ */
+export function spokenWordTokens(text: string): string[] {
+  const words: string[] = [];
+  for (const token of text.split(/\s+/u)) {
+    const word = token.replace(EDGE, '');
+    if (word.length > 0) words.push(word);
+  }
+  return words;
+}
+
 export function estimateDuration(text: string, options: DurationOptions = {}): DurationEstimate {
   if (typeof text !== 'string') {
     throw new TypeError('estimateDuration expects a string');
@@ -90,9 +103,7 @@ export function estimateDuration(text: string, options: DurationOptions = {}): D
   // too large to spell (`MAX_SAFE` in `numbers.ts`) and anything else with no
   // script at all.
   const spoken = expandNumbersContextual(text);
-  for (const token of spoken.split(/\s+/u)) {
-    const word = token.replace(EDGE, '');
-    if (word.length === 0) continue;
+  for (const word of spokenWordTokens(spoken)) {
     if (TAMIL.test(word)) taWords += 1;
     else if (LATIN.test(word)) enWords += 1;
     else if (DIGIT.test(word)) mixedWords += 1;

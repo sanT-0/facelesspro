@@ -27,7 +27,7 @@ export const sceneMotionSchema = z.enum(SCENE_MOTIONS);
 export type SceneMotion = z.infer<typeof sceneMotionSchema>;
 
 /** Adapters that can produce a plan (docs/03 §2). */
-export const PLANNER_ADAPTERS = ['cloudflare', 'groq', 'ollama', 'heuristic', 'chain'] as const;
+export const PLANNER_ADAPTERS = ['cloudflare', 'groq', 'ollama', 'heuristic'] as const;
 export const plannerAdapterSchema = z.enum(PLANNER_ADAPTERS);
 export type PlannerAdapter = z.infer<typeof plannerAdapterSchema>;
 

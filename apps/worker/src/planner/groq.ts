@@ -1,115 +1,78 @@
 /**
- * Groq planner adapter.
+ * Groq planner — OpenAI-compatible chat completions.
  *
- * Calls Groq's REST API to get scene beats from an LLM.
- * Requires: GROQ_API_KEY environment variable.
- * Model: configurable, defaults to llama-3.1-8b-instant (fast, free tier).
+ * `POST {base}/chat/completions` with `response_format: {type: "json_object"}`,
+ * which is why a Groq answer needs less forgiving here than a raw completion.
  */
+
+import type { PlannerAdapter, ScenePlan } from '@facelesspro/contracts';
 
 import type { PlanRequest, PlannerPort } from '../ports/planner';
-import type { ScenePlan } from '@facelesspro/contracts';
+import { UpstreamError, postJson } from './http';
+import { planWithRepair } from './repair';
 
-import { buildPlannerPrompt, buildScenePlanFromLLM, parseLLMResponse, validateScenePlan } from './llm';
-
-interface GroqConfig {
-  apiKey: string;
-  model: string;
-  /** Request timeout in ms. */
-  timeoutMs: number;
-  /** Base URL (for testing/compat). */
-  baseUrl: string;
-}
-
-const DEFAULT_MODEL = 'llama-3.1-8b-instant';
+const ADAPTER: PlannerAdapter = 'groq';
+export const DEFAULT_GROQ_MODEL = 'llama-3.1-8b-instant';
+export const DEFAULT_GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 const DEFAULT_TIMEOUT_MS = 30_000;
-const DEFAULT_BASE_URL = 'https://api.groq.com/openai/v1';
 
-function getConfig(): GroqConfig {
-  const apiKey = process.env.GROQ_API_KEY?.trim();
-  const model = process.env.GROQ_PLANNER_MODEL?.trim() ?? DEFAULT_MODEL;
-  const timeoutMs = Number(process.env.GROQ_PLANNER_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS;
-  const baseUrl = process.env.GROQ_PLANNER_BASE_URL?.trim() ?? DEFAULT_BASE_URL;
+export interface GroqOptions {
+  apiKey: string;
+  model?: string;
+  baseUrl?: string;
+  timeoutMs?: number;
+  fetchImpl?: typeof fetch;
+}
 
+export function groqOptionsFromEnv(
+  env: Record<string, string | undefined> = process.env,
+): GroqOptions {
+  const apiKey = env.GROQ_API_KEY?.trim();
   if (!apiKey) {
-    throw new Error('Groq planner adapter requires GROQ_API_KEY environment variable');
+    throw new Error('groq planner is not configured: missing GROQ_API_KEY');
   }
 
-  return { apiKey, model, timeoutMs, baseUrl };
-}
-
-/**
- * Call Groq's chat completions API with the given prompt.
- * Returns the raw text response from the model.
- */
-async function callGroq(prompt: string, config: GroqConfig): Promise<string> {
-  const url = `${config.baseUrl}/chat/completions`;
-
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), config.timeoutMs);
-
-  try {
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${config.apiKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        model: config.model,
-        messages: [
-          { role: 'system', content: 'You are a scene planner. Return ONLY valid JSON.' },
-          { role: 'user', content: prompt },
-        ],
-        temperature: 0.3,
-        max_tokens: 2048,
-        response_format: { type: 'json_object' },
-      }),
-      signal: controller.signal,
-    });
-
-    clearTimeout(timeout);
-
-    if (!response.ok) {
-      const errorText = await response.text().catch(() => 'unknown error');
-      throw new Error(`Groq API error ${response.status}: ${errorText}`);
-    }
-
-    const data = (await response.json()) as {
-      choices?: Array<{ message?: { content?: string } }>;
-      error?: { message: string };
-    };
-
-    if (data.error) {
-      throw new Error(`Groq API error: ${data.error.message}`);
-    }
-
-    const text = data.choices?.[0]?.message?.content?.trim();
-    if (!text) {
-      throw new Error('Groq returned empty response');
-    }
-
-    return text;
-  } catch (error) {
-    clearTimeout(timeout);
-    if (error instanceof Error && error.name === 'AbortError') {
-      throw new Error(`Groq request timed out after ${config.timeoutMs} ms`);
-    }
-    throw error;
-  }
-}
-
-export function createGroqPlanner(): PlannerPort {
   return {
-    name: 'groq',
+    apiKey,
+    model: env.GROQ_PLANNER_MODEL?.trim() || DEFAULT_GROQ_MODEL,
+    baseUrl: env.GROQ_PLANNER_BASE_URL?.trim() || DEFAULT_GROQ_BASE_URL,
+    timeoutMs: Number(env.GROQ_PLANNER_TIMEOUT_MS) || DEFAULT_TIMEOUT_MS,
+  };
+}
+
+export function createGroqPlanner(options: GroqOptions = groqOptionsFromEnv()): PlannerPort {
+  const model = options.model ?? DEFAULT_GROQ_MODEL;
+  const baseUrl = (options.baseUrl ?? DEFAULT_GROQ_BASE_URL).replace(/\/+$/u, '');
+
+  return {
+    name: ADAPTER,
     plan: async (request: PlanRequest): Promise<ScenePlan> => {
-      const config = getConfig();
-      const prompt = buildPlannerPrompt(request.script, request.style);
+      return planWithRepair(request, ADAPTER, async (prompt) => {
+        const payload = await postJson({
+          url: `${baseUrl}/chat/completions`,
+          headers: { Authorization: `Bearer ${options.apiKey}` },
+          body: {
+            model,
+            messages: [
+              { role: 'system', content: 'You plan scenes. Answer with JSON only.' },
+              { role: 'user', content: prompt },
+            ],
+            temperature: 0.3,
+            max_tokens: 4096,
+            response_format: { type: 'json_object' },
+          },
+          adapter: ADAPTER,
+          timeoutMs: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+          fetchImpl: options.fetchImpl,
+        });
 
-      const rawResponse = await callGroq(prompt, config);
-      const llmResponse = parseLLMResponse(rawResponse);
-      const plan = buildScenePlanFromLLM(llmResponse, request, 'groq');
-
-      return validateScenePlan(plan);
+        const text = (payload as { choices?: Array<{ message?: { content?: unknown } }> } | null)
+          ?.choices?.[0]?.message?.content;
+        if (typeof text !== 'string' || text.trim().length === 0) {
+          throw new UpstreamError(ADAPTER, 'response contained no text', { retryable: false });
+        }
+        return text;
+      });
     },
   };
 }

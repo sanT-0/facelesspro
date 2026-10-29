@@ -64,8 +64,8 @@ describe('planner chain', () => {
     expect(error).toBeInstanceOf(PlannerChainError);
     if (!(error instanceof PlannerChainError)) throw error;
     expect(error.failures).toEqual([
-      { adapter: 'cloudflare', message: '429 rate limited' },
-      { adapter: 'ollama', message: 'connection refused' },
+      { adapter: 'cloudflare', message: '429 rate limited', retryable: false },
+      { adapter: 'ollama', message: 'connection refused', retryable: false },
     ]);
     expect(error.message).toContain('cloudflare');
     expect(error.message).toContain('connection refused');
@@ -78,7 +78,30 @@ describe('planner chain', () => {
     ]);
     const error = await chain.plan({ script: SCRIPT }).catch((thrown: unknown) => thrown);
     if (!(error instanceof PlannerChainError)) throw error;
-    expect(error.failures[0]).toEqual({ adapter: 'groq', message: 'quota' });
+    expect(error.failures[0]).toEqual({ adapter: 'groq', message: 'quota', retryable: false });
+  });
+
+  it('marks the whole failure retryable only when every adapter failed transiently', async () => {
+    const transient = (name: PlannerAdapter): PlannerPort => ({
+      name,
+      plan: () => Promise.reject(Object.assign(new Error('429'), { retryable: true })),
+    });
+
+    const allTransient = await createPlannerChain([transient('cloudflare'), transient('groq')])
+      .plan({ script: SCRIPT })
+      .catch((thrown: unknown) => thrown);
+    expect(allTransient).toBeInstanceOf(PlannerChainError);
+    expect((allTransient as PlannerChainError).retryable).toBe(true);
+
+    const mixed = await createPlannerChain([transient('cloudflare'), down('groq', '401 bad key')])
+      .plan({ script: SCRIPT })
+      .catch((thrown: unknown) => thrown);
+    expect((mixed as PlannerChainError).retryable).toBe(false);
+
+    const permanent = await createPlannerChain([down('cloudflare', '401 bad key')])
+      .plan({ script: SCRIPT })
+      .catch((thrown: unknown) => thrown);
+    expect((permanent as PlannerChainError).retryable).toBe(false);
   });
 
   it('rejects an empty chain at construction', () => {
