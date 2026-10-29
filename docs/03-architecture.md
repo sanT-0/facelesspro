@@ -55,7 +55,8 @@ pipeline.
 
 ```ts
 // apps/worker/src/ports/
-interface PlannerPort  { plan(script: ScriptCtx): Promise<ScenePlan> }
+interface PlanFn        { plan(request: PlanRequest): Promise<ScenePlan> }
+interface PlannerPort extends PlanFn { readonly name: PlannerAdapter }
 interface TTSPort      { synthesize(plan: VoicePlan): Promise<Narration> }
 interface ASRPort      { transcribe(audio: Buffer): Promise<WordTimings> }
 interface ImagePort    { draw(prompt: ImagePrompt, style: StyleProfile): Promise<Image> }
@@ -65,6 +66,13 @@ interface StoragePort  { put(key, bytes): Promise<Url>; get(key): Promise<Bytes>
 interface NotifyPort   { deliver(event: WebhookEvent): Promise<DeliveryResult> }
 ```
 
+`PlannerPort` is the one port built so far (`apps/worker/src/ports/planner.ts`), and it is the
+template for the rest: the adapter **names itself** (`name`), returns the stored contract shape
+(`ScenePlan`, parsed with zod at the boundary), and the chain — not the adapter — owns
+`degradedFrom`, so degradation history is written in one place. Timings are never a model's
+output: adapters that ask an LLM for beats still take `startMs`/`endMs` from
+`estimateDuration()`/`packScenes()` in `packages/core`.
+
 Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper}`,
 `asr/{whisper-local,cloudflare}`, `image/{cloudflare,pollinations,comfyui}`,
 `style/{vlm,heuristic}`, `storage/{disk,s3}`.
@@ -72,6 +80,23 @@ Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper
 Selection is **capability-first, not vendor-first**: config says
 `PLANNER=cloudflare,groq,heuristic` and the first healthy adapter wins; a failed adapter
 degrades to the next one and records why.
+
+The three hosted/local planner transports share one call path (`planner/http.ts`): POST JSON
+with an `AbortController` timeout, the provider error body truncated into the message, and one
+classification that the chain and the step runner both rely on — **`retryable`**. Network
+failure, timeout, `408`, `425`, `429` and `5xx` are retryable; `400`/`401`/`403`/`404`/`422` and a
+`200` whose body is not JSON are permanent, because a retry of a rejected request or a bad key
+only burns quota. `PlannerChainError.retryable` is true only when **every** adapter failed
+transiently; if any failure was permanent the step fails now and the video is not retried in a
+loop. Each adapter takes `fetchImpl` by injection, so unit tests never open a socket.
+A *rejected answer* is repaired inside the adapter (`planWithRepair`: one re-ask quoting the
+violations) before the chain sees it, so `degradedFrom` means "this adapter could not plan", not
+"this adapter needed one more prompt"; a *transport failure* is never repaired there.
+
+**`POST /v1/videos/plan` (dry run)** is the estimator, not a model call: the API cuts the script
+with the same `packScenes()`/`estimateDuration()`/`scriptLanguagePlan()` layer the worker falls
+back to, returns `adapter: "heuristic"`, and charges nothing — no video row, no ledger write, no
+socket. It is the floor the video cannot fall below, and `cost` lands with P6 (credits).
 
 ---
 
@@ -174,6 +199,11 @@ write pipeline state:
   must classify transient failures themselves.
 - **No network inside the commit.** The body does provider calls between claim and commit; the
   transaction stays milliseconds long.
+- **`ping` is not a step.** It is a separate queue (`packages/queue/src/ping.ts`,
+  `retryLimit: 0`) used to prove the worker can claim and complete a job against a real
+  database. It is deliberately outside `VIDEO_STEPS`, so the public step vocabulary cannot grow
+  for an operator's convenience. `ensureQueues()` creates it alongside the five step queues, and
+  `checkQueues()` — which backs `/health.queue` — requires all six.
 
 ---
 
@@ -217,6 +247,7 @@ Everything engine-related is env, everything product-related is a row.
 # core
 DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless
 PORT=3001
+PGBOSS_SCHEMA=pgboss
 PUBLIC_BASE_URL=http://127.0.0.1:3001
 MEDIA_SERVICE_URL=http://127.0.0.1:8000
 STORAGE=disk                      # disk | s3
@@ -224,7 +255,7 @@ DATA_DIR=.data
 
 # engines (first healthy wins, left-to-right)
 PLANNER=cloudflare,groq,ollama,heuristic
-IMAGE=cloudflare,pollinations,comfyui
+IMAGE=cloudflare,pollinations,comfyui,procedural
 STYLE=vlm,heuristic
 TTS=edge,indicf5,piper
 ASR=whisper-local,cloudflare

@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.data/
+.env
+storage/
+
+# python media service
+services/media/.venv/
+services/media/.smoke/
+__pycache__/
+*.pyc
+
+# OS
+Thumbs.db
+.DS_Store

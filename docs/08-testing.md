@@ -25,24 +25,38 @@ names its **artifact check** — the concrete thing you can look at, listen to, 
 ## 2. `npm run gate`
 
 ```json
-"gate": "npm run typecheck && npm run lint && npm run test:unit && npm run test:contract"
+"gate": "npm run typecheck && npm run lint && npm run test"
 ```
 
 | Command | What it covers | Speed target |
 |---|---|---|
-| `typecheck` | `tsc --noEmit`, strict, all packages | < 10 s |
-| `lint` | eslint + import boundaries (`core` may not import `infra`) | < 10 s |
-| `test:unit` | pure functions in `packages/core` | < 3 s |
-| `test:contract` | api routes + worker steps with faked ports (in-memory pg or testcontainers) | < 60 s |
-| `test:e2e` | full pipeline with fake engines + real ffmpeg on a 10 s video | < 90 s |
+| `typecheck` | `tsc --noEmit`, strict, `noUncheckedIndexedAccess`, all packages + apps | < 10 s |
+| `lint` | eslint 10 + typescript-eslint: `core` purity (relative imports only, no `Date`/`process`/`fetch`/`Math.random`), package boundaries, barrel-only imports, `no-explicit-any` | ~2 s |
+| `test` | every hermetic `*.test.ts` in `packages/*/src` and `apps/*/src` — unit, contract and wiring tests in one vitest run | < 5 s |
 | `test:db` | `withStep` against live Postgres + pg-boss (`vitest.db.config.ts`) | < 30 s |
 | `pytest` | `services/media` + `services/render` | < 60 s |
-| `test:live` | opt-in `LIVE=1`, hits real providers | minutes |
-| `sample:tts` | writes the 6 listening clips | minutes |
+| `test:live` | opt-in `RUN_LIVE=1` (Python) / `LIVE=1` (TS), hits real providers | minutes |
+| `sample:tts` | writes the 7 listening clips for one voice pair into `samples/tts/<pair>/` (`TTS_PAIR`; `TTS_OUT_DIR` only for scratch) | minutes |
 
 **Default CI runs everything except `live`, `sample:tts` and `test:db`.** Those exist for the
 human gate or need a service; a gate must pass with no database running, or a missing Postgres
 looks like green tests.
+
+`.github/workflows/ci.yml` is that sentence as a workflow: a `gate` job (node 22, `npm ci`,
+`npm run gate`) and a `python` job (3.12, real ffmpeg via `apt-get`, `ruff check app tests`,
+`python -m pytest`). Adding `test:db` to CI means adding a Postgres service container in the same
+change — a job that skips when the service is absent would be a green light for a broken queue.
+
+`test` is deliberately **not** split into `test:unit` / `test:contract`: the split only earns its
+keep when one half needs different isolation (an in-memory pg, a testcontainer), and a script CI
+forgets to run is worse than one suite that always runs. When that need appears it becomes a
+vitest project inside `test`, not a second command beside it.
+
+Boundaries are enforced by `eslint.config.js`, not by convention: `packages/core` may import only
+relative files, `packages/contracts` only `zod`, packages may not import `apps/*`, and deep
+`@facelesspro/*/src/*` imports are rejected in favour of the package barrel. `apps/api` and
+`apps/worker` may not import `pg-boss` (or, for the api, `pg`/`drizzle-orm`): the vendor stays in
+`@facelesspro/db` and `@facelesspro/queue`.
 
 ---
 
@@ -54,12 +68,16 @@ looks like green tests.
 |---|---|
 | `segmenter.test.ts` | Tamil/en/tanglish labelling, run merging, punctuation preservation, "no two adjacent runs share a lang", overrides |
 | `transliterate.test.ts` | 300-pair golden table, residual passthrough, never throws on emoji/digits/combining marks |
-| `numbers.test.ts` | ta vs en expansion of 2024 / ₹500 / 3pm / 50% / 1,20,000 |
-| `scenes.test.ts` | char budget, min/max scenes, `concat(text) === script`, deterministic fallback |
+| `numbers.test.ts` | ta vs en expansion of 2024 / ₹500 / 3pm / 50% / 1,20,000, and a comma after a number survives (the clause pause) |
+| `scenes.test.ts` | 8–20 s scenes, no runt at the end, over-long sentence split at word boundaries, ≤120 scenes by merging, spans contiguous and ending on the narration estimate, `concat(text) === script`, determinism, bad bounds rejected |
 | `captions.test.ts` | line breaking, word limit, Tamil grapheme clusters never split, cue monotonicity |
 | `timeline.test.ts` | global = run.start + word.local; gaps by boundary class; no overlaps |
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
 | `ass.test.ts` | ASS document well-formed, style ids reference real styles, font names bundled |
+| `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
+| `sentences.test.ts` | Tamil/Latin terminators, abbreviations (`Dr.`, `Rs.500`, `p.m.`, `திரு.`), decimals, initials, ellipsis, closing quotes, Tamil quotatives (`"…?" என்று` stays one sentence), paragraph breaks, offsets into the normalised script, `concat === script` |
+| `duration.test.ts` | ta 130 / en 150 / mixed 140 wpm, per-word blend, numbers expanded before counting, `₹1,20,000` = 5 words not 1 and unspellable digits keep the mixed rate, one 300 ms gap per sentence, `durationMs`, zero for silence, override rates, rate validation |
+| `estimate.test.ts` | `estimateScenePlan` → `scriptLanguagePlan` routing (ta/en/mixed/override), scene split reassembles `normalizeScript(script)`, `totalMs === last endMs === estimateDuration`, non-overlapping positive spans, `EmptyScriptError` for blank/punctuation-only/wordless input, options passthrough (slower voice → more scenes), determinism |
 
 Property tests (fast-check) for the timing invariants: 10k random voice plans must produce a
 monotonic, gap-respecting, non-overlapping timeline.
@@ -71,6 +89,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 | `requests.test.ts` | every documented default (V3 stability 50, V2 stability 38 + style 50, roblox pitch 140, TTS 38); script limit per aspect; exactly one of script/voiceover; https-only webhook with localhost rejected; unknown keys rejected; all 16 V2 and 9 quiz image styles; unknown `characterId`; `correctIndex` bounds; `{{answer}}` required; 100-item and 1000-message caps; caption-template id 0 invalid |
 | `transport.test.ts` | the error-code table (11 codes → documented statuses); create vs read video shape; webhook body embeds the same video schema; 10 attempts = 9 gaps totalling ~24 h; signature covers `t.body`; synthesize request parity with pydantic; the Python timeline parses including `+00:00`/microseconds; cache-stats union |
 | `db.test.ts` | one realistic row for each of the 17 tables; `credits` required and nullable; caption-template id 0 rejected; the upstream `create image` spelling rejected; narration requires a voice plan |
+| `planner.test.ts` | adapter and motion vocabularies pinned; a heuristic-shaped plan parses; `degradedFrom` keeps the order tried; unknown motion, empty text/prompt, over-long prompt rejected; zero-length scene, overlap, a first scene not at 0, `totalMs ≠ last endMs`, empty plan, >120 scenes, unknown keys all rejected |
 
 Because these schemas are the single shape source, a red contract test blocks api, worker, web
 and mcp at once — that is the point.
@@ -79,11 +98,13 @@ and mcp at once — that is the point.
 
 | Test | Asserts |
 |---|---|
-| `health` | shape + version |
+| `health` | `200` when both probes resolve, `503` when either throws or hangs; a hung probe is cut at the deadline, not waited on; `status` is derived from the components; the body parses through `healthSchema` and never contains the probe's error text |
 | `auth` | missing / malformed / revoked / other-workspace key → 401 |
 | `create.ai-videos-v3` | required fields, both script+voiceover → 400, neither → 400, bad size for style → 400 |
 | `create.defaults` | every documented default is applied exactly |
 | `status` | status/step transitions; `render` while processing → 409 |
+| `plan` | `POST /v1/videos/plan`: 200 estimate parses through `planVideoResponseSchema`, `adapter: "heuristic"`, scene texts rejoin to `normalizeScript(script)`, `totalMs` equals the last `endMs`; blank / punctuation-only / portrait-over-ceiling / unknown key / missing script → `400 invalid_request` with `field: "script"`; invalid JSON → `400 invalid_request`; a throwing DB probe still returns 200 (no database touch) |
+| `art-styles` | `POST /v1/art-styles`: `202` with `createArtStyleResponseSchema` (`id`, `status: "building"`, `createdAt`); missing file / non-video / invalid formats / empty name → `400 invalid_request` with `field: "file"` or `"formats"`; `insertArtStyle` not called on validation failure; ffprobe mocked in tests |
 | `webhooks` | http:// rejected, localhost rejected, signing header present |
 | `errors` | codes table from [07](./07-api-and-mcp.md#12-errors-p) is exhaustive |
 | `mcp.tools` | tool list matches the endpoint list 1:1 (a test, not a convention) |
@@ -101,11 +122,13 @@ db:migrate` twice must report `17 tables, 1 migrations applied` then `0 new capt
 
 ### 3.5 `packages/queue` (hermetic) + `test:db` (Postgres)
 
-`jobs.test.ts` runs in `npm run gate`, no database:
+`jobs.test.ts`, `ping.test.ts` and `health.test.ts` run in `npm run gate`, no database:
 
 | Test | Asserts |
 |---|---|
 | `jobs.test.ts` | queue name == step id for every contract step; `parseJob` rejects a non-object payload, a missing/malformed `videoId`, and an unknown queue (before looking at the payload); `jobData` drops everything but `videoId`; `nextStepOf` follows the public order and returns `null` after `render`; queue policy is 2 retries with backoff, 1 h expiry, 1 day retention; the default lock TTL is 30 min |
+| `ping.test.ts` | `ping` payload is a strict object with an optional trimmed note (blank/oversized/non-string rejected); the queue never retries and keeps the row for a day; `consume` subscribes once with `batchSize: 1`, parses every job, and fails the whole batch on the first malformed payload instead of skipping it |
+| `health.test.ts` | `expectedQueueNames()` is the five steps in contract order plus `ping`; `checkQueues` resolves only when every queue row exists, names all missing ones, passes names as a query parameter (never interpolated), honours a custom schema, rejects a schema that is not a plain identifier, and propagates a database error |
 
 `step.db.test.ts` runs only under `npm run test:db` (`vitest.db.config.ts`, `DB_TESTS=1`),
 against `docker compose` Postgres:
@@ -130,8 +153,17 @@ against `docker compose` Postgres:
 
 | Test | Asserts |
 |---|---|
+| `ping` | `startWorker` consumes exactly the `ping` queue while the pipeline is unbuilt; a job is logged and resolves (so pg-boss marks it completed); a malformed payload throws `InvalidJobError` rather than being swallowed; `stop()` calls `offWork` for every queue it started and nothing else |
 | `step.idempotent` | running a step twice charges once, produces one artifact |
 | `step.resume` | kill between `create-images` and `create-captions` → resume skips completed scenes |
+| `planner.heuristic` | the fixture plans into a valid 8–20 s plan; `concat(text) === script`; style prefix/suffix/negative land in every prompt; prompts ≤1000 chars and trimmed by whole word (never inside a Tamil cluster); punctuation and emoji stripped from descriptions; motion cycles; no emphasis invented without a model; a slower voice gets more scenes; the cap is honoured past 20 s; empty script rejected; deterministic |
+| `planner.chain` | first healthy adapter wins with empty `degradedFrom`; each failure falls through and is recorded in order; all-fail throws `PlannerChainError` with every adapter's message and each failure's `retryable`; `PlannerChainError.retryable` is true only when every failure was transient (mixed and all-permanent are false); a non-`Error` rejection survives as text; an empty chain is rejected at construction |
+| `planner.model` | `buildPlannerPrompt()` embeds the script verbatim between markers, states the word budget from the 8–20 s bounds and the expected scene count, names the style clauses as added-for-you, asks for JSON only and never for timings, and is deterministic; `parseModelText()` reads fences, surrounding prose and strips unknown keys but rejects empty/no-JSON/malformed bodies, an unknown motion, empty text, an over-long description and an empty scene list, with typed `PlannerResponseError`; `planFromBeats()` keeps the model's cuts, reassembles the script exactly, derives contiguous timings, places a 300 ms gap only where a sentence ends, injects style into every prompt, filters emphasis to words present in the scene (once, capped), reports all violations at once (`text-mismatch`, `scene-empty`, `scene-too-short`, `scene-too-long`, `prompt-too-long`, `contract`) and marks them not retryable |
+| `planner.http` | POSTs JSON with caller headers and returns the body; network failure and timeout are retryable and name the limit; `408`/`425`/`429`/`5xx` retryable; `400`/`401`/`403`/`404`/`422` permanent; a `200` with a non-JSON body is permanent; a provider body is truncated into the message |
+| `planner.repair` | a valid first answer costs one call; a rejected answer is re-asked **once** with the violation, the script and the rules, and the repaired plan is returned unchanged; an unreadable or wrong-shape answer is re-asked for one JSON object; a second rejection surfaces the **second** violations and stops at two calls even when a third answer would be valid; a transport failure and a non-answer error are not re-asked (one call, same error, `retryable` preserved); a style that cannot fit the prompt budget is not re-asked either (a configuration bug, not wording); the repair prompt is deterministic |
+| `planner.providers` | cloudflare uses the account-scoped model URL, `result.response`, bearer token; groq uses `/chat/completions` with `response_format: json_object` and honours a base-URL override without a trailing slash; ollama uses `/api/chat` with `format: json`, `stream: false` and a 120 s default; each adapter names itself in `plan.adapter`; an empty answer is a permanent `UpstreamError`, a `429` is retryable, a bad model answer is a `PlannerResponseError` (not an upstream failure); `*OptionsFromEnv` name every missing variable and read the model/timeout overrides; each adapter re-asks once with the violation and returns the repaired plan |
+| `planner.factory` | `PLANNER` unset → heuristic alone with a warning; an unknown name is warned and ignored; a provider with missing credentials is skipped with the missing variables named; the configured order is preserved and the first healthy adapter plans; an upstream `500` degrades to the next adapter with `degradedFrom: ['groq']`; an all-unavailable list falls back to the heuristic; an injected env is used and the real `process.env` is not read |
+| `frame-sampling.test.ts` | scene detection via ffmpeg `select='gt(scene,0.3)'`, 3 evenly spaced frames, dedup within 1s, cap 24 (prefers highest-scoring scenes), min 8 frames; mocks ffmpeg/ffprobe via `spawn`; dedup logic tested; error handling for ffmpeg exit codes and ffprobe failures; `readdir` cleanup tested |
 | `adapter.chain` | first adapter throws → second is used → event records `degradedFrom` |
 | `adapter.allfail` | every adapter down → `failed`, `step` correct, no charge |
 | `ledger.atomic` | a throw after artifact write rolls back both the ledger and the step |
@@ -141,11 +173,12 @@ against `docker compose` Postgres:
 | Test | Asserts |
 |---|---|
 | `test_synthesize.py` | real WAV fake → trimmed run per segment, `start_ms` == previous end + gap, boundary gaps from punctuation, words global/monotonic/inside run, 502 on provider failure, 422 on bad voice |
-| `test_stitch.py` | sample-exact starts and master length (48 frames/ms), head trim rebases words, words clamped inside the run, no clipping, join delta ≤ 200 (click check), assembled master inside the delivery window |
+| `test_stitch.py` | sample-exact starts and master length (48 frames/ms), head trim rebases words, words clamped inside the run, no clipping, join delta ≤ 200 (click check), assembled master inside the delivery window, internal word pause shortens the run and moves the later word by exactly the removed frames, the next word still starts where its sound starts, several pauses stay ordered, `pause_compression=False` reproduces the raw delivery |
+| `test_pauses.py` | internal pauses 60–250 ms detected, edge and sentence/long silences left alone, a pause shorter than the floor left alone, kept window configurable (2 × keep), PCM outside the cut byte-identical, frames after == before − removed, ascending non-overlapping cuts, an all-silent file is not cut to nothing |
 | `test_audio.py` | silence detection at −45 dB, 20 ms headroom, 48 kHz mono PCM, −16 ±1.5 LU, fully silent input not trimmed to nothing, program stage keeps every frame, limits only when gain alone would break the true-peak ceiling, is a no-op when already on target |
 | `test_cache.py` | key depends on engine/voice/text, audio+words round-trip exactly, half an entry is never served, corrupt entries are dropped not raised, bounded cache evicts oldest first, a failed synthesis is not cached, an unwritable cache does not fail the request, two identical requests call the engine once |
 | `test_boundaries.py` | punctuation → boundary class, documented midpoint gaps, speed scaling, invalid speed rejected |
-| `test_voices.py` | pinned ids, pair validation (language/gender/engine), explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
+| `test_voices.py` | pinned ids, one speaker per pair (a second voice is rejected when the Tamil voice can already read English), both genders ship (`valluvar` male + `pallavi` female, both native ta-IN), four female voices are selectable (`pallavi`, `seraphina`, `vivienne`, `thalita`), a rejected female voice stays catalogued, a single-voice pair must be able to read English, explicit selector rules, ta-LK stays unpaired, JSON-ready catalogue |
 | `test_live_voices.py` | (LIVE=1) every pinned edge voice still exists; pairs still validate |
 | `test_segment_plan.py` | ta/en/tanglish plan matches `packages/core` fixtures (cross-language parity) — not built yet |
 | `test_live_tts.py` | (LIVE=1) mixed clip: ≥1 ta + ≥1 en run, one master file, monotonic words |
@@ -178,7 +211,8 @@ Every port has a deterministic fake, used by default in tests:
 
 | Port | Fake behaviour |
 |---|---|
-| `PlannerPort` | returns a fixed 5-scene plan derived from the script's sentence count |
+| `PlannerPort` | there is no separate fake: the **heuristic adapter** is deterministic and offline, so tests use `createHeuristicPlanner()` (a plan derived from `packScenes()`, templated prompts, cycled motion, no emphasis). It is also the last link of the real chain, so the fake is exercised in production too. |
+| provider HTTP | the adapters themselves are tested by a fake `fetch` (`vi.fn`) that returns the provider's envelope; no socket is opened. Live provider calls are `LIVE=1` only. |
 | `TTSPort` | returns a generated sine/silence WAV of `chars/15` seconds + evenly spaced fake word timings |
 | `ASRPort` | returns the known fixture transcript + timings |
 | `ImagePort` | returns a deterministic SVG→PNG with the prompt's hash rendered |

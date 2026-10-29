@@ -1,0 +1,4 @@
+﻿pytest==9.1.1
+# starlette >= 1 renamed the TestClient transport requirement to httpx2.
+httpx2==2.16.0
+ruff==0.17.2

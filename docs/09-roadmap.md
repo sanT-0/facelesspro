@@ -39,12 +39,46 @@ Goal: the repo can build, migrate, queue and serve, with the new name and the sh
       `advance`). Verified against real Postgres: 14 integration tests (`npm run test:db`)
       including rollback-after-enqueue and two concurrent jobs running the body once, plus 12
       hermetic tests for names/payload/policy. `test:db` is deliberately outside the gate.
-- [ ] `apps/worker` skeleton with a no-op `ping` step; `apps/api` `/health` reports db + queue.
-- [ ] `npm run gate` script; eslint import boundaries; `.env.example` rewritten.
-- [ ] CI workflow: gate + pytest on push.
+- [x] `apps/worker` skeleton with a no-op `ping` step; `apps/api` `/health` reports db + queue.
+      `ping` is its own queue (`retryLimit: 0`), not a `video.step`: the step tuple is a public
+      contract and a smoke test must not widen it. `startWorker({ boss })` consumes it through
+      `consume()`, and `stop()` calls `offWork` so Ctrl-C drains instead of abandoning a job.
+      Pipeline step handlers land in P5; until then a step job stays queued rather than being
+      failed by a handler that does not exist.
+      `/health` runs two injected probes under a 2 s deadline each: `select 1` for db, and
+      `checkQueues()` for the queue — which reads pg-boss's own `queue` table and requires all
+      five step queues plus `ping`, because "TCP connect worked" cannot see a missing queue.
+      `200 {status:"ok", db:"ok", queue:"ok"}` / `503 degraded` with the failing component
+      named. Body is `healthSchema` from `@facelesspro/contracts`. `media`/`storage` join the
+      shape when those ports exist. `npm run ping` enqueues and polls until completed, so the
+      artifact check is an exit code.
+- [x] `npm run gate` script; eslint import boundaries; `.env.example` rewritten.
+      `gate = typecheck && lint && test`; eslint 10 + typescript-eslint 8, flat config, no
+      type-aware rules (so it stays ~2 s). Boundaries are rules, not prose: `core` may import
+      only relative files and may not touch `Date`/`process`/`fetch`/`Math.random`; `contracts`
+      may import `zod` only; no package imports an app; no deep `@facelesspro/*/src/*` imports;
+      the api/worker may not import `pg-boss` (the api not `pg`/`drizzle-orm` either).
+      `test:unit`/`test:contract` were **not** created: one `test` suite runs everything
+      hermetic, and the split becomes a vitest project when a suite needs different isolation
+      ([08](./08-testing.md) §2 says so).
+      `.env.example` rewritten: ASCII section banners, no trailing-comment traps, `PGBOSS_SCHEMA`
+      documented, `FONTCONFIG_FILE` commented until P4 ships the config, script/test knobs
+      (`PYTHON`, `TTS_PORT`, `TTS_PAIR`, `TTS_OUT_DIR`, `RUN_LIVE`) listed.
+- [x] CI workflow: gate + pytest on push.
+      `.github/workflows/ci.yml`, two jobs: `gate` (node 22 — the `engines` floor — with
+      `actions/setup-node` npm cache, `npm ci`, `npm run gate`) and `python` (3.12 per plan.md
+      §5, pip cache keyed on `services/media/requirements*.txt`, `apt-get install ffmpeg`,
+      `ruff check app tests`, `python -m pytest`). `permissions: contents: read`,
+      `concurrency: ci-${{ github.ref }}` cancels a superseded run, `workflow_dispatch` for
+      manual runs. `test:db`, `test:live` and `sample:tts` stay out, as
+      [08](./08-testing.md) §2 requires. No branch filter: pushing any branch runs it.
 
 **Gate:** `docker compose up -d && npm run db:migrate && npm run gate` green from clean clone;
 `/health` shows `{db:"ok", queue:"ok"}`.
+
+Status 2026-10-27: every task above is done and the gate + `/health` + `npm run ping` were
+observed locally against compose Postgres. P0 is not formally closed until the workflow runs
+green on the remote — that needs a push, not more code.
 
 **Artifact check:** enqueue `ping`, watch it complete in the DB.
 
@@ -59,41 +93,190 @@ Goal: narration that sounds like one bilingual person. Details: [05](./05-tts-ta
 - [x] Inline overrides `[[ta:…]] [[en:…]] [[tl:…]]`.
 - [x] `transliterate.ts` + dictionary-first golden table (442 dictionary entries, 428 of 647 routed words pinned; 68 tests).
 - [x] `numbers.ts` language-aware expansion (2024 / ₹500 / 3pm / 50% / 1,20,000; 103 tests).
-- [ ] Tamil numeral sandhi for glued case suffixes (`2024-ல்` → `…நான்கில்`, `50%க்கு` →
-      `…சதவீதத்திற்கு`); needs its own listening test, see [05](./05-tts-tamil-mixed.md) §3.6.
+- [ ] **deferred after P1** — Tamil numeral sandhi for glued case suffixes (`2024-ல்` →
+      `…நான்கில்`, `50%க்கு` → `…சதவீதத்திற்கு`); needs its own listening test, see
+      [05](./05-tts-tamil-mixed.md) §3.6. Not part of P1 acceptance: no gate clip exercises it.
+- [ ] **deferred after P1** — Latin stem + Tamil suffix keeps a dangling hyphen: `channel-க்கு`
+      reaches the engine as `channel- க்கு` (found 2026-10-27 on a fresh sentence). Measured
+      effect: none — the engine splits at the hyphen and the word gap is 42 ms, like every other
+      boundary — but captions and the spoken text still carry the dash, so the normaliser (drop
+      the hyphen, glue the suffix) belongs with the sandhi work.
 - [x] Voice catalogue with capability tags (`languages`, `mixesEnglish`, `wordTimings`),
       pinned ids, a test that fails if a voice disappears — `services/media/app/voices.py`,
-      9 voices, 35 pytest tests (3 live, skipped without `RUN_LIVE=1`).
-- [x] Voice pairing table (`pallavi-neerja`, `valluvar-prabhat`, `indicf5-ta`, `piper-offline`)
-      with gender/engine/language validation; `ta-LK` voices catalogued but unpaired.
+      15 voices, `test_voices.py` (31 tests) + 3 live tests (`RUN_LIVE=1`).
+- [x] Voice pairing: **one speaker per pair** (`valluvar` male default, `pallavi` female default,
+      `seraphina`, `vivienne`, `thalita`, `andrew`, `emma`, `ava`, `indicf5-ta`, `piper-offline`).
+      Every female voice that passed the fresh sentence is a pair, not a catalogue entry: four
+      selectable women, ten pairs in total. `validate_pair` rejects a second
+      voice whenever the Tamil voice can already read English, so the two-speaker configuration
+      the listening gate rejected cannot be built; `ta-LK` voices stay catalogued but unpaired,
+      and `test_both_genders_ship` fails if every female pair is ever removed.
 - [x] Media service: gap calibration by boundary class, per-run loudness (`loudnorm`), 5 ms
       equal-power cross-fade, silence trim, exact global word offsets — `stitch.py`/`audio.py`/
       `boundaries.py`, 91 pytest tests. Speed-scaling of gaps is implemented but not exposed:
       `speed` arrives with `voiceStyle` at P4. Program stage added: peak-bound runs are fixed on
       the assembled master (−16.28…−16.46 LUFS, TP ≤ −1.79 dBTP, frame-exact).
+- [x] Internal word-pause compression (`audio.compress_pauses`, `TTS_PAUSE_COMPRESSION`): the
+      provider's 60–250 ms silences *inside* a run are cut to 50 ms with 25 ms of guard at each
+      edge, sentence breaks untouched, and words are moved by exactly the removed frames.
+      Measured on clip 01: 10.34 → 9.99 s, 13 × 65–175 ms gaps → 11 × 50 ms. 15 new tests.
 - [x] Cache: `hash(engine, voice, text)` → raw provider audio + words
       (`services/media/app/cache.py`, 13 tests). Atomic two-file entries, bounded oldest-first,
       `GET /cache`. Observed cold 2.15 s → warm 0.48 s with identical duration and words.
-- [x] `npm run sample:tts` → 6 clips in `samples/tts/`; not yet heard.
+- [x] `npm run sample:tts` → 7 clips per pair, the seventh written after the voices were chosen
+      (`07-fresh-mixed.mp3`, the sentence that demoted `emma`). One directory per pair, named
+      after the pair id (`sampleSetDir`): male set in `samples/tts/valluvar/` (`valluvar`):
+      9.90 / 8.83 / 14.85 / 6.80 / 3.58 / 15.54 / 13.95 s; female set in `samples/tts/pallavi/`
+      (`TTS_PAIR=pallavi`): 10.00 / 9.44 / 15.57 / 7.13 / 3.99 / 15.77 / 14.80 s. Both
+      −16.26…−16.49 LUFS, TP ≤ −1.76 dBTP, one voice per clip, frame-exact. `samples/tts/README.md`
+      indexes every set from its `report.json`; a set existing is not an approval.
+      Heard 2026-10-27: first run **failed** on Tamil naturalness and on the speaker switch —
+      see the status note below.
+- [x] One canonical set per voice: `sampleSetDir()` in `packages/core` turns the pair id into
+      `samples/tts/<pair>/` (validated, so a voice id or `..` cannot become a directory),
+      `sample-tts.ts` derives the output from the pair instead of an env var, and
+      `samples/tts/README.md` indexes every set from its `report.json`. Scratch renders live in
+      `samples/tts/auditions/` and are never evidence. `samples.test.ts` (3 tests).
 - [x] `GET /voices` + `GET /voices/{pair}` exposed on the media service (the sample script
       resolves its pair there instead of hardcoding ids).
 
-**Gate:** all unit + stitch tests green; `pytest` green; **I have listened to all 6 clips and
-approved them**; no seam audible in `03-mixed-paragraph.mp3`; Tamil glyphs correct.
+**Gate:** all unit + stitch tests green; `pytest` green; **all five sets approved by ear** —
+`valluvar` on 2026-10-27, and the 01–06 clips of the four female sets on 2026-10-28
+(*"i heared all voice now that ok"*), which was the last thing P1 was waiting for. No seam audible
+in `03-mixed-paragraph.mp3`; Tamil glyphs correct. **P1 is closed.**
 
-**Artifact check:** `samples/tts/05-tanglish.mp3` — `"vanakkam machan, epdi irukka?
-today we talk about money."` sounds like one Tamil speaker, not two.
+**Artifact check:** `samples/tts/valluvar/05-tanglish.mp3` — `"vanakkam machan, epdi irukka?
+today we talk about money."` sounds like one Tamil speaker, not two; the same sentence in
+`samples/tts/pallavi/05-tanglish.mp3` sounds like one Tamil woman, not two.
+
+Status 2026-10-28: **P1 is closed.** The first run failed on Tamil naturalness
+("not natural") and the follow-up named *gaps between words* and *the voice's timbre*. Both are
+fixed: pauses inside a run are compressed (65–175 ms → 50 ms) with the words re-timed to the
+frame, and the catalogue now allows only **one speaker per pair**, because the second voice was
+audible as a narrator swap inside a sentence ("pair tamil and english voice are spoken with
+different voice"). The clips were regenerated and measured green on loudness, duration, timeline
+and voice count; the male set was approved, and the female set was approved with a voice that
+later failed on fresh text — hence the re-open below. That re-open closed on 2026-10-28, when the
+24 still-unheard clips (`01`–`06` of the four female sets) were played and passed.
+
+The female line stays in the catalogue and is **not** optional — a channel may want a woman
+narrating. Choosing her took three rounds and one instructive failure:
+
+1. Six fixed clips: *"emma is good saranya is not good"* → `emma` promoted, `saranya` rejected.
+2. A sentence nobody had heard her on: *"valluvar is good , emma is not good"* → `emma` demoted.
+3. The same sentence for every remaining female voice: *"all good"* → with no audible winner, the
+   product rule decides: Tamil is the primary language, so `pallavi` (`ta-IN-PallaviNeural`, native
+   `ta-IN`, Indian-accented English like Valluvar) is the female default and `TTS_PAIR=pallavi`
+   selects it. `emma`, `ava` and `saranya` stay catalogued — two as rejected timbres, one unpaired
+   — because rejecting a voice is not deleting the option. `en-GB-AdaMultilingualNeural` is
+   unusable: listed by `edge-tts --list-voices` but `NoAudioReceived` for every synthesis.
+
+The three women who also passed that sentence are pairs, not table entries: `seraphina`
+(`de-DE`), `vivienne` (`fr-FR`) and `thalita` (`pt-BR`) are selectable with `TTS_PAIR=<id>`, so a
+channel picks its narrator rather than accepting ours. Ten pairs in total, fifteen voices.
+
+The gate now renders seven clips, not six: `07-fresh-mixed.mp3` is written after the voices are
+chosen, so a voice cannot be approved on text it happened to suit.
+
+The full female set is rendered next to the male one rather than over it:
+`TTS_PAIR=pallavi npm run sample:tts` → `samples/tts/pallavi/`, seven clips at 10.00 /
+9.44 / 15.57 / 7.13 / 3.99 / 15.77 / 14.80 s, −16.26…−16.49 LUFS, TP ≤ −1.76 dBTP, one voice per
+clip, frame-exact. Her clip 07 passed by ear first; all seven of her clips, and all seven of the
+other three female sets, were heard and passed on 2026-10-28.
+
+Each option voice has its own seven-clip set in `samples/tts/{seraphina,vivienne,thalita}/`
+— 21 clips, one voice each, frame-exact, −16.22…−16.36 LUFS, TP ≤ −1.75 dBTP. Their fresh clip
+runs 12.65 s (Vivienne), 13.26 s (Thalita) and 15.88 s (Seraphina) for the same text.
+
+If a timbre is rejected later, the remaining lever is a different engine (paid Azure/ElevenLabs
+or GPU IndicF5), which needs its own decision.
 
 ---
 
 ## P2 — Scene planner
 
-- [ ] `PlannerPort` + adapters: cloudflare, groq, ollama, heuristic.
-- [ ] Prompt contract: strict JSON, scene count bounds, char budget, per-scene image prompt.
-- [ ] Repair loop (one retry with a diff) → deterministic fallback.
-- [ ] Sentence splitter handling Tamil + Latin terminators and abbreviations.
-- [ ] `POST /v1/videos/plan` (dry run, no charge).
-- [ ] Duration estimate per language (ta ≈130 wpm, en ≈150 wpm, mixed ≈140).
+- [x] `PlannerPort` + the heuristic adapter —
+      `apps/worker/src/ports/planner.ts` (`PlanFn`, `PlannerPort` with a self-identifying
+      `name`, `PlanRequest`, `PlanStyle`), `apps/worker/src/planner/heuristic.ts`
+      (`createHeuristicPlanner()` over `packScenes()`, `imagePromptFor()`) and
+      `apps/worker/src/planner/chain.ts` (`createPlannerChain()`, `PlannerChainError`). The chain
+      is the `PLANNER=cloudflare,groq,heuristic` mechanism: the first healthy adapter wins, each
+      failure is recorded in `degradedFrom` (owned by the chain, not the adapter), and the step
+      fails only when every adapter fails. The heuristic adapter is also the fake — it is offline
+      and deterministic, so there is no second implementation to drift. 20 tests. Artifact:
+      chain `[cloudflare(down), groq(down), heuristic]` over the P2 fixture → valid plan,
+      `adapter: heuristic`, `degradedFrom: [cloudflare, groq]`, 3 scenes, 41 700 ms, prompts
+      style-injected and ≤1000 chars.
+- [x] Provider planner adapters behind the same port: cloudflare, groq, ollama —
+      `planner/{cloudflare,groq,ollama}.ts` (one transport contract, injectable `fetchImpl`,
+      `*OptionsFromEnv()` naming every missing variable), `planner/model.ts` (prompt, lenient
+      parse, `planFromBeats`), `planner/http.ts` (`postJson`, `UpstreamError.retryable`) and
+      `planner/factory.ts` (`createPlannerChainFromEnv`: unknown names warned, unconfigured
+      adapters skipped with the reason, heuristic floor). A model adapter **keeps the model's
+      boundaries**; `packScenes()` is the fallback, not a post-processor. 88 planner tests.
+      Artifact: all three adapters driven by a fake `fetch` over the 41.70 s fixture →
+      3 scenes 10.79 / 14.54 / 15.78 s, `concat(text) === script`; chain
+      `[cloudflare(401), groq(401), heuristic]` → `adapter: heuristic`,
+      `degradedFrom: [cloudflare, groq]`, same 41.70 s; `PLANNER=cloudflare` with no credentials
+      → heuristic with `degradedFrom: []` and a warning naming
+      `CLOUDFLARE_ACCOUNT_ID, CLOUDFLARE_API_TOKEN`.
+- [x] Prompt contract: strict JSON, scene count bounds, 8–20 s per scene, per-scene image prompt —
+      `buildPlannerPrompt()` states the verbatim script, sentence-only cuts, the word budget
+      implied by 8–20 s, the expected count, the motion vocabulary and the style clauses the
+      model must not repeat; the answer is checked by `planFromBeats()` with typed violations.
+- [x] Repair loop (one retry with a diff) → deterministic fallback —
+      `planner/repair.ts` (`planWithRepair`, `MAX_PLANNER_ATTEMPTS = 2`): a rejected answer is
+      re-asked once with the violations quoted back, an unreadable one for one JSON object; a
+      transport failure is **not** repaired (it is `retryable`, and the chain/step owns that
+      retry); a second rejection surfaces the second error and the chain degrades. Every model
+      adapter calls it, so `degradedFrom` means "could not plan", not "needed a nudge".
+      12 repair tests + 3 adapter re-ask tests.
+      Artifact over the 41.70 s fixture: first answer drops a scene → repair prompt carries
+      `does not reassemble the script` → 3 scenes 10.79 / 14.54 / 15.78 s, 41.70 s,
+      `degradedFrom: []`, 2 calls; two bad answers → heuristic, `degradedFrom: [groq]`, 2 calls;
+      a 429 → 1 call, then heuristic.
+- [x] Sentence splitter handling Tamil + Latin terminators and abbreviations —
+      `packages/core/src/sentences.ts`: `normalizeScript` (curly quotes → ASCII, whitespace
+      collapsed, zero-width spaces dropped, em dash kept because it is prosody) and
+      `splitSentences` (`.` `!` `?` `…` `।` `॥`; `3.5`, `Rs.500`, `Dr.`, `p.m.`, `A. R.` and
+      `திரு.` stay inside their sentence; a Tamil quotative (`"…?" என்று கேட்டார்`) keeps its
+      quote; a blank line is a boundary; an ellipsis only ends a sentence before a new one;
+      `.` inside `[[…]]` never splits; offsets index the normalised script). 22 tests, including
+      the invariant `join(' ') === normalizeScript(script)`.
+      Artifact: a 408-character mixed Tamil/English script → 8 sentences, every offset slice
+      equal to its text, `concat === script` true.
+- [x] Deterministic scene packing, 8–20 s per scene and ≤120 scenes —
+      `packages/core/src/scenes.ts`: `packScenes(script, { minSeconds?, maxSeconds?, maxScenes?,
+      rates?, sentencePauseSeconds? })` → `{ text, startMs, endMs }[]`. Sentences are the units;
+      a sentence longer than 20 s is cut at word boundaries into balanced parts (no gap at the
+      cut, because no sentence ends there); the plan is chosen by dynamic programming so a short
+      trailing sentence joins a neighbour instead of becoming a 0.5 s runt; the scene cap is met
+      by merging the cheapest adjacent pair, accepting an over-long scene rather than dropping
+      text. Scene spans include their internal 300 ms sentence gaps and the last `endMs` equals
+      `estimateDuration(script)`. 14 tests. Artifact: `fixtures/scripts/tamil-mixed.txt`
+      (627 chars, 12 sentences, 86 words, 41.70 s) → 3 scenes of 14.78 / 14.54 / 11.79 s,
+      contiguous, `concat === script`, plan ends at 41 700 ms = the estimate.
+- [x] `POST /v1/videos/plan` (dry run, no charge) — `apps/api/src/plan.ts`:
+      `estimateScenePlan()` from `packages/core` (same `packScenes()`/`estimateDuration()`/`scriptLanguagePlan()`
+      the worker falls back to); `adapter: "heuristic"`; no model, no DB, no charge, no video row.
+      Request: `{script, size?}` with the same size ceiling creation uses; response:
+      `planVideoResponseSchema` — `scenes[{idx,text,startMs,endMs}]`, `sceneCount`, `totalMs`,
+      `language{run, words{ta,en}}`, `adapter`. No `cost` until P6 (docs/07 §2.4).
+      17 contract tests + 11 API tests + 17 core tests.
+      Artifact (tamil-mixed.txt fixture): 3 scenes [14.78, 14.54, 11.79] = 41.70 s,
+      language mixed (ta 60, en 23), `adapter: heuristic`.
+- [x] Duration estimate per language (ta ≈130 wpm, en ≈150 wpm, mixed ≈140) —
+      `packages/core/src/duration.ts`: `estimateDuration(text, { rates?, sentencePauseSeconds? })`
+      → `{ seconds, durationMs, words, taWords, enWords, mixedWords, sentencePauses, rates }`.
+      Per-word language, so one mixed sentence is priced as Tamil words at 130 and English words
+      at 150; numbers are expanded first (`₹1,20,000` is five spoken words, not one token) in the
+      language of their own clause; one 300 ms gap per sentence break, matching
+      `BASE_GAP_MS["sentence"]`. 15 tests. Calibration against the 35 shipped sample clips:
+      Tamil mean −1.5% / MAE 6.2%, mixed (25 clips, the product's core) mean −0.5% / MAE 8.6%,
+      all 10.0% MAE. Pure-English clips are the known bias: the shipped voices read them at
+      153–202 wpm, so `en: 150` estimates ~20% long there; kept because raising it to 165 makes
+      the mixed case worse (−5.5%) and the per-voice spread is larger than the correction.
+      Per-pair `rates` are the supported escape hatch once the planner knows the voice.
 
 **Gate:** `fixtures/scripts/*` → stable plans; `concat(scene.text)` preserves the script;
 every model down → heuristic still produces a valid plan.
@@ -104,8 +287,24 @@ every model down → heuristic still produces a valid plan.
 
 ## P3 — Art style + images
 
-- [ ] `POST /v1/art-styles` (multipart reference video): probe, reject <30 s/silent/>10 min.
-- [ ] Frame sampling with scene detection (8–24 frames).
+- [x] `POST /v1/art-styles` (multipart reference video) — `apps/api/src/art-styles.ts`:
+      accepts `multipart/form-data` with `file` (required, MP4/MOV ≤500 MB), `name?`,
+      `formats?` (default `['landscape']`), `published?` (default `false`).
+      Validates with ffprobe: duration ≥30 s, has audio track, ≤10 min (600 s).
+      Stores reference video to `storage/references/`, inserts `art_style` row with
+      `status='building'`, returns `202 {id, status: 'building', createdAt}`.
+      No auth yet (P6); background build job enqueued in follow-up.
+      8 contract tests + 9 API tests (mock ffprobe).
+      Artifact: fake video → 202, `art_style` row inserted with `status='building'`,
+      file written to `storage/references/<uuid>-<name>`.
+- [x] Frame sampling with scene detection (8–24 frames) — `apps/worker/src/art-style/frame-sampling.ts`:
+      Runs ffmpeg `select='gt(scene,0.3)',showinfo` to detect scene changes,
+      extracts one PNG per scene change, adds 3 evenly spaced frames (25%/50%/75%),
+      deduplicates within 1s, caps at 24 frames (prefers highest-scoring scene frames),
+      ensures minimum 8 frames. Saves to `storage/frames/<artStyleId>/`.
+      8 unit tests (mock ffmpeg/ffprobe).
+      Artifact: fake video with 5 scenes + 3 spaced → 8 frames, dedup tested,
+      cap at 24 with highest scores kept, error handling for ffmpeg/ffprobe failures.
 - [ ] Numeric analysis: k-means palette, stroke density, edge energy, saturation.
 - [ ] VLM pass → medium / composition / character bible / typography.
 - [ ] `StyleProfile` schema + merge of numeric + VLM output.

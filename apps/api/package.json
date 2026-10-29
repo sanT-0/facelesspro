@@ -1,0 +1,18 @@
+{
+  "name": "@facelesspro/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/server.ts",
+    "start": "tsx src/server.ts"
+  },
+  "dependencies": {
+    "@facelesspro/contracts": "*",
+    "@facelesspro/core": "*",
+    "@facelesspro/db": "*",
+    "@facelesspro/queue": "*",
+    "@hono/node-server": "^1.19.0",
+    "hono": "^4.9.0"
+  }
+}
