@@ -11,6 +11,7 @@ export * from './art-style';
 export * from './art-style-build';
 export * from './style-vision';
 export * from './style-profile';
+export * from './image';
 export * from './requests';
 export * from './responses';
 export * from './media';

@@ -5,6 +5,7 @@ import { readHealth } from './health';
 import type { HealthDeps } from './health';
 import { planVideo } from './plan';
 import { createArtStyleRoutes } from './art-styles';
+import type { ArtStyleDeps } from './art-styles';
 
 /**
  * The api as a set of routes over injected dependencies.
@@ -13,20 +14,7 @@ import { createArtStyleRoutes } from './art-styles';
  * and a top-level export would make every test that imports the app a silent
  * integration test. `server.ts` builds the real deps; tests build fakes.
  */
-export interface ApiDeps extends HealthDeps {
-  db: {
-    insertArtStyle: (row: {
-      id: string;
-      workspace_id: string | null;
-      name: string;
-      published: boolean;
-      formats: string[];
-      profile: Record<string, unknown>;
-      status: 'building';
-      created_at: Date;
-    }) => Promise<void>;
-  };
-}
+export interface ApiDeps extends HealthDeps, ArtStyleDeps {}
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
@@ -65,8 +53,8 @@ export function createApp(deps: ApiDeps): Hono {
   /**
    * `POST /v1/art-styles` — upload a reference video for style cloning.
    * Validates with ffprobe (≥30s, has audio, ≤10min), stores file, inserts
-   * `art_style` row with `status='building'`, returns `202`.
-   * No auth yet (P6); no background job enqueued yet (follow-up).
+   * `art_style` row with `status='building'`, enqueues the build atomically,
+   * and returns `202`. No auth yet (P6).
    */
   app.route('/v1/art-styles', createArtStyleRoutes(deps));
 

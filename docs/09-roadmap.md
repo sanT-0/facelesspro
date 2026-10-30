@@ -301,7 +301,7 @@ every model down → heuristic still produces a valid plan.
       ffmpeg `scdet=threshold=30` for scene changes, 3 evenly spaced frames
       (25/50/75%), 1 s dedupe, cap 24 (prefers high-scoring scene frames),
       padded to 8 equally spaced frames when a reference has few cuts.
-      Saves PNG to `storage/frames/<artStyleId>/`.
+      Saves PNG to `$DATA_DIR/frames/<artStyleId>/` (default `.data`).
       9 unit tests (mock ffmpeg/ffprobe).
       Artifact (real ffmpeg 9.0.2, synthetic 4-scene 40 s clip): 8 frames —
       2 scene cuts at 10.00 s (score 0.52) and 30.00 s (score 0.59) plus 6
@@ -361,9 +361,28 @@ every model down → heuristic still produces a valid plan.
       `676166201` identical on a second run, `measured` keeps tone/aspect/
       safeArea/frameCount, `source` `{ adapter: "heuristic", degradedFrom: [] }`,
       and the whole object validates through `styleProfileSchema`.
-      **Not proven:** previews or image consistency — none are generated yet.
-- [ ] Preview grid + 6 s preview clip; `status=ready` only when previews exist.
-- [ ] `ImagePort` + adapters: cloudflare flux-schnell, pollinations, comfyui, procedural.
+      At this point previews and generated images were not yet proven; the tasks below supersede
+      that limitation one artifact at a time.
+- [x] Preview grid + 6 s preview clip; `status=ready` only when previews exist —
+      `build-art-style` is enqueued atomically with the `building` row and consumed by the real
+      worker entry point. Eight evenly spread sampled frames + one measured-palette card become
+      `preview.png`; the silent clip concatenates the same nine cells to exactly 180 frames /
+      6.000 s at 30 fps. ffprobe verifies codec, dimensions, stream count, frame count, fps and
+      duration before `ready`. API/worker share `DATA_DIR`; client filenames never become paths;
+      failures reject so the queue's one retry is real. 825 hermetic tests.
+      Artifact (real ffmpeg, synthetic 40 s reference with audio): sample → numeric → heuristic
+      vision → merge → grid + clip → verify returned `ready`; 8 measured frames, schema-valid
+      profile, 1280×720 PNG and silent 180-frame clip.
+- [~] `ImagePort` + adapters: cloudflare flux-schnell, pollinations, comfyui, procedural.
+      - [x] Shared zod boundary + `ImagePort` + procedural floor — request carries final prompt,
+        negative, seed, size and `StyleProfile`; result carries PNG bytes, geometry, seed and
+        provenance. Procedural renders deterministic palette-only geometry at 1024×576 /
+        576×1024 and uses a dependency-free RGB8 PNG encoder over Node zlib. 7 contract + 6
+        adapter tests; gate 838. Artifact: both outputs decode through ffprobe as `png/rgb24`,
+        were opened visually, and identical input is byte-identical.
+      - [ ] Cloudflare Flux Schnell adapter.
+      - [ ] Pollinations adapter.
+      - [ ] ComfyUI adapter.
 - [ ] Palette colour correction + per-scene consistency check + one-shot regenerate.
 - [ ] `GET /v1/art-styles[/:id/export]`.
 

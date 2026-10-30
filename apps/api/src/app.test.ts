@@ -14,9 +14,8 @@ function appWith(probes: {
     probes,
     now: () => NOW,
     timeoutMs: 20,
-    db: {
-      insertArtStyle: async () => {},
-    },
+    storageRoot: '.data-test',
+    submitArtStyle: async () => {},
   });
 }
 

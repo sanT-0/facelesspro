@@ -697,6 +697,61 @@ file stays the single "what is actually true today" view.
       Surprise: the API route is completely DB-free — a throwing probe still returns 200,
       confirming it never touches Postgres. The `createApp` dependency shape already enforced this.
 
+### P3 — art style + images
+
+- [x] **2026-10-30 — preview grid + 6 s clip, and the build is now actually wired.**
+      `POST /v1/art-styles` writes the source under the shared `DATA_DIR` with a server-generated
+      `references/<styleId>.mp4|mov` key (the untrusted upload name is ignored), then commits the
+      `art_style(status='building')` row and `build-art-style` enqueue on one Postgres transaction.
+      The API's producer is lazy, preserving the `/health` 503 path when Postgres is down; the
+      worker entry point now consumes the queue with `createArtStyleBuildHandler` and closes its DB
+      pool on shutdown. `drizzle-orm` is declared directly by the worker instead of being used as a
+      hoisted transitive dependency.
+      Preview output: an even eight-frame spread from the sampler's 8–24 frames plus one weighted
+      palette card; 1280×720 / optional 720×1280 PNG grid; silent H.264 clip exactly 180 frames,
+      30 fps and 6.000 s. ffprobe verifies codec, stream count, geometry, fps, frames and duration
+      before `status=ready`. A failed build now marks `failed` **and rejects**, so pg-boss's one
+      retry runs instead of treating `{status:'failed'}` as a completed job.
+      Gate: typecheck + eslint + **825 tests / 59 files** green. Python not run (no media/render
+      files touched).
+      Artifact (real ffmpeg 9.0.2): a generated 40 s, 640×360 reference with an AAC audio track ran
+      through real sampling → numeric analysis → heuristic vision → merge → grid/clip → verification
+      and returned `ready`; 8 measured frames, palette weights sum to 1, seed `1903945629`,
+      schema-valid profile, decodable 1280×720 PNG, and silent 180-frame clip. The contact sheet was
+      opened and visually contains eight ordered reference frames plus the measured palette card.
+      **Observed:** the real ffmpeg artifact and hermetic API/queue/worker contracts. **Not observed:**
+      the insert+enqueue against Postgres in this run because Docker Desktop was unavailable; the
+      existing `test:db` suite was therefore not claimed green.
+      Surprises caught only by the artifact pass: the first clip graph used `xstack`, so all nine
+      20-frame inputs ended together after ~0.67 s instead of concatenating to 6 s; mocked subprocess
+      tests had only asserted `-frames:v 180`. Also, passing all sampled frames failed whenever the
+      sampler returned >8, API uploads went to `storage/` while the worker read `.data/`, and resolving
+      a failed build silently disabled the queue retry. Each failure now has a contract test.
+
+- [x] **2026-10-30 — `ImagePort` contract + deterministic procedural adapter.**
+      `packages/contracts/src/image.ts` pins `cloudflare|pollinations|comfyui|procedural`, strict
+      request/result/capability schemas, a 4096 px output ceiling, caller-owned seeds, and
+      landscape/portrait geometry checks. `apps/worker/src/ports/image.ts` is the vendor-neutral
+      port. `apps/worker/src/image/procedural.ts` is the first real adapter and the zero-key floor:
+      seeded flat geometry, 1024×576 / 576×1024, every pixel from the measured `StyleProfile`
+      palette, measured ink when outlines are requested, no text/logo/watermark, and a minimal RGB8
+      PNG encoder using only `node:zlib` (no ffmpeg, network, GPU, native module or new dependency).
+      Tests: 7 contract + 6 adapter; `npm run gate` **838 passed / 61 files**, typecheck and eslint
+      clean. Python not run (no media/render files touched).
+      Artifact: `landscape.png` (4394 bytes, SHA-256
+      `55792c8d0ebabbfd3c7b3a26038fc5481a4c7ae9276833e962aafa0042ee88b4`) and `portrait.png`
+      (4835 bytes, `1a7a32b4be9d7c2b0f73a17ebbae26e7a4a3a7d3058cf9823051114a248ab923`) under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-procedural-artifact/`; ffprobe reports
+      `png`, `rgb24`, exact 1024×576 / 576×1024. Both were opened and visibly use the four supplied
+      colours with a faceless geometric subject. Same request → same bytes; changing prompt or seed
+      changes bytes.
+      **Observed:** contract, deterministic PNG bytes, decoder geometry/pixel format and visual
+      artifact. **Not yet built/assumed:** semantic image quality, provider chain, hosted/local model
+      adapters, storage and create-images orchestration — those remain separate roadmap tasks.
+      Surprise: no SVG/ffmpeg bridge was needed; a filter-none PNG plus zlib is smaller, portable,
+      and lets tests inflate every scanline to prove that no colour outside the measured palette
+      entered the fallback.
+
 ---
 
 ## Decisions log

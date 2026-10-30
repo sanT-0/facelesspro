@@ -198,6 +198,23 @@ voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
    ≤6 ΔE), consistency check (histogram distance vs. existing scenes), then store.
 5. Optional `motion`: `kenburns-in|out|pan-l|pan-r|none`. P10 adds real image-to-video.
 
+**Image boundary (built first, pipeline wiring lands in P5).**
+`packages/contracts/src/image.ts` owns `ImageGenerationRequest` and `GeneratedImage`;
+`apps/worker/src/ports/image.ts` owns `ImagePort`. A request is the final ≤1000-character prompt,
+negative prompt, caller-owned deterministic seed, `landscape|portrait`, and the complete
+`StyleProfile`. A result is non-empty RGB PNG bytes with exact width/height, size, seed,
+`adapter`, and ordered `degradedFrom`. The schema rejects an orientation that disagrees with
+`size`, output sides over 4096, unknown providers/fields, and malformed profiles.
+
+The first real adapter is `image/procedural`, the no-key floor: 1024×576 landscape or 576×1024
+portrait, deterministic geometry from `(seed, style.seedBase, prompt, negativePrompt)`, and only
+colours from the measured palette (using measured ink for non-`none` outlines). It draws no
+text/logo/watermark and encodes PNG directly with Node's built-in zlib — no network, GPU, ffmpeg
+or native image package.
+It is intentionally plain; its product guarantee is “a valid, reproducible, on-palette still
+always exists.” Cloudflare, Pollinations, ComfyUI, chain selection and scene storage are the next
+tasks behind the same port.
+
 **Artifacts:** `frames/0001.png …`, `frames/manifest.json` (prompt, seed, provider, recycle).
 **Ledger:** `action=image`, `units=ceil(scenes/20)`, plus animation seconds if enabled.
 
@@ -351,6 +368,32 @@ numeric half in `art-style.ts`, vision half in `style-vision.ts`; stored in
 - `version: 1` is a literal; a meaning change bumps it. The whole object is
   parsed through `styleProfileSchema` before it is written to
   `art_style.profile`, so a bad merge fails at the boundary.
+
+**Build job + previews.** `POST /v1/art-styles` stores the upload as the
+server-generated key `references/<styleId>.mp4|mov`; the client filename never
+becomes a path. The `art_style(status='building')` insert and the
+`build-art-style` pg-boss send share one Postgres transaction, so there is no
+row that can wait forever because its enqueue was lost. The API and worker both
+resolve that key under the same `DATA_DIR` (`./.data` by default).
+
+The worker runs `sample → numeric → vision → merge → previews → verify`. A
+sample may contain 8–24 frames; previews take an evenly spread set of eight,
+including the first and last, and add a ninth measured-palette card:
+
+- `preview.png` is a 3×3 contact sheet at 1280×720 (or 720×1280 for a portrait
+  reference). When a landscape style also offers portrait, a second
+  centre-cropped `preview-portrait.png` is written.
+- `preview.mp4` shows those same nine cells in sequence for exactly 20 frames
+  each: 180 frames / 6.000 s at 30 fps, with no audio stream. It is a reference
+  preview until `ImagePort` exists; it does not pretend generated scenes exist.
+- ffprobe must decode each PNG at the expected size and report exactly one
+  180-frame, 30 fps, silent video stream for the clip. Only after those checks
+  pass does the worker write the profile/preview keys and set `status=ready`.
+
+The queue uses `singletonKey=styleId`; an already-ready row is a no-op. A failed
+stage marks the row `failed` **and rethrows**, so pg-boss's one configured retry
+actually runs. Resolving a `{status:'failed'}` value would incorrectly mark the
+job complete and disable the retry.
 
 **Honest limitation:** this is *style locking by description + palette + character bible*, not
 a trained model. It will look consistent and on-brand, but it will not reproduce a specific

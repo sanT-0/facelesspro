@@ -1,3 +1,5 @@
+import { join } from 'node:path';
+
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 
 import { sampleFrames } from './frame-sampling';
@@ -17,9 +19,10 @@ vi.mock('node:fs/promises', () => ({
 }));
 
 import { spawn } from 'node:child_process';
-import { readdir, rm } from 'node:fs/promises';
+import { mkdir, readdir, rm } from 'node:fs/promises';
 
 const mockSpawn = vi.mocked(spawn);
+const mockMkdir = vi.mocked(mkdir);
 const mockReaddir = vi.mocked(readdir);
 const mockRm = vi.mocked(rm);
 
@@ -121,6 +124,16 @@ describe('sampleFrames', () => {
     expect(frames[0]!.source).toBe('scene');
     expect(frames[0]!.timestampSeconds).toBeCloseTo(1.23, 1);
     expect(frames[0]!.score).toBeCloseTo(0.45, 2);
+  });
+
+  it('writes sampled frames under the injected shared storage root', async () => {
+    mockFfmpegSceneDetection('');
+    mockFfprobeDuration('40.0\n');
+    const framesRoot = join('shared-data', 'frames');
+
+    await sampleFrames(artStyleId, videoPath, { framesRoot });
+
+    expect(mockMkdir).toHaveBeenCalledWith(join(framesRoot, artStyleId), { recursive: true });
   });
 
   it('adds evenly spaced frames when scene detection yields few frames', async () => {

@@ -1,6 +1,6 @@
 import { ART_STYLE_QUEUE, InvalidJobError, PING_QUEUE } from '@facelesspro/queue';
 import type { JobConsumer } from '@facelesspro/queue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { startWorker } from './worker';
 

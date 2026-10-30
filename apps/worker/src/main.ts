@@ -6,10 +6,11 @@
  * both work — one just wastes a minute).
  */
 
-import { databaseUrl, loadEnv } from '@facelesspro/db';
+import { createDb, databaseUrl, loadEnv } from '@facelesspro/db';
 import { createBoss, stopBoss } from '@facelesspro/queue';
 
 import { startWorker } from './worker';
+import { createArtStyleBuildHandler } from './art-style/runtime';
 
 loadEnv();
 
@@ -20,7 +21,12 @@ async function main(): Promise<void> {
     ...(schema === undefined ? {} : { schema }),
   });
 
-  const worker = await startWorker({ boss });
+  const { db, pool } = createDb();
+
+  const worker = await startWorker({
+    boss,
+    artStyle: createArtStyleBuildHandler({ db, env: process.env }),
+  });
   console.log(`[worker] consuming ${worker.queues.join(', ')}`);
 
   let stopping = false;
@@ -31,6 +37,7 @@ async function main(): Promise<void> {
     console.log(`[worker] ${signal} — draining`);
     await worker.stop();
     await stopBoss(boss);
+    await pool.end();
     process.exit(0);
   }
 

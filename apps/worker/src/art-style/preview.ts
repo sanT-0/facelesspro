@@ -32,6 +32,7 @@ import type { PreviewGrid, PreviewRect, PreviewSize } from '@facelesspro/core';
 
 import { ensureParentPath } from './storage';
 import { probeFrameSize, runProcess } from './frame-decode';
+import { selectVisionFrames } from './vision/frames';
 
 const FFMPEG_TIMEOUT_MS = 5 * 60_000;
 const FFPROBE_TIMEOUT_MS = 30_000;
@@ -120,27 +121,27 @@ function frameChain(
  * degenerate drawbox.
  */
 function paletteChain(
-  grid: PreviewGrid,
+  size: PreviewSize,
   palette: PreviewPalette,
   ink: string,
   rate: number,
   tail: string,
 ): string {
-  const widths = paletteBands(palette.weights, grid.cell.width);
+  const widths = paletteBands(palette.weights, size.width);
   const boxes: string[] = [];
   let x = 0;
   for (let index = 0; index < widths.length; index += 1) {
     const width = widths[index]!;
     if (width > 0) {
       boxes.push(
-        `drawbox=x=${x}:y=0:w=${width}:h=${grid.cell.height}:` +
+        `drawbox=x=${x}:y=0:w=${width}:h=${size.height}:` +
           `color=${ffColor(palette.hex[index]!)}:t=fill`,
       );
       x += width;
     }
   }
   return (
-    `color=c=${ink}:s=${grid.cell.width}x${grid.cell.height}:r=${rate},` +
+    `color=c=${ink}:s=${size.width}x${size.height}:r=${rate},` +
     `${boxes.length > 0 ? `${boxes.join(',')},` : ''}setsar=1,${tail}[v${PREVIEW_CELLS - 1}]`
   );
 }
@@ -157,6 +158,17 @@ function stackedChain(grid: PreviewGrid, ink: string, tail: string): string {
 
 async function portraitCropFor(framePath: string): Promise<PreviewRect> {
   return centreCrop(await probeFrameSize(framePath));
+}
+
+/** Eight evenly-spread frames for the 3×3 grid's non-palette cells. */
+export function selectPreviewFrames(framePaths: readonly string[]): string[] {
+  const selected = selectVisionFrames(framePaths, PREVIEW_FRAME_COUNT);
+  if (selected.length !== PREVIEW_FRAME_COUNT) {
+    throw new RangeError(
+      `preview needs at least ${PREVIEW_FRAME_COUNT} sampled frames, got ${framePaths.length}`,
+    );
+  }
+  return selected;
 }
 
 /**
@@ -177,7 +189,7 @@ export async function buildPreviewGrid(request: PreviewGridRequest): Promise<voi
   const chains = request.framePaths.map((_path, index) =>
     frameChain(index, grid.cell, ink, 'format=rgb24', crop),
   );
-  chains.push(paletteChain(grid, request.palette, ink, 1, 'format=rgb24'));
+  chains.push(paletteChain(grid.cell, request.palette, ink, 1, 'format=rgb24'));
 
   const graph = `${chains.join(';')};${stackedChain(grid, ink, 'format=rgb24')}`;
 
@@ -214,20 +226,19 @@ export async function buildPreviewClip(request: PreviewClipRequest): Promise<voi
 
   const canvas = request.canvas ?? { width: 1280, height: 720 };
   const fps = request.fps ?? PREVIEW_FPS;
-  const grid = previewGrid(canvas);
   const timeline = previewClipTimeline(PREVIEW_CELLS, fps, request.seconds ?? 6);
 
   const chains = request.framePaths.map((_path, index) =>
     frameChain(
       index,
-      grid.cell,
+      canvas,
       ink,
       `format=rgb24,fps=${fps},trim=end_frame=${timeline.frames[index]!},setpts=PTS-STARTPTS`,
     ),
   );
   chains.push(
     paletteChain(
-      grid,
+      canvas,
       request.palette,
       ink,
       fps,
@@ -236,11 +247,13 @@ export async function buildPreviewClip(request: PreviewClipRequest): Promise<voi
     ),
   );
 
-  const graph = `${chains.join(';')};${stackedChain(
-    grid,
-    ink,
-    `format=yuv420p,fps=${fps}`,
-  )}`;
+  const inputs = Array.from(
+    { length: PREVIEW_CELLS },
+    (_unused, index) => `[v${index}]`,
+  ).join('');
+  const graph =
+    `${chains.join(';')};${inputs}concat=n=${PREVIEW_CELLS}:v=1:a=0,` +
+    `format=yuv420p,fps=${fps}[out]`;
 
   await ensureParentPath(request.outPath);
   const { code, stderr } = await runProcess(

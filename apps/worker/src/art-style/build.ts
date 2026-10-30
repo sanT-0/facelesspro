@@ -85,9 +85,7 @@ export interface ArtStyleBuildDeps {
   verifyPreviews(artifacts: readonly PreviewArtifact[]): Promise<void>;
 }
 
-export type ArtStyleBuildResult =
-  | { readonly status: 'ready' }
-  | { readonly status: 'failed'; readonly message: string };
+export type ArtStyleBuildResult = { readonly status: 'ready' };
 
 /**
  * Build one style.
@@ -145,6 +143,10 @@ export async function buildArtStyle(
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     await deps.store.markFailed({ styleId: job.styleId, message });
-    return { status: 'failed', message };
+    // pg-boss only applies ART_STYLE_QUEUE_OPTIONS.retryLimit when the handler
+    // rejects. Resolving a `{status:'failed'}` value would mark the job complete
+    // and silently disable the documented retry.
+    if (error instanceof Error) throw error;
+    throw new Error(message);
   }
 }

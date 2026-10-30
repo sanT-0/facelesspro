@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   buildPreviewClip,
   buildPreviewGrid,
+  selectPreviewFrames,
   verifyPreviewClip,
   verifyPreviewGrid,
 } from './preview';
@@ -85,6 +86,23 @@ beforeEach(() => {
   resetSpawn();
 });
 
+describe('selectPreviewFrames', () => {
+  it('takes an even eight-frame spread and keeps both ends', () => {
+    const many = Array.from({ length: 24 }, (_unused, index) => `frame-${index}.png`);
+
+    const selected = selectPreviewFrames(many);
+
+    expect(selected).toHaveLength(8);
+    expect(selected[0]).toBe('frame-0.png');
+    expect(selected.at(-1)).toBe('frame-23.png');
+    expect(selectPreviewFrames(many)).toEqual(selected);
+  });
+
+  it('rejects a list below the sampler\'s eight-frame floor', () => {
+    expect(() => selectPreviewFrames(frames.slice(0, 7))).toThrow(/at least 8/);
+  });
+});
+
 describe('buildPreviewGrid', () => {
   it('feeds 8 frames plus a palette card into one 9-input xstack', async () => {
     await buildPreviewGrid(request);
@@ -153,6 +171,8 @@ describe('buildPreviewClip', () => {
     expect(args.filter((arg) => arg === '1')).toHaveLength(8);
     const graph = args[args.indexOf('-filter_complex') + 1]!;
     expect(graph).toContain('trim=end_frame=20');
+    expect(graph).toContain('concat=n=9:v=1:a=0');
+    expect(graph).not.toContain('xstack=inputs=9');
     expect(graph).toContain('format=yuv420p,fps=30');
     expect(args).toContain('-an');
     expect(args.slice(args.indexOf('-frames:v'), args.indexOf('-frames:v') + 2)).toEqual([

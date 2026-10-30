@@ -10,6 +10,8 @@ import { spawn } from 'node:child_process';
 import { mkdir, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 
+import { dataDir } from './storage';
+
 export interface FrameSample {
   /** Absolute path to the saved PNG. */
   path: string;
@@ -32,9 +34,6 @@ const SCENE_THRESHOLD = 30;
 const MAX_FRAMES = 24;
 /** Minimum frames required (pads with spaced frames if scene detection yields few). */
 const MIN_FRAMES = 8;
-
-/** Output directory for frames. */
-const FRAMES_ROOT = process.env.FRAMES_DIR ?? join(process.cwd(), 'storage', 'frames');
 
 /** ffmpeg timeout — a corrupt file can hang. */
 const FFMPEG_TIMEOUT_MS = 60_000;
@@ -180,13 +179,15 @@ async function getVideoDuration(videoPath: string): Promise<number> {
  * 3. Add 3 evenly spaced frames (25%, 50%, 75%).
  * 4. Deduplicate by timestamp (±1 second).
  * 5. Cap at 24 frames, ensure at least 8.
- * 6. Save as PNG to storage/frames/<artStyleId>/.
+ * 6. Save as PNG to `$DATA_DIR/frames/<artStyleId>/`.
  */
 export async function sampleFrames(
   artStyleId: string,
   videoPath: string,
+  options: { readonly framesRoot?: string } = {},
 ): Promise<FrameSample[]> {
-  const outputDir = join(FRAMES_ROOT, artStyleId);
+  const framesRoot = options.framesRoot ?? join(dataDir(), 'frames');
+  const outputDir = join(framesRoot, artStyleId);
   await mkdir(outputDir, { recursive: true });
 
   // Clean any existing frames for this style

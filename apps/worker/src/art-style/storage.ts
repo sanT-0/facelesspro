@@ -1,7 +1,7 @@
 /**
  * Disk storage for art-style artifacts — docs/03 §5.
  *
- * The repo has one disk root, `DATA_DIR` (default `./storage`): uploads land in
+ * The repo has one disk root, `DATA_DIR` (default `./.data`): uploads land in
  * `references/`, sampled frames in `frames/<styleId>/`, previews in
  * `art-styles/<styleId>/`. Keys are POSIX-style and relative; a URL is derived
  * later by the api's `/files/*` route, so the database stores a **key** and not
@@ -27,7 +27,7 @@ const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 export function dataDir(env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.DATA_DIR?.trim();
   return resolve(
-    configured !== undefined && configured.length > 0 ? configured : join(process.cwd(), 'storage'),
+    configured !== undefined && configured.length > 0 ? configured : join(process.cwd(), '.data'),
   );
 }
 

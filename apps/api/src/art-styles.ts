@@ -3,48 +3,55 @@
  *
  * 1. Parses multipart form: `file` (required), `name?`, `formats?`, `published?`
 2. Validates the video with ffprobe (≥30s, has audio, ≤10min)
-3. Stores the reference video to disk (temporary, will be processed by worker)
-4. Inserts `art_style` row with `status='building'`
+3. Stores the reference video under the shared `DATA_DIR`
+4. Atomically inserts the `art_style` row and enqueues `build-art-style`
 5. Returns `202 {id, status: 'building', createdAt}`
  *
- * No worker job is enqueued yet — the build step is P3 follow-up.
- * This endpoint is the upload + validation gate.
+ * The original filename is never used as a path. The API and worker exchange a
+ * validated storage key (`references/<styleId>.<ext>`), not an absolute path.
  */
 
 import { randomUUID } from 'node:crypto';
-import { writeFile, mkdir } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, unlink, writeFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
 
 import { Hono } from 'hono';
 
 import { createArtStyleResponseSchema, artStyleMetaSchema } from '@facelesspro/contracts';
 import { apiError } from '@facelesspro/contracts';
+import type { ArtStyleBuildJob, ArtStyleRow } from '@facelesspro/contracts';
 import { validateReferenceVideo } from './video-probe';
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
 const ALLOWED_MIME = ['video/mp4', 'video/quicktime'];
-const REF_DIR = process.env.REFERENCE_VIDEO_DIR ?? join(process.cwd(), 'storage', 'references');
 
-interface ArtStyleDeps {
-  db: {
-    insertArtStyle: (row: {
-      id: string;
-      workspace_id: string | null;
-      name: string;
-      published: boolean;
-      formats: string[];
-      profile: Record<string, unknown>;
-      status: 'building';
-      created_at: Date;
-    }) => Promise<void>;
-  };
+export type NewArtStyleRow = Pick<
+  ArtStyleRow,
+  | 'id'
+  | 'workspace_id'
+  | 'name'
+  | 'published'
+  | 'formats'
+  | 'profile'
+  | 'created_at'
+> & { readonly status: 'building' };
+
+/** One durable submission: the row and its queue job commit together. */
+export interface ArtStyleSubmission {
+  readonly row: NewArtStyleRow;
+  readonly job: ArtStyleBuildJob;
+}
+
+export interface ArtStyleDeps {
+  /** Absolute or cwd-relative disk root shared with the worker. */
+  readonly storageRoot: string;
+  readonly submitArtStyle: (submission: ArtStyleSubmission) => Promise<void>;
+  readonly now?: () => Date;
 }
 
 export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
   const app = new Hono();
-
-  // Ensure reference directory exists
-  mkdir(REF_DIR, { recursive: true }).catch(() => {});
+  const storageRoot = resolve(deps.storageRoot);
 
   app.post('/', async (c) => {
     // Parse multipart form
@@ -94,44 +101,46 @@ export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
       );
     }
 
-    // Save file to temporary location for probing
-    const tempName = `${randomUUID()}-${file.name}`;
-    const tempPath = join(REF_DIR, tempName);
+    // The path is server-generated. A client filename may contain traversal,
+    // spaces or platform separators and must never cross the process boundary.
+    const id = randomUUID();
+    const extension = file.type === 'video/quicktime' ? 'mov' : 'mp4';
+    const referenceKey = `references/${id}.${extension}`;
+    const referenceDir = join(storageRoot, 'references');
+    const referencePath = join(referenceDir, `${id}.${extension}`);
 
+    await mkdir(referenceDir, { recursive: true });
     const arrayBuffer = await file.arrayBuffer();
-    await writeFile(tempPath, Buffer.from(arrayBuffer));
+    await writeFile(referencePath, Buffer.from(arrayBuffer));
 
     // Probe and validate
     try {
-      await validateReferenceVideo(tempPath);
+      await validateReferenceVideo(referencePath);
     } catch (error) {
-      // Clean up temp file on validation failure
-      await import('node:fs/promises').then((fs) => fs.unlink(tempPath).catch(() => {}));
+      await unlink(referencePath).catch(() => undefined);
       const message = error instanceof Error ? error.message : 'video validation failed';
       return c.json(apiError('invalid_request', message, 'file'), 400);
     }
 
-    // Create art_style row
-    const id = randomUUID();
-    const now = new Date();
-
-    await deps.db.insertArtStyle({
-      id,
-      workspace_id: null, // TODO: get from auth (P6)
-      name: metaParsed.data.name ?? `Style ${id.slice(0, 8)}`,
-      published: metaParsed.data.published,
-      formats: metaParsed.data.formats,
-      profile: {}, // Empty until built
-      status: 'building',
-      created_at: now,
+    const createdAt = (deps.now ?? (() => new Date()))().toISOString();
+    await deps.submitArtStyle({
+      row: {
+        id,
+        workspace_id: null, // TODO: get from auth (P6)
+        name: metaParsed.data.name ?? `Style ${id.slice(0, 8)}`,
+        published: metaParsed.data.published,
+        formats: metaParsed.data.formats,
+        profile: {}, // Empty until built
+        status: 'building',
+        created_at: createdAt,
+      },
+      job: { styleId: id, referenceKey },
     });
-
-    // TODO: enqueue build job (P3 follow-up)
 
     const response = createArtStyleResponseSchema.parse({
       id,
       status: 'building',
-      createdAt: now.toISOString(),
+      createdAt,
     });
 
     return c.json(response, 202);

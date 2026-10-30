@@ -48,6 +48,7 @@ export function runProcess(
   command: string,
   args: readonly string[],
   timeoutMs: number,
+  stdin?: Uint8Array,
 ): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args);
@@ -67,6 +68,12 @@ export function runProcess(
     child.stderr.on('data', (chunk: Buffer) => {
       stderr += chunk.toString();
     });
+    if (stdin !== undefined) {
+      // ffmpeg may close stdin early after reporting a decode error. Consume
+      // EPIPE here and let the close code + stderr remain the useful failure.
+      child.stdin.on('error', () => undefined);
+      child.stdin.end(Buffer.from(stdin));
+    }
     child.on('error', (error) => {
       clearTimeout(timeout);
       if (!timedOut) reject(error);

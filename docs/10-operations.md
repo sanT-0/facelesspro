@@ -34,9 +34,10 @@ npm run gate
 ```
 
 `/health` is `200` only when every component is `ok`; otherwise it is `503` and the body says
-which one failed (`"db":"error"` / `"queue":"error"`). The queue probe checks that all six
-expected queues exist in the `pgboss` schema, so it fails before `docker compose up` /
-`npm run db:migrate`, and again if the worker never booted (`createBoss` creates the queues).
+which one failed (`"db":"error"` / `"queue":"error"`). The queue probe checks that all seven
+expected definitions exist in the `pgboss` schema: five video steps, `build-art-style`, and
+`ping`. It fails before pg-boss has initialised the schema, but it does **not** prove a worker is
+actively consuming; `npm run ping` is that artifact check.
 
 **Minimum viable local setup, no keys, no GPU:** Postgres + api + worker + media. Images come
 from the procedural renderer if Cloudflare is unset, plans from the heuristic splitter if no

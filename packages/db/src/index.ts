@@ -2,6 +2,7 @@ export * from './schema';
 export {
   DEFAULT_DATABASE_URL,
   createDb,
+  databaseFor,
   databaseUrl,
   loadEnv,
 } from './client';

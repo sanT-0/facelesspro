@@ -7,6 +7,8 @@
  * needs is assembled here, once.
  */
 
+import { join } from 'node:path';
+
 import {
   PREVIEW_CLIP_FRAMES,
   PREVIEW_CLIP_SECONDS,
@@ -29,6 +31,7 @@ import { previewPlan } from './preview-plan';
 import {
   buildPreviewClip,
   buildPreviewGrid,
+  selectPreviewFrames,
   verifyPreviewClip,
   verifyPreviewGrid,
 } from './preview';
@@ -104,20 +107,23 @@ export function createArtStyleBuildHandler(
       return resolveStorageKey(root, key);
     },
     async sample(referencePath, styleId) {
-      const samples = await sampleFrames(styleId, referencePath);
+      const samples = await sampleFrames(styleId, referencePath, {
+        framesRoot: join(root, 'frames'),
+      });
       return samples.map((sample) => sample.path);
     },
     analyze: analyzeFrames,
     describe: (request) => vision.describe(request),
     async renderPreviews(input) {
       const plan = previewPlan(input.profile, input.formats);
+      const framePaths = selectPreviewFrames(input.framePaths);
       const palette = input.profile.palette;
       const inkColor = input.profile.line.color;
       const artifacts: PreviewArtifact[] = [];
 
       const gridPath = resolveStorageKey(root, input.keys.grid);
       await buildPreviewGrid({
-        framePaths: input.framePaths,
+        framePaths,
         palette,
         inkColor,
         outPath: gridPath,
@@ -128,7 +134,7 @@ export function createArtStyleBuildHandler(
       if (plan.portrait !== null) {
         const portraitPath = resolveStorageKey(root, input.keys.portrait);
         await buildPreviewGrid({
-          framePaths: input.framePaths,
+          framePaths,
           palette,
           inkColor,
           outPath: portraitPath,
@@ -145,7 +151,7 @@ export function createArtStyleBuildHandler(
 
       const clipPath = resolveStorageKey(root, input.keys.clip);
       await buildPreviewClip({
-        framePaths: input.framePaths,
+        framePaths,
         palette,
         inkColor,
         outPath: clipPath,
@@ -184,11 +190,13 @@ export function createArtStyleBuildHandler(
   };
 
   return async (job) => {
-    const result = await buildArtStyle(job, deps);
-    log(
-      result.status === 'ready'
-        ? `[worker] art style ${job.styleId} ready`
-        : `[worker] art style ${job.styleId} failed: ${result.message}`,
-    );
+    try {
+      await buildArtStyle(job, deps);
+      log(`[worker] art style ${job.styleId} ready`);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      log(`[worker] art style ${job.styleId} failed: ${message}`);
+      throw error;
+    }
   };
 }

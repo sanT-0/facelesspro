@@ -23,10 +23,10 @@ afterEach(async () => {
 });
 
 describe('dataDir', () => {
-  it('uses DATA_DIR when set, otherwise ./storage', () => {
+  it('uses DATA_DIR when set, otherwise the documented ./.data root', () => {
     expect(dataDir({ DATA_DIR: '.data' })).toBe(resolve('.data'));
-    expect(dataDir({})).toBe(resolve(process.cwd(), 'storage'));
-    expect(dataDir({ DATA_DIR: '   ' })).toBe(resolve(process.cwd(), 'storage'));
+    expect(dataDir({})).toBe(resolve(process.cwd(), '.data'));
+    expect(dataDir({ DATA_DIR: '   ' })).toBe(resolve(process.cwd(), '.data'));
   });
 });
 

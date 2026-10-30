@@ -1,8 +1,13 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { mkdtemp, readFile, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { apiErrorBodySchema, createArtStyleResponseSchema } from '@facelesspro/contracts';
 
 import { createApp } from './app';
+import type { ArtStyleSubmission } from './art-styles';
 
 // Mock video-probe to avoid needing real ffprobe in tests
 vi.mock('./video-probe', () => ({
@@ -18,17 +23,18 @@ vi.mock('./video-probe', () => ({
 }));
 
 const healthy = async () => {};
-const mockDb = { insertArtStyle: vi.fn(async () => {}) };
+const submitArtStyle = vi.fn(async (_submission: ArtStyleSubmission) => {});
+let storageRoot = '';
+let app: ReturnType<typeof createApp>;
 
 function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }) {
   return createApp({
     probes,
     now: () => new Date('2026-10-27T09:00:00.000Z'),
-    db: mockDb,
+    storageRoot,
+    submitArtStyle,
   });
 }
-
-const app = appWith({ db: healthy, queue: healthy });
 
 async function errorBody(res: Response) {
   return apiErrorBodySchema.parse(await res.json());
@@ -47,10 +53,18 @@ async function multipartRequest(file: File, fields: Record<string, string> = {})
 }
 
 describe('POST /v1/art-styles', () => {
-  const validMp4 = new File(['fake video content'], 'test.mp4', { type: 'video/mp4' });
+  const validMp4 = new File(['fake video content'], '../../my reference video.mp4', {
+    type: 'video/mp4',
+  });
 
-  beforeEach(() => {
-    mockDb.insertArtStyle.mockClear();
+  beforeEach(async () => {
+    storageRoot = await mkdtemp(join(tmpdir(), 'faceless-api-art-style-'));
+    submitArtStyle.mockClear();
+    app = appWith({ db: healthy, queue: healthy });
+  });
+
+  afterEach(async () => {
+    await rm(storageRoot, { recursive: true, force: true });
   });
 
   it('returns 202 with building status for a valid video', async () => {
@@ -60,22 +74,26 @@ describe('POST /v1/art-styles', () => {
     const body = createArtStyleResponseSchema.parse(await res.json());
     expect(body.status).toBe('building');
     expect(body.id).toBeDefined();
-    expect(body.createdAt).toBeDefined();
+    expect(body.createdAt).toBe('2026-10-27T09:00:00.000Z');
 
-    expect(mockDb.insertArtStyle).toHaveBeenCalledOnce();
-    const calls = mockDb.insertArtStyle.mock.calls as unknown as Array<[{
-      id: string;
-      name: string;
-      published: boolean;
-      formats: string[];
-      status: string;
-    }]>;
-    const call = calls[0]![0]!;
-    expect(call.id).toBe(body.id);
-    expect(call.name).toBe(`Style ${body.id.slice(0, 8)}`);
-    expect(call.status).toBe('building');
-    expect(call.formats).toEqual(['landscape']);
-    expect(call.published).toBe(false);
+    expect(submitArtStyle).toHaveBeenCalledOnce();
+    const submission = submitArtStyle.mock.calls[0]![0];
+    expect(submission.row).toMatchObject({
+      id: body.id,
+      name: `Style ${body.id.slice(0, 8)}`,
+      status: 'building',
+      formats: ['landscape'],
+      published: false,
+      created_at: body.createdAt,
+    });
+    expect(submission.job).toEqual({
+      styleId: body.id,
+      referenceKey: `references/${body.id}.mp4`,
+    });
+
+    // The original filename is untrusted and never becomes part of a path.
+    const stored = await readFile(join(storageRoot, ...submission.job.referenceKey.split('/')));
+    expect(stored.toString()).toBe('fake video content');
   });
 
   it('uses provided name and formats', async () => {
@@ -86,15 +104,10 @@ describe('POST /v1/art-styles', () => {
     });
     expect(res.status).toBe(202);
 
-    const calls = mockDb.insertArtStyle.mock.calls as unknown as Array<[{
-      name: string;
-      formats: string[];
-      published: boolean;
-    }]>;
-    const call = calls[0]![0]!;
-    expect(call.name).toBe('My Custom Style');
-    expect(call.formats).toEqual(['portrait']);
-    expect(call.published).toBe(true);
+    const submission = submitArtStyle.mock.calls[0]![0];
+    expect(submission.row.name).toBe('My Custom Style');
+    expect(submission.row.formats).toEqual(['portrait']);
+    expect(submission.row.published).toBe(true);
   });
 
   it('rejects missing file', async () => {
@@ -153,9 +166,9 @@ describe('POST /v1/art-styles', () => {
     expect(body.error.field).toBe('formats');
   });
 
-  it('does not call insertArtStyle when validation fails', async () => {
+  it('does not submit an art style when validation fails', async () => {
     const png = new File(['fake png'], 'test.png', { type: 'image/png' });
     await multipartRequest(png);
-    expect(mockDb.insertArtStyle).not.toHaveBeenCalled();
+    expect(submitArtStyle).not.toHaveBeenCalled();
   });
 });

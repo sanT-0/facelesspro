@@ -32,10 +32,12 @@ video still completes when every model is down.
 | 2 | **Pollinations.ai** | free, no key, rate-limited | `https://image.pollinations.ai/prompt/{…}?width=&height=&seed=&nologo=true` |
 | 3 | **Hugging Face Inference** | small free quota | many SDXL/Flux endpoints |
 | 4 | **Local ComfyUI** (SDXL / Flux-schnell GGUF) | unlimited | needs a GPU to be usable |
-| 5 | **Procedural renderer** | unlimited | deterministic vector/template art — ugly but never fails |
+| 5 | **Procedural renderer** | unlimited | deterministic palette-only template PNG — plain but never fails |
 
 The procedural renderer matters more than it looks: it makes the *pipeline* testable without
-any model, and it guarantees the "video always completes" property.
+any model, and it guarantees the "video always completes" property. The implemented adapter is
+1024×576 / 576×1024, seeded, uses only `StyleProfile.palette` colours, and encodes RGB8 PNG with
+Node's built-in zlib; it needs no ffmpeg, native image dependency, network or GPU.
 
 ### 1.3 TTS
 
@@ -103,8 +105,8 @@ stopping us.
 CLOUDFLARE_ACCOUNT_ID=...
 CLOUDFLARE_API_TOKEN=...        # Workers AI:Read
 PLANNER=cloudflare,groq,ollama,heuristic
-IMAGE=cloudflare,pollinations,comfyui
-STYLE=vlm,heuristic
+IMAGE=cloudflare,pollinations,comfyui,procedural
+STYLE=cloudflare,gemini,heuristic
 ```
 
 ---
@@ -117,11 +119,15 @@ Four mechanisms, in increasing order of effort:
    one file + one line of config. No pipeline changes, ever.
 2. **Capability registry.** Each adapter declares what it can do:
    ```ts
-   export const cloudflareImage: ImageAdapter = {
-     id: 'cloudflare',
-     capabilities: { maxSide: 2048, aspect: ['16:9','9:16','1:1'], styles: 'prompt', seed: true },
-     health: async () => boolean,
-     draw: async (req) => Image,
+   export const cloudflareImage: ImagePort = {
+     name: 'cloudflare',
+     capabilities: {
+       maxSide: 2048,
+       sizes: ['landscape', 'portrait'],
+       style: 'profile',
+       seed: true,
+     },
+     draw: async (request) => generateWithCloudflare(request),
    }
    ```
    The pipeline asks the registry, not the vendor. A new model with better capabilities is

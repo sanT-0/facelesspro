@@ -6,6 +6,7 @@
 import { drizzle } from 'drizzle-orm/node-postgres';
 import type { NodePgDatabase } from 'drizzle-orm/node-postgres';
 import { Pool } from 'pg';
+import type { PoolClient } from 'pg';
 
 import { schema } from './schema';
 
@@ -34,5 +35,16 @@ export function databaseUrl(): string {
 
 export function createDb(url = databaseUrl()): { db: Database; pool: Pool } {
   const pool = new Pool({ connectionString: url, max: 10 });
-  return { db: drizzle(pool, { schema }), pool };
+  return { db: databaseFor(pool), pool };
+}
+
+/**
+ * Bind Drizzle to an existing pool or checked-out connection.
+ *
+ * The latter is what lets the API insert an application row and ask pg-boss to
+ * enqueue on the same Postgres transaction without importing either vendor's
+ * client types into route code.
+ */
+export function databaseFor(client: Pool | PoolClient): Database {
+  return drizzle(client, { schema });
 }

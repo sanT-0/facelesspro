@@ -187,9 +187,9 @@ describe('buildArtStyle', () => {
   it('does not mark ready when the builder returned no clip', async () => {
     const test = harness({ artifacts: [gridArtifact] });
 
-    const result = await buildArtStyle(job, test.deps);
-
-    expect(result.status).toBe('failed');
+    await expect(buildArtStyle(job, test.deps)).rejects.toThrow(
+      'preview build did not return both a grid and a clip',
+    );
     expect(test.markReady).not.toHaveBeenCalled();
     expect(test.markFailed).toHaveBeenCalledWith({
       styleId: job.styleId,
@@ -204,12 +204,9 @@ describe('buildArtStyle', () => {
       },
     });
 
-    const result = await buildArtStyle(job, test.deps);
-
-    expect(result).toEqual({
-      status: 'failed',
-      message: 'preview clip preview.mp4 is 5.900 s, expected 6.000 s',
-    });
+    await expect(buildArtStyle(job, test.deps)).rejects.toThrow(
+      'preview clip preview.mp4 is 5.900 s, expected 6.000 s',
+    );
     expect(test.markReady).not.toHaveBeenCalled();
   });
 
@@ -217,9 +214,9 @@ describe('buildArtStyle', () => {
     const test = harness();
     test.sample.mockRejectedValueOnce(new Error('ffmpeg scene detection exited with 1'));
 
-    const result = await buildArtStyle(job, test.deps);
-
-    expect(result.status).toBe('failed');
+    await expect(buildArtStyle(job, test.deps)).rejects.toThrow(
+      'ffmpeg scene detection exited with 1',
+    );
     expect(test.markFailed).toHaveBeenCalledWith({
       styleId: job.styleId,
       message: 'ffmpeg scene detection exited with 1',
