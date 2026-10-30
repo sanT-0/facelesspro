@@ -44,7 +44,11 @@ interface RunResult {
 }
 
 /** Spawn a process, collect stdout as bytes and stderr as text, with a timeout. */
-function run(command: string, args: readonly string[], timeoutMs: number): Promise<RunResult> {
+export function runProcess(
+  command: string,
+  args: readonly string[],
+  timeoutMs: number,
+): Promise<RunResult> {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args);
     const chunks: Buffer[] = [];
@@ -96,7 +100,7 @@ export function fitWithin(size: FrameSize, maxSize: number): FrameSize {
 
 /** Native size of a PNG (or any single-image file) via ffprobe. */
 export async function probeFrameSize(framePath: string): Promise<FrameSize> {
-  const { code, stdout, stderr } = await run(
+  const { code, stdout, stderr } = await runProcess(
     'ffprobe',
     [
       '-v', 'error',
@@ -135,7 +139,7 @@ export async function decodeFrame(
   const target = fitWithin(sourceSize, options.maxSize ?? DEFAULT_DECODE_MAX_SIZE);
   const expectedBytes = target.width * target.height * 3;
 
-  const { code, stdout, stderr } = await run(
+  const { code, stdout, stderr } = await runProcess(
     'ffmpeg',
     [
       '-v', 'error',

@@ -328,8 +328,40 @@ every model down → heuristic still produces a valid plan.
       plus a bar and a rectangle). `strokeDensity` 0.0059 and `edgeEnergy`
       0.0068 on a clip that is mostly flat colour; `safeArea.edgeContentRatio`
       0.044.
-- [ ] VLM pass → medium / composition / character bible / typography.
-- [ ] `StyleProfile` schema + merge of numeric + VLM output.
+- [x] VLM pass - medium / composition / character bible / typography -
+      `packages/contracts/src/style-vision.ts` (`styleVisionAnswerSchema` +
+      `styleVisionSchema` with `adapter`/`degradedFrom`; enums for line weight,
+      texture and shading; unique kebab-case character ids; typography style
+      required only when present). `apps/worker/src/art-style/vision/`:
+      `prompt.ts`, `parse.ts`, `frames.ts` (6 frames max, 384 px long edge,
+      JPEG base64), `cloudflare.ts`, `gemini.ts`, `heuristic.ts`, `chain.ts`,
+      `factory.ts`. `STYLE=cloudflare,gemini,heuristic` replaces the placeholder
+      `vlm` name in `.env.example`, docs/03 section 7 and docs/06 section 1.5.
+      16 contract + 69 worker tests.
+      Artifact (same real 8 frames as the numeric run, heuristic path):
+      `promptPrefix` "landscape frame, thin outlines, medium-saturation palette,
+      flat colour areas", `shading: "flat"`, `background: "clean, simple
+      background with empty edges"`, `composition: "landscape 1.78:1 frame, low
+      edge content, subject kept away from the edges"`, `medium: "unknown"`,
+      no characters, no typography - every clause traceable to a measured number.
+      **Not proven:** Cloudflare/Gemini descriptions against a live model; no
+      credentials locally, so those adapters are tested against recorded HTTP
+      shapes only.
+- [x] `StyleProfile` schema + merge of numeric + VLM output —
+      `packages/contracts/src/style-profile.ts` (`version: 1` literal, `measured`
+      block for the numeric fields not already top-level, `source` with the
+      vision adapter + `degradedFrom`, and a rule that `line.color` must be one
+      of `palette.hex`). Pure `lineColorFor` / `seedBaseFor` in
+      `packages/core/src/style/profile.ts`; the schema-validated
+      `mergeStyleProfile` is in `apps/worker/src/art-style/merge.ts` because
+      `packages/core` is dependency-free and cannot import contracts.
+      14 contract + 8 core + 9 worker tests.
+      Artifact (real numeric pass + heuristic vision on the same 8 frames):
+      ink `#020202` (darkest measured colour, in the palette), seed
+      `676166201` identical on a second run, `measured` keeps tone/aspect/
+      safeArea/frameCount, `source` `{ adapter: "heuristic", degradedFrom: [] }`,
+      and the whole object validates through `styleProfileSchema`.
+      **Not proven:** previews or image consistency — none are generated yet.
 - [ ] Preview grid + 6 s preview clip; `status=ready` only when previews exist.
 - [ ] `ImagePort` + adapters: cloudflare flux-schnell, pollinations, comfyui, procedural.
 - [ ] Palette colour correction + per-scene consistency check + one-shot regenerate.

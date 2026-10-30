@@ -96,3 +96,29 @@ export {
   strokeDensity,
 } from './style/stats';
 export type { LineStats, SafeAreaStats, StatSummary } from './style/stats';
+export { lineColorFor, seedBaseFor } from './style/profile';
+export type { PaletteHexes, StyleSeedInput } from './style/profile';
+export {
+  LANDSCAPE_PREVIEW,
+  PORTRAIT_PREVIEW,
+  PREVIEW_CELLS,
+  PREVIEW_CLIP_FRAMES,
+  PREVIEW_CLIP_SECONDS,
+  PREVIEW_COLUMNS,
+  PREVIEW_FPS,
+  PREVIEW_FRAME_COUNT,
+  PREVIEW_GUTTER,
+  PREVIEW_MARGIN,
+  PREVIEW_ROWS,
+  centreCrop,
+  paletteBands,
+  previewClipTimeline,
+  previewGrid,
+} from './style/preview';
+export type {
+  PreviewClipTimeline,
+  PreviewGrid,
+  PreviewGridOptions,
+  PreviewRect,
+  PreviewSize,
+} from './style/preview';

@@ -14,6 +14,7 @@ import PgBoss from 'pg-boss';
 
 import { jobData, parseJob, queueFor } from './jobs';
 import type { StepJob } from './jobs';
+import { ART_STYLE_QUEUE, ART_STYLE_QUEUE_OPTIONS } from './art-style';
 import { PING_QUEUE, PING_QUEUE_OPTIONS } from './ping';
 import type { PingPayload } from './ping';
 
@@ -80,6 +81,11 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
       name: queueFor(step),
     });
   }
+
+  await boss.createQueue(ART_STYLE_QUEUE, {
+    ...ART_STYLE_QUEUE_OPTIONS,
+    name: ART_STYLE_QUEUE,
+  });
 
   await boss.createQueue(PING_QUEUE, {
     ...PING_QUEUE_OPTIONS,

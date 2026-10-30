@@ -11,8 +11,6 @@
  * decide between "retry later" and "fail the video".
  */
 
-import type { PlannerAdapter } from '@facelesspro/contracts';
-
 /** Statuses that a retry may resolve. */
 const RETRYABLE_STATUS = new Set([408, 425, 429]);
 
@@ -20,8 +18,12 @@ export interface PostOptions {
   url: string;
   headers: Record<string, string>;
   body: unknown;
-  /** Provider name, for error messages that say who failed. */
-  adapter: PlannerAdapter;
+  /**
+   * Provider name, for error messages that say who failed. A plain string, not
+   * `PlannerAdapter`: the style-vision chain reuses this helper and its adapter
+   * ids are a different enum.
+   */
+  adapter: string;
   timeoutMs: number;
   /** Injected so tests never open a socket. */
   fetchImpl?: typeof fetch;
@@ -29,13 +31,13 @@ export interface PostOptions {
 
 export class UpstreamError extends Error {
   override readonly name = 'UpstreamError';
-  readonly adapter: PlannerAdapter;
+  readonly adapter: string;
   /** HTTP status, or null when the request never completed. */
   readonly status: number | null;
   readonly retryable: boolean;
 
   constructor(
-    adapter: PlannerAdapter,
+    adapter: string,
     message: string,
     options: { status?: number | null; retryable: boolean },
   ) {

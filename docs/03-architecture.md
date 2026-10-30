@@ -75,7 +75,7 @@ output: adapters that ask an LLM for beats still take `startMs`/`endMs` from
 
 Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper}`,
 `asr/{whisper-local,cloudflare}`, `image/{cloudflare,pollinations,comfyui}`,
-`style/{vlm,heuristic}`, `storage/{disk,s3}`.
+`style/{cloudflare,gemini,heuristic}`, `storage/{disk,s3}`.
 
 Selection is **capability-first, not vendor-first**: config says
 `PLANNER=cloudflare,groq,heuristic` and the first healthy adapter wins; a failed adapter
@@ -256,7 +256,7 @@ DATA_DIR=.data
 # engines (first healthy wins, left-to-right)
 PLANNER=cloudflare,groq,ollama,heuristic
 IMAGE=cloudflare,pollinations,comfyui,procedural
-STYLE=vlm,heuristic
+STYLE=cloudflare,gemini,heuristic
 TTS=edge,indicf5,piper
 ASR=whisper-local,cloudflare
 

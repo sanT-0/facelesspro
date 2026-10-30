@@ -264,8 +264,42 @@ percentile — documented because that is a real difference).
 not a composition detector. A busy full-bleed photo and a deliberate full-bleed
 illustration score the same; it only answers "does the subject touch the edge".
 
-`StyleProfile` (our schema, stored in `art_style.profile`, numeric half in
-`packages/contracts/src/art-style.ts`):
+**Vision pass** (`apps/worker/src/art-style/vision`, docs/06 §1.5). A VLM
+describes only what pixels cannot: medium, line weight/texture, shading,
+background treatment, composition, typography and recurring characters.
+
+- `STYLE=cloudflare,gemini,heuristic`; the first healthy adapter wins and the
+  answer records `degradedFrom`, same pattern as the planner. Missing
+  credentials skip an adapter with a warning that names the variables.
+- At most **6 frames**, evenly spread with the first and last included, encoded
+  as JPEG at a **384 px** long edge (`frames.ts`). Six frames cost a fraction of
+  24 and the description barely changes between adjacent frames.
+- The prompt (`prompt.ts`) **forbids palette and hex colours** (measured, not
+  guessed), timings/audio, and characters that do not recur. Enum values are
+  spelled out literally; a model that invents one is rejected.
+- `parse.ts` tolerates fences and surrounding prose but validates the object
+  with `styleVisionAnswerSchema`. Unknown keys are **stripped** (models
+  volunteer `palette`/`line.color`; failing over that would waste a good
+  answer), while an invalid enum or a missing key is fatal (`VisionResponseError`).
+  The chain then degrades to the next adapter.
+- `heuristic.ts` is the floor and never pretends: `medium: "unknown"`, unknown
+  texture, no characters, no typography. It turns measured stroke density and
+  local contrast into honest clauses ("thick outlines", "flat colour areas") and
+  leaves anything it cannot see unknown.
+
+`line.color` is filled by the merge step from the *measured* palette (nearest
+colour to the described ink), never by the VLM — otherwise a model would invent
+`#141414` for art that has no such pixel.
+
+**Observed vs assumed:** the numeric metrics above were run against a real
+ffmpeg clip (docs/09). The vision adapters are proven against recorded HTTP
+request/response shapes only; no `CLOUDFLARE_API_TOKEN` or `GEMINI_API_KEY` was
+available locally, so description *quality* on a real channel reference is not
+yet measured. The heuristic path was run on the same real frames.
+
+`StyleProfile` (our schema in `packages/contracts/src/style-profile.ts`;
+numeric half in `art-style.ts`, vision half in `style-vision.ts`; stored in
+`art_style.profile`):
 
 ```jsonc
 {
@@ -273,16 +307,50 @@ illustration score the same; it only answers "does the subject touch the edge".
   "medium": "flat vector cartoon",
   "promptPrefix": "flat 2d cartoon illustration, thick black outlines",
   "palette": { "hex": ["#1b2a41", "#f2c14e", "#e4572e"], "weights": [0.5,0.3,0.2] },
-  "line": { "weight": "thick", "color": "#141414", "texture": "clean" },
+  "line": { "weight": "thick", "color": "#1b2a41", "texture": "clean" },
   "shading": "cel",
   "background": "simple gradient, low detail",
   "composition": "centered subject, eye-level, medium shot",
   "characters": [{ "id": "hero", "description": "young man, red hoodie, short black hair" }],
   "typography": { "present": true, "style": "bold sans, white with black outline" },
   "negative": "photo, 3d render, text, watermark, extra fingers",
-  "seedBase": 1337
+  "seedBase": 1337,              // FNV-1a of the fields above; never random
+  "measured": {                  // numeric fields not already top-level
+    "line": { "strokeDensity": 0.08, "edgeEnergy": 0.14 },
+    "tone": {
+      "saturation": { "mean": 0.41, "p95": 0.86 },
+      "contrast": { "mean": 0.18, "p95": 0.52 },
+      "brightness": { "mean": 0.44, "p95": 0.81 }
+    },
+    "aspect": { "width": 1920, "height": 1080, "ratio": 1.7778, "orientation": "landscape" },
+    "safeArea": { "edgeContentRatio": 0.06, "margin": 0.08 },
+    "frameCount": 11
+  },
+  "source": { "adapter": "cloudflare", "degradedFrom": [] }
 }
 ```
+
+**Merge** (`apps/worker/src/art-style/merge.ts`; the pure `lineColorFor` /
+`seedBaseFor` helpers live in `packages/core/src/style/profile.ts`, because
+`packages/core` may not import contracts):
+
+- **Numeric wins palette and ink.** `palette` is copied unchanged. `line.color`
+  is the darkest measured palette colour (Rec. 709 luma; ties keep the
+  higher-weight entry) and the schema rejects any profile whose ink is not in
+  `palette.hex`. A model never gets to invent `#141414`.
+- **Vision wins description.** medium, prompt prefix, line weight/texture,
+  shading, background, composition, characters, typography, negative. An
+  honest `medium: "unknown"` stays unknown.
+- **`measured`** keeps `line`, `tone`, `aspect`, `safeArea` and `frameCount` for
+  audit and re-merge; `palette` is not duplicated.
+- **`source`** keeps the vision adapter and its `degradedFrom` order, so a
+  fallback build is explainable without logs.
+- **`seedBase`** is FNV-1a over prompt-relevant fields only: palette **hexes**
+  are sorted and deduped, weights are excluded, and `measured`/`source` are not
+  inputs. Float drift or a tone change cannot move a preview seed.
+- `version: 1` is a literal; a meaning change bumps it. The whole object is
+  parsed through `styleProfileSchema` before it is written to
+  `art_style.profile`, so a bad merge fails at the boundary.
 
 **Honest limitation:** this is *style locking by description + palette + character bible*, not
 a trained model. It will look consistent and on-brand, but it will not reproduce a specific

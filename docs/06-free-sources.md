@@ -58,9 +58,13 @@ Tamil support in Whisper large-v3 is decent, not perfect. For voiceover intake w
 
 | Rank | Source | Notes |
 |---|---|---|
-| 1 | **Cloudflare VLM** (`@cf/llava-hf/llava-1.5-7b-hf` or current) | free-ish, adequate for medium/palette descriptions |
-| 2 | **Gemini flash** vision | better descriptions |
-| 3 | **Heuristic** (k-means palette + edge/stroke stats, no model) | zero cost, surprisingly usable for palette/contrast; weak on "medium" |
+| 1 | **Cloudflare VLM** (`@cf/llava-hf/llava-1.5-7b-hf` or current) | free-ish, adequate for medium/line/composition descriptions |
+| 2 | **Gemini flash** vision | better descriptions, still free-tier |
+| 3 | **Heuristic** (numeric profile only, no model) | zero cost, deterministic; `medium` is honestly `unknown` |
+
+Configured as `STYLE=cloudflare,gemini,heuristic`; the first healthy adapter wins and the
+answer records `degradedFrom`. The palette is **not** asked of a model at any rank — it is
+measured by the numeric pass (docs/04 §4), so a VLM guess can never override a pixel.
 
 ### 1.6 Assembly & motion
 

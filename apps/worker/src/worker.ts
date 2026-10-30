@@ -11,8 +11,9 @@
  * handlers against a fake, so the wiring is verified without a database.
  */
 
-import { PING_QUEUE } from '@facelesspro/queue';
+import { PING_QUEUE, ART_STYLE_QUEUE, consume, parseArtStyleJob } from '@facelesspro/queue';
 import type { JobConsumer } from '@facelesspro/queue';
+import type { ArtStyleBuildJob } from '@facelesspro/contracts';
 
 import { consumePings } from './ping';
 
@@ -22,6 +23,8 @@ export interface WorkerDeps {
   readonly boss: JobConsumer;
   /** Injected so tests capture log lines instead of writing to stdout. */
   readonly log?: WorkerLog;
+  /** `build-art-style` handler; absent only in wiring tests that do not build styles. */
+  readonly artStyle?: (job: ArtStyleBuildJob) => Promise<void>;
 }
 
 export interface WorkerHandle {
@@ -36,6 +39,14 @@ export async function startWorker(deps: WorkerDeps): Promise<WorkerHandle> {
   const queues: string[] = [PING_QUEUE];
 
   await consumePings(deps.boss, log);
+
+  if (deps.artStyle !== undefined) {
+    const artStyle = deps.artStyle;
+    await consume(deps.boss, ART_STYLE_QUEUE, parseArtStyleJob, async ({ payload }) => {
+      await artStyle(payload);
+    });
+    queues.push(ART_STYLE_QUEUE);
+  }
 
   return {
     queues,
