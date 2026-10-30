@@ -232,7 +232,40 @@ frame sampling (scene-change detection, 8–24 frames, plus 3 evenly spaced)
 StyleProfile (jsonb) ──► preview grid + 6 s preview clip ──► status=ready
 ```
 
-`StyleProfile` (our schema, stored in `art_style.profile`):
+**Frame sampling** (`apps/worker/src/art-style/frame-sampling.ts`) uses ffmpeg's
+`scdet` filter at `threshold=30` (0–100 scale, the same cut sensitivity as the
+old `scene > 0.3`), captures one frame per detected cut plus frames at 25 / 50 /
+75 % of the duration, deduplicates anything within 1 s, and caps at 24 frames.
+`scdet` rather than `select=scene` + `showinfo` because current ffmpeg builds no
+longer print `scene_score` in `showinfo`, and the select-based version silently
+returned **zero** cuts on a real video — the failure was invisible to a mocked
+test. A reference with fewer than eight cuts is padded with evenly spaced frames
+rather than rejected; only a video too short to hold eight distinct frames (the
+1 s rule) fails.
+
+**Numeric pass** (`packages/core/src/style`, no model, no I/O). Measure these
+metrics on every sampled frame, then average across frames — except the palette:
+
+| Metric | Definition |
+|---|---|
+| `palette` | k-means over the pixels of **all frames at once** (5 colours, weights = pixel share, `#rrggbb`). Per-frame palettes would give a different channel colour per scene. Seeded farthest-point, so identical input gives identical hexes. |
+| `line.edgeEnergy` | mean Sobel gradient magnitude of luma, divided by the maximum a 0/255 step can produce. A flat frame is 0. |
+| `line.strokeDensity` | share of pixels that are **both** dark (luma < 60) **and** on an edge (gradient ≥ 0.15 of the maximum). Ink lines, not shadows: a large flat black shadow scores 0. |
+| `tone.saturation` | HSV saturation `(max−min)/max`; grey/black/white are 0. |
+| `tone.contrast` | local luma range of the 3×3 neighbourhood over 255 — two-tone art scores high where global deviation would not. |
+| `tone.brightness` | luma over 255. |
+| `aspect` | native frame size, ratio and orientation (`landscape` for ratio ≥ 1, so square counts as landscape). |
+| `safeArea.edgeContentRatio` | share of the outer `margin` (default 8 %) band that differs from that band's median colour by more than 32 in RGB. |
+
+`tone.*` reports `{mean, p95}` per frame, averaged across frames (not a pooled
+percentile — documented because that is a real difference).
+
+**Honest limitation:** `edgeContentRatio` is a *proxy* for safe-area behaviour,
+not a composition detector. A busy full-bleed photo and a deliberate full-bleed
+illustration score the same; it only answers "does the subject touch the edge".
+
+`StyleProfile` (our schema, stored in `art_style.profile`, numeric half in
+`packages/contracts/src/art-style.ts`):
 
 ```jsonc
 {

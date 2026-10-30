@@ -34,7 +34,7 @@ function resetSpawn() {
 
     if (cmd === 'ffprobe' && args.includes('-show_entries') && args.includes('stream=duration')) {
       response = spawnResponses.get('ffprobe-duration');
-    } else if (cmd === 'ffmpeg' && args.some((a) => a.includes('select=') && a.includes('scene'))) {
+    } else if (cmd === 'ffmpeg' && args.some((a) => a.includes('scdet'))) {
       response = spawnResponses.get('ffmpeg-scene-detection');
     } else if (cmd === 'ffmpeg' && args.includes('-frames:v') && args.includes('1')) {
       response = spawnResponses.get('ffmpeg-extract-frame');
@@ -98,11 +98,11 @@ describe('sampleFrames', () => {
   it('detects scenes and extracts frames', async () => {
     // 5 scenes at positions that won't overlap with spaced frames (7.5, 15, 22.5)
     mockFfmpegSceneDetection(`
-[Parsed_showinfo_1 @ 0x...] pts_time:1.23 ... scene_score:0.45
-[Parsed_showinfo_1 @ 0x...] pts_time:4.67 ... scene_score:0.78
-[Parsed_showinfo_1 @ 0x...] pts_time:9.34 ... scene_score:0.52
-[Parsed_showinfo_1 @ 0x...] pts_time:18.67 ... scene_score:0.61
-[Parsed_showinfo_1 @ 0x...] pts_time:25.34 ... scene_score:0.68
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 45, lavfi.scd.time: 1.23
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 78, lavfi.scd.time: 4.67
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 52, lavfi.scd.time: 9.34
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 61, lavfi.scd.time: 18.67
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 68, lavfi.scd.time: 25.34
 `);
     mockFfmpegExtractFrame(1.23);
     mockFfmpegExtractFrame(4.67);
@@ -126,12 +126,12 @@ describe('sampleFrames', () => {
   it('adds evenly spaced frames when scene detection yields few frames', async () => {
     // Scene frames at positions that won't overlap with spaced frames (15, 30, 45)
     mockFfmpegSceneDetection(`
-[Parsed_showinfo_1 @ 0x...] pts_time:3.0 ... scene_score:0.50
-[Parsed_showinfo_1 @ 0x...] pts_time:9.0 ... scene_score:0.60
-[Parsed_showinfo_1 @ 0x...] pts_time:21.0 ... scene_score:0.55
-[Parsed_showinfo_1 @ 0x...] pts_time:27.0 ... scene_score:0.65
-[Parsed_showinfo_1 @ 0x...] pts_time:39.0 ... scene_score:0.70
-[Parsed_showinfo_1 @ 0x...] pts_time:51.0 ... scene_score:0.75
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 50, lavfi.scd.time: 3.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 60, lavfi.scd.time: 9.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 55, lavfi.scd.time: 21.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 65, lavfi.scd.time: 27.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 70, lavfi.scd.time: 39.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 75, lavfi.scd.time: 51.0
 `);
     // 6 scene frames + 3 spaced = 9 frames (spaced at 15, 30, 45 won't overlap)
     mockFfmpegExtractFrame(3);
@@ -155,12 +155,12 @@ describe('sampleFrames', () => {
   it('deduplicates frames within 1 second', async () => {
     // 6 scenes + 3 spaced = 9 frames, with one dedup = 8 frames
     mockFfmpegSceneDetection(`
-[Parsed_showinfo_1 @ 0x...] pts_time:2.0 ... scene_score:0.50
-[Parsed_showinfo_1 @ 0x...] pts_time:6.0 ... scene_score:0.60
-[Parsed_showinfo_1 @ 0x...] pts_time:10.0 ... scene_score:0.55
-[Parsed_showinfo_1 @ 0x...] pts_time:14.0 ... scene_score:0.65
-[Parsed_showinfo_1 @ 0x...] pts_time:18.0 ... scene_score:0.70
-[Parsed_showinfo_1 @ 0x...] pts_time:22.0 ... scene_score:0.75
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 50, lavfi.scd.time: 2.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 60, lavfi.scd.time: 6.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 55, lavfi.scd.time: 10.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 65, lavfi.scd.time: 14.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 70, lavfi.scd.time: 18.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 75, lavfi.scd.time: 22.0
 `);
     // 6 scene frames at 2, 6, 10, 14, 18, 22
     // 3 spaced frames at 10 (deduped with scene), 20, 30
@@ -183,9 +183,10 @@ describe('sampleFrames', () => {
   });
 
   it('caps at 24 frames, preferring highest-scoring scene frames', async () => {
-    const sceneStderr = Array.from({ length: 25 }, (_, i) =>
-      `[Parsed_showinfo_1 @ 0x...] pts_time:${i * 2}.0 ... scene_score:${0.3 + (i % 7) * 0.1}`,
-    ).join('\n');
+    const sceneStderr = Array.from({ length: 25 }, (_, i) => {
+      const score = (0.3 + (i % 7) * 0.1) * 100;
+      return `[Parsed_scdet_0 @ 0x...] lavfi.scd.score: ${score.toFixed(1)}, lavfi.scd.time: ${i * 2}`;
+    }).join('\n');
     mockFfmpegSceneDetection(sceneStderr);
 
     for (let i = 0; i < 25; i += 1) mockFfmpegExtractFrame(i * 2);
@@ -205,6 +206,23 @@ describe('sampleFrames', () => {
     // Should have kept ~21 scene frames (24 - 3 spaced, but deduplication may vary)
     expect(sceneFrames.length).toBeGreaterThanOrEqual(20);
     expect(sceneFrames.length).toBeLessThanOrEqual(22);
+  });
+
+  it('pads to eight frames when a reference has only a few cuts', async () => {
+    // Three cuts in a 40 s reference: 3 scene frames + 3 spaced = 6, so two
+    // more must be spaced in rather than rejecting a valid upload.
+    mockFfmpegSceneDetection(`
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 40, lavfi.scd.time: 5.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 55, lavfi.scd.time: 15.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 62, lavfi.scd.time: 25.0
+`);
+    mockFfprobeDuration('40.0\n');
+
+    const frames = await sampleFrames(artStyleId, videoPath);
+
+    expect(frames.length).toBe(8);
+    expect(frames.some((frame) => frame.source === 'spaced')).toBe(true);
+    expect(frames.at(-1)!.timestampSeconds).toBeLessThanOrEqual(40);
   });
 
   it('throws when fewer than 8 frames total', async () => {
@@ -237,11 +255,11 @@ describe('sampleFrames', () => {
   it('cleans existing frames before sampling', async () => {
     mockReaddir.mockResolvedValue(['old-frame.png', 'another.png'] as unknown as Dirent<NonSharedBuffer>[]);
     mockFfmpegSceneDetection(`
-[Parsed_showinfo_1 @ 0x...] pts_time:2.0 ... scene_score:0.50
-[Parsed_showinfo_1 @ 0x...] pts_time:6.0 ... scene_score:0.60
-[Parsed_showinfo_1 @ 0x...] pts_time:10.0 ... scene_score:0.55
-[Parsed_showinfo_1 @ 0x...] pts_time:14.0 ... scene_score:0.65
-[Parsed_showinfo_1 @ 0x...] pts_time:18.0 ... scene_score:0.70
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 50, lavfi.scd.time: 2.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 60, lavfi.scd.time: 6.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 55, lavfi.scd.time: 10.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 65, lavfi.scd.time: 14.0
+[Parsed_scdet_0 @ 0x...] lavfi.scd.score: 70, lavfi.scd.time: 18.0
 `); // 5 scenes, well spaced
     // 5 scene frames + 3 spaced = 8 frames (spaced at 7.5, 15, 22.5 won't overlap)
     for (let i = 0; i < 8; i += 1) mockFfmpegExtractFrame(i * 3);

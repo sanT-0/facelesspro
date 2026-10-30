@@ -1,8 +1,9 @@
 /**
  * Frame sampling with scene detection for art-style cloning.
  *
- * Runs ffmpeg with scene detection filter to extract key frames at scene changes,
- * plus evenly spaced frames. Saves as PNG for downstream numeric/VLM analysis.
+ * Runs ffmpeg's `scdet` filter for scene changes, adds evenly spaced frames,
+ * pads to the 8-frame floor and caps at 24. Saves PNGs for the numeric and
+ * vision passes; this module does not look at pixels itself.
  */
 
 import { spawn } from 'node:child_process';
@@ -20,8 +21,12 @@ export interface FrameSample {
   score?: number;
 }
 
-/** Scene change threshold for ffmpeg's scene filter. 0.3 is a good default. */
-const SCENE_THRESHOLD = 0.3;
+/**
+ * Scene-change threshold on `scdet`'s 0–100 scale. 30 matches the 0.3 the
+ * select-based version used; a cut with less than 30% change is left to the
+ * evenly-spaced frames, which is why the 8-frame floor pads instead of failing.
+ */
+const SCENE_THRESHOLD = 30;
 
 /** Maximum frames to keep after combining scene + spaced frames. */
 const MAX_FRAMES = 24;
@@ -35,14 +40,20 @@ const FRAMES_ROOT = process.env.FRAMES_DIR ?? join(process.cwd(), 'storage', 'fr
 const FFMPEG_TIMEOUT_MS = 60_000;
 
 /**
- * Run ffmpeg scene detection and return scene change timestamps with scores.
+ * Run ffmpeg's `scdet` filter and return scene-change timestamps with scores.
+ *
+ * `scdet` (not `select=scene` + `showinfo`) because `showinfo` stopped printing
+ * `scene_score` in current ffmpeg builds — the select-based version silently
+ * found zero cuts on a real video, which is how this was caught. `scdet` logs
+ * `lavfi.scd.score` at info level, so the verbosity here must stay at `info`;
+ * `-v error` produces no scene data at all.
  */
 async function detectScenes(videoPath: string): Promise<Array<{ timestamp: number; score: number }>> {
   return new Promise((resolve, reject) => {
     const args = [
-      '-v', 'error',
+      '-v', 'info',
       '-i', videoPath,
-      '-filter:v', `select='gt(scene,${SCENE_THRESHOLD})',showinfo`,
+      '-vf', `scdet=threshold=${SCENE_THRESHOLD}`,
       '-f', 'null', '-',
     ];
 
@@ -63,21 +74,21 @@ async function detectScenes(videoPath: string): Promise<Array<{ timestamp: numbe
     child.on('close', (code) => {
       clearTimeout(timeout);
       if (timedOut) return;
-      if (code !== 0 && code !== 1) { // ffmpeg returns 1 when filter drops all frames
+      if (code !== 0) {
         reject(new Error(`ffmpeg scene detection exited with ${code}: ${stderr}`));
         return;
       }
 
-      // Parse showinfo output: "pts_time:12.34 ... scene_score:0.56"
+      // scdet log line: "lavfi.scd.score: 51.953, lavfi.scd.time: 10"
       const scenes: Array<{ timestamp: number; score: number }> = [];
       const lines = stderr.split('\n');
       for (const line of lines) {
-        const ptsMatch = line.match(/pts_time:([\d.]+)/);
-        const scoreMatch = line.match(/scene_score:([\d.]+)/);
-        if (ptsMatch && scoreMatch) {
+        const scoreMatch = line.match(/lavfi\.scd\.score:\s*([\d.]+)/);
+        const timeMatch = line.match(/lavfi\.scd\.time:\s*([\d.]+)/);
+        if (scoreMatch && timeMatch) {
           scenes.push({
-            timestamp: parseFloat(ptsMatch[1]!),
-            score: parseFloat(scoreMatch[1]!),
+            timestamp: Number.parseFloat(timeMatch[1]!),
+            score: Math.min(1, Number.parseFloat(scoreMatch[1]!) / 100),
           });
         }
       }
@@ -224,7 +235,7 @@ export async function sampleFrames(
     if (!isNear) deduped.push(frame);
   }
 
-  // Step 5: Cap at MAX_FRAMES, ensure MIN_FRAMES
+  // Step 5: Cap at 24, then reach the 8-frame floor by spacing instead of failing.
   if (deduped.length > MAX_FRAMES) {
     // Keep highest-scoring scene frames first, then spaced frames
     const sceneOnly = deduped.filter((f) => f.source === 'scene').sort((a, b) => (b.score ?? 0) - (a.score ?? 0));
@@ -235,8 +246,24 @@ export async function sampleFrames(
     deduped.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
   }
 
+  // Step 6: A reference with only a few cuts would otherwise land under the
+  // floor. Rejecting a valid 30 s video for having few scene changes is wrong,
+  // so spread extra frames across the whole duration first. The ±1 s rule still
+  // applies: a video too short to hold eight distinct frames fails below.
   if (deduped.length < MIN_FRAMES) {
-    // This shouldn't happen with 3 spaced frames + scene detection, but guard anyway
+    const step = duration / MIN_FRAMES;
+    for (let i = 0; i < MIN_FRAMES && deduped.length < MIN_FRAMES; i += 1) {
+      const timestamp = (i + 0.5) * step;
+      if (deduped.some((frame) => Math.abs(frame.timestampSeconds - timestamp) < 1.0)) continue;
+      const frameName = `frame-spaced-${i}-${timestamp.toFixed(2)}s.png`;
+      const framePath = join(outputDir, frameName);
+      await extractFrame(videoPath, timestamp, framePath);
+      deduped.push({ path: framePath, timestampSeconds: timestamp, source: 'spaced' });
+    }
+    deduped.sort((a, b) => a.timestampSeconds - b.timestampSeconds);
+  }
+
+  if (deduped.length < MIN_FRAMES) {
     throw new Error(`insufficient frames sampled: ${deduped.length} (minimum ${MIN_FRAMES})`);
   }
 

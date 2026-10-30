@@ -298,14 +298,36 @@ every model down → heuristic still produces a valid plan.
       Artifact: fake video → 202, `art_style` row inserted with `status='building'`,
       file written to `storage/references/<uuid>-<name>`.
 - [x] Frame sampling with scene detection (8–24 frames) — `apps/worker/src/art-style/frame-sampling.ts`:
-      Runs ffmpeg `select='gt(scene,0.3)',showinfo` to detect scene changes,
-      extracts one PNG per scene change, adds 3 evenly spaced frames (25%/50%/75%),
-      deduplicates within 1s, caps at 24 frames (prefers highest-scoring scene frames),
-      ensures minimum 8 frames. Saves to `storage/frames/<artStyleId>/`.
-      8 unit tests (mock ffmpeg/ffprobe).
-      Artifact: fake video with 5 scenes + 3 spaced → 8 frames, dedup tested,
-      cap at 24 with highest scores kept, error handling for ffmpeg/ffprobe failures.
-- [ ] Numeric analysis: k-means palette, stroke density, edge energy, saturation.
+      ffmpeg `scdet=threshold=30` for scene changes, 3 evenly spaced frames
+      (25/50/75%), 1 s dedupe, cap 24 (prefers high-scoring scene frames),
+      padded to 8 equally spaced frames when a reference has few cuts.
+      Saves PNG to `storage/frames/<artStyleId>/`.
+      9 unit tests (mock ffmpeg/ffprobe).
+      Artifact (real ffmpeg 9.0.2, synthetic 4-scene 40 s clip): 8 frames —
+      2 scene cuts at 10.00 s (score 0.52) and 30.00 s (score 0.59) plus 6
+      spaced. The 10→20 s cut scored 0.28, below threshold, and was covered by
+      the spaced frames as designed.
+      Fixed during the numeric pass: `showinfo` no longer prints `scene_score`
+      in current ffmpeg, so the select-based detector found **zero** cuts on a
+      real video; switched to `scdet` at `-v info`.
+- [x] Numeric analysis: k-means palette, stroke density, edge energy, saturation —
+      `packages/core/src/style/palette.ts` (farthest-point k-means, deterministic,
+      weighted hex palette) + `packages/core/src/style/stats.ts` (`lineStats`,
+      `saturationStats`, `contrastStats`, `brightnessStats`, `safeAreaStats`,
+      `percentile`); `apps/worker/src/art-style/frame-decode.ts` decodes PNG →
+      RGB24 through ffmpeg `-f rawvideo` (no PNG dependency);
+      `apps/worker/src/art-style/numeric-analysis.ts` averages metrics across
+      frames and computes one palette over all of them, then parses the result
+      through `numericStyleProfileSchema` (`packages/contracts/src/art-style.ts`).
+      12 contract + 20 core + 16 worker tests.
+      Artifact (same real 40 s clip, 8 decoded frames): palette recovered every
+      colour drawn into the clip — `#f1bf4d` 37.5 %, `#1a283f` 36.1 %,
+      `#fefefe` 20.8 %, `#020202` 4.1 %, `#e2562d` 1.4 % — against painted
+      `#f2c14e / #1b2a41 / #ffffff / #000000 / #e4572e`, with the weights
+      matching the frame composition exactly (3 yellow frames, 3 navy, 2 white,
+      plus a bar and a rectangle). `strokeDensity` 0.0059 and `edgeEnergy`
+      0.0068 on a clip that is mostly flat colour; `safeArea.edgeContentRatio`
+      0.044.
 - [ ] VLM pass → medium / composition / character bible / typography.
 - [ ] `StyleProfile` schema + merge of numeric + VLM output.
 - [ ] Preview grid + 6 s preview clip; `status=ready` only when previews exist.

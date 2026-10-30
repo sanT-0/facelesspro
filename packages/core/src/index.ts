@@ -72,3 +72,27 @@ export type {
   ScenePlanEstimate,
   ScriptLanguagePlan,
 } from './estimate';
+export {
+  DEFAULT_PALETTE_COLORS,
+  MAX_PALETTE_COLORS,
+  hexToRgb,
+  kmeansPalette,
+  rgbToHex,
+} from './style/palette';
+export type { PaletteOptions, StylePalette } from './style/palette';
+export {
+  DARK_LUMA_MAX,
+  DEFAULT_SAFE_AREA_MARGIN,
+  SAFE_AREA_CONTENT_DISTANCE,
+  STROKE_EDGE_MIN,
+  brightnessStats,
+  contrastStats,
+  edgeEnergy,
+  lineStats,
+  luma,
+  percentile,
+  safeAreaStats,
+  saturationStats,
+  strokeDensity,
+} from './style/stats';
+export type { LineStats, SafeAreaStats, StatSummary } from './style/stats';
