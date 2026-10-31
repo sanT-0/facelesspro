@@ -141,18 +141,37 @@ preset over V3 (background + comment text + voice), and mark it **not parity-cri
     "id": "uuid", "name": "Whiteboard explainer", "published": true,
     "formats": ["landscape","portrait"],
     "previewUrl": "...png", "portraitPreviewUrl": "...png",
-    "sampleVideoUrls": ["...mp4"], "createdAt": "2026-07-19T11:04:52.000Z"
+    "sampleVideoUrls": ["...mp4"],
+    "status": "ready",
+    "createdAt": "2026-07-19T11:04:52.000Z"
 }]}
 ```
 
 Rules `[P]`: styles still building are omitted; `published` distinguishes global vs
 workspace-private; passing a `size` the style cannot draw is **rejected**.
 
+Additive `[+]`: `status` is echoed on each entry. Because non-ready rows are omitted it is
+always `ready` today, and it stays so that a later "show my building styles" filter is a
+query change, not a breaking response change. All three URL fields (`previewUrl`,
+`portraitPreviewUrl`, `sampleVideoUrls[]`) accept either an absolute URL or a `/files/...`
+path, so a locally built style lists without requiring `PUBLIC_BASE_URL`.
+
 Our builder `[~]`: reference video ≥30 s (≈3 min ideal), must contain narration. Steps:
 probe → scene-detect frames → palette/stroke/composition analysis → character bible →
 style prompt synthesis → preview grid + preview clip. See pipeline doc §4.
 
-`[+]` Styles export/import as JSON so I can move a style between machines, and share it.
+`GET /v1/art-styles/:id/export` `[+]` →
+
+```jsonc
+{ "version": 1, "name": "Whiteboard explainer", "formats": ["landscape"],
+  "profile": { /* the exact StyleProfile from docs/04 §4 */ } }
+```
+
+The document is portable: no row id, storage keys, preview URLs or timestamps. `profile`
+is re-validated as `styleProfileSchema` on the way out (a corrupt stored profile is
+`500 internal`, never a half-export) and again on import. Non-ready styles answer
+`409 conflict`; an unknown id `404 not_found`; a malformed id `400 invalid_request`
+with `field: "id"`.
 
 ---
 

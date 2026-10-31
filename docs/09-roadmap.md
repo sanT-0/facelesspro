@@ -420,7 +420,27 @@ every model down → heuristic still produces a valid plan.
         regenerated once to 0.049 with the clause; scene 3 at 0.039 needed zero draw calls; all
         three accepted stills 1024×576 RGB24 and now share `#41857f`/`#438580`/`#448581`.
         A soft-bin fix was required: hard bins scored byte-adjacent identical scenes 0.885.
-- [ ] `GET /v1/art-styles[/:id/export]`.
+- [x] `GET /v1/art-styles[/:id/export]` - catalog read only, no new vendor.
+      `packages/db/src/art-styles.ts` keeps the SQL out of the api (the api lint boundary
+      forbids `drizzle-orm`/`pg`): `listReadyArtStyles` filters `status='ready'` and orders
+      newest-first, `findArtStyle` returns any status so the route can choose 404 vs 409; both
+      parse rows through `artStyleRowSchema`. `GET /v1/art-styles` re-filters on `ready` (a fake
+      or future repository cannot leak a half-built style), rewrites storage keys to
+      `/files/<key>` and leaves absolute URLs alone, and omits `portraitPreviewUrl` when unset.
+      `GET /v1/art-styles/:id/export` returns `{version: 1, name, formats, profile}` with the
+      whole `StyleProfile` re-validated out of the jsonb column and no id/key/timestamp, so the
+      file can move between machines; `409 conflict` while building, `404 not_found`,
+      `400 invalid_request` + `field: "id"`, `500 internal` for a corrupt profile. 4 contract +
+      8 api tests, offline (fake catalog, no Postgres). Observed only through unit/route tests:
+      the two SQL statements are typechecked, not executed, because no local Postgres exists;
+      `/files/*` itself is still the P6 Libraries item, so the returned paths 404 until then.
+      Artifact (real Hono server on 127.0.0.1:3199, real HTTP): list `200` with both previews and
+      the sample clip rewritten to `/files/...`, export `200` with an 868-byte portable profile,
+      and `409`/`404`/`400` envelopes for building/unknown/malformed ids. The artifact caught two
+      things the tests had missed: `sampleVideoUrls` was still `z.url()`, so any non-empty local
+      sample key turned the list into a plain-text 500 (now `urlOrPathSchema`, like the two
+      preview fields), and an unhandled throw had no envelope at all (`app.onError` now returns
+      `500 {error:{code:"internal"}}` with a fixed message and logs the real error).
 
 **Gate:** build a style from a 2-minute reference; 6 new scenes look like the same channel to
 my eye; portrait + landscape both render; rejected inputs give clear 400s.

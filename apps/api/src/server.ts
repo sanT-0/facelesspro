@@ -7,7 +7,15 @@
 
 import { resolve } from 'node:path';
 
-import { artStyle, createDb, databaseFor, databaseUrl, loadEnv } from '@facelesspro/db';
+import {
+  artStyle,
+  createDb,
+  databaseFor,
+  databaseUrl,
+  findArtStyle,
+  listReadyArtStyles,
+  loadEnv,
+} from '@facelesspro/db';
 import {
   checkQueues,
   createBoss,
@@ -26,6 +34,7 @@ async function main(): Promise<void> {
   const queueSchema = process.env.PGBOSS_SCHEMA || undefined;
   const connectionString = databaseUrl();
   const { pool } = createDb(connectionString);
+  const db = databaseFor(pool);
   let bossPromise: ReturnType<typeof createBoss> | undefined;
 
   // Keep startup lazy: `/health` must still come up as 503 when Postgres is
@@ -83,6 +92,8 @@ async function main(): Promise<void> {
     },
     storageRoot: resolve(process.env.DATA_DIR?.trim() || '.data'),
     submitArtStyle,
+    listArtStyles: () => listReadyArtStyles(db),
+    readArtStyle: (id) => findArtStyle(db, id),
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

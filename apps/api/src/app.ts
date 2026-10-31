@@ -20,6 +20,20 @@ export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
 
   /**
+   * Last line of defence: an unexpected throw still returns the documented
+   * envelope (`internal`), never Hono's plain-text body. The message is fixed so
+   * an internal error cannot leak a stack, a SQL fragment or a storage path to a
+   * client; the real error goes to the process log.
+   */
+  app.onError((err) => {
+    console.error('[api] unhandled error', err);
+    return new Response(JSON.stringify(apiError('internal', 'unexpected error')), {
+      status: 500,
+      headers: { 'content-type': 'application/json' },
+    });
+  });
+
+  /**
    * `200 {status:"ok"}` when every component is usable, `503 degraded`
    * otherwise — the body always parses as `healthSchema`, so a monitor can read
    * which component failed without knowing anything else.

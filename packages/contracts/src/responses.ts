@@ -32,6 +32,7 @@ import {
 } from './common';
 import { apiErrorBodySchema } from './errors';
 import { plannerAdapterSchema } from './planner';
+import { styleProfileSchema } from './style-profile';
 
 // --- errors -----------------------------------------------------------------
 
@@ -208,16 +209,22 @@ export const artStyleSchema = z.strictObject({
   formats: z.array(sizeSchema).min(1),
   previewUrl: urlOrPathSchema,
   portraitPreviewUrl: urlOrPathSchema.optional(),
-  sampleVideoUrls: z.array(z.url()),
+  /**
+   * Absolute CDN URL or a `/files/...` path. Both are accepted for the same
+   * reason as `previewUrl`: sample clips live in the same storage as previews,
+   * and the api should not have to make a public origin mandatory to list a
+   * style that was built locally.
+   */
+  sampleVideoUrls: z.array(urlOrPathSchema),
   status: artStyleStatusSchema,
   createdAt: isoDateTimeSchema,
 });
 export type ArtStyle = z.infer<typeof artStyleSchema>;
 
 /**
- * `GET /v1/art-styles` omits styles that are still building (parity), so
- * `status` is always `ready` or `failed` in practice. Kept as a field because
- * the workspace view needs to show a failed build.
+ * `GET /v1/art-styles` omits styles that are still building (parity), and the
+ * route also omits `failed` rows, so `status` is always `ready` here. Kept as a
+ * field because a later workspace view can surface a failed build.
  */
 export const artStyleListSchema = z.strictObject({
   styles: z.array(artStyleSchema),
@@ -229,7 +236,8 @@ export const artStyleExportSchema = z.strictObject({
   version: z.literal(1),
   name: z.string().min(1),
   formats: z.array(sizeSchema).min(1),
-  profile: z.record(z.string(), z.unknown()),
+  /** The exact document stored in `art_style.profile`; re-validated on import. */
+  profile: styleProfileSchema,
 });
 export type ArtStyleExport = z.infer<typeof artStyleExportSchema>;
 

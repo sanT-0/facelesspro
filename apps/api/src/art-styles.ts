@@ -17,9 +17,16 @@ import { join, resolve } from 'node:path';
 
 import { Hono } from 'hono';
 
-import { createArtStyleResponseSchema, artStyleMetaSchema } from '@facelesspro/contracts';
+import {
+  artStyleExportSchema,
+  artStyleListSchema,
+  createArtStyleResponseSchema,
+  artStyleMetaSchema,
+  idSchema,
+  styleProfileSchema,
+} from '@facelesspro/contracts';
 import { apiError } from '@facelesspro/contracts';
-import type { ArtStyleBuildJob, ArtStyleRow } from '@facelesspro/contracts';
+import type { ArtStyle, ArtStyleBuildJob, ArtStyleRow } from '@facelesspro/contracts';
 import { validateReferenceVideo } from './video-probe';
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
@@ -46,7 +53,47 @@ export interface ArtStyleDeps {
   /** Absolute or cwd-relative disk root shared with the worker. */
   readonly storageRoot: string;
   readonly submitArtStyle: (submission: ArtStyleSubmission) => Promise<void>;
+  /** Ready styles only, newest first. */
+  readonly listArtStyles: () => Promise<readonly ArtStyleRow[]>;
+  /** Any status, so the route can choose 404 vs 409. */
+  readonly readArtStyle: (id: string) => Promise<ArtStyleRow | null>;
   readonly now?: () => Date;
+}
+
+const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
+
+/**
+ * Storage keys are relative (`art-styles/<id>/preview.png`); the wire contract
+ * wants a URL or an absolute path. `/files/*` is the api's stable public prefix
+ * (docs/10), so a future CDN only changes where that prefix is served from.
+ */
+function publicFileUrl(value: string): string {
+  if (ABSOLUTE_URL.test(value) || value.startsWith('/')) return value;
+  return `/files/${value}`;
+}
+
+function requirePreview(key: string | null | undefined, styleId: string): string {
+  if (key === null || key === undefined || key.trim().length === 0) {
+    throw new Error(`ready art style ${styleId} has no preview`);
+  }
+  return publicFileUrl(key);
+}
+
+/** `art_style` row → `GET /v1/art-styles` entry. */
+function toCatalogEntry(row: ArtStyleRow): ArtStyle {
+  return {
+    id: row.id,
+    name: row.name,
+    published: row.published,
+    formats: row.formats,
+    previewUrl: requirePreview(row.preview_url, row.id),
+    ...(row.portrait_preview_url === null || row.portrait_preview_url === undefined
+      ? {}
+      : { portraitPreviewUrl: publicFileUrl(row.portrait_preview_url) }),
+    sampleVideoUrls: row.sample_video_urls.map(publicFileUrl),
+    status: row.status,
+    createdAt: row.created_at,
+  };
 }
 
 export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
@@ -144,6 +191,51 @@ export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
     });
 
     return c.json(response, 202);
+  });
+
+  /**
+   * `GET /v1/art-styles` — the library. Parity rule: styles that are not ready
+   * are omitted, so every id returned can be used as `artStyleId` today.
+   */
+  app.get('/', async (c) => {
+    const rows = await deps.listArtStyles();
+    const body = artStyleListSchema.parse({
+      styles: rows.filter((row) => row.status === 'ready').map(toCatalogEntry),
+    });
+    return c.json(body, 200);
+  });
+
+  /**
+   * `GET /v1/art-styles/:id/export` — the portable document: metadata plus the
+   * exact `StyleProfile` that lives in `art_style.profile`. No row ids, storage
+   * keys or timestamps, so the file can be imported on another machine.
+   */
+  app.get('/:id/export', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    const row = await deps.readArtStyle(id);
+    if (row === null) {
+      return c.json(apiError('not_found', 'art style not found'), 404);
+    }
+    if (row.status !== 'ready') {
+      return c.json(apiError('conflict', `art style is ${row.status}`), 409);
+    }
+
+    const profile = styleProfileSchema.safeParse(row.profile);
+    if (!profile.success) {
+      return c.json(apiError('internal', 'stored art style profile is invalid'), 500);
+    }
+
+    const body = artStyleExportSchema.parse({
+      version: 1,
+      name: row.name,
+      formats: row.formats,
+      profile: profile.data,
+    });
+    return c.json(body, 200);
   });
 
   return app;

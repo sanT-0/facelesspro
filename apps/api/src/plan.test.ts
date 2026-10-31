@@ -10,6 +10,8 @@ function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }
     now: () => new Date('2026-10-27T09:00:00.000Z'),
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
+    listArtStyles: async () => [],
+    readArtStyle: async () => null,
   });
 }
 

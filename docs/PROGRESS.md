@@ -907,6 +907,33 @@ file stays the single "what is actually true today" view.
       pins as already satisfied. **Not observed:** the GitHub runner installing them on Python
       3.12 until the workflow runs again.
 
+- [x] **2026-10-31 - `GET /v1/art-styles` and `GET /v1/art-styles/:id/export`.**
+      The catalog read lives in `packages/db/src/art-styles.ts` because the api lint boundary
+      forbids `drizzle-orm`/`pg`: `listReadyArtStyles` filters `status='ready'` and orders
+      newest-first, `findArtStyle` returns any status so the route can pick 404 vs 409, and both
+      parse rows through `artStyleRowSchema` before the route sees them. `GET /v1/art-styles`
+      re-filters on `ready` (a fake or future repository cannot leak a half-built style), rewrites
+      storage keys to `/files/<key>` and leaves absolute URLs alone. `GET /:id/export` returns
+      exactly `{version: 1, name, formats, profile}` with a full `StyleProfile` re-validated out of
+      the jsonb column and no id/key/timestamp, so the file can move between machines; `409` while
+      building, `404` unknown, `400 invalid_request` + `field: "id"`, `500 internal` if the stored
+      profile is corrupt. Gate: typecheck + eslint + **934 tests / 69 files** green. Python not run
+      (no media/render files touched).
+      Artifact (real Hono server on 127.0.0.1:3199 with a fake catalog, real HTTP):
+      `GET /v1/art-styles` `200` with `previewUrl`, `portraitPreviewUrl` and the sample clip all
+      rewritten to `/files/art-styles/<id>/…`, `building`/`failed` rows absent; export `200`, 868
+      bytes, `version:1` and the whole profile; `409 conflict`, `404 not_found`, `400` with
+      `field:"id"` for building/unknown/malformed ids.
+      The artifact caught two gaps the unit tests had missed: `sampleVideoUrls` was still
+      `z.array(z.url())`, so the first non-empty local sample key turned the list into a plain-text
+      `500` (now `urlOrPathSchema`, like both preview fields), and an unhandled throw had no
+      envelope at all (`app.onError` now answers `500 {error:{code:"internal"}}` with a fixed
+      message and logs the real error). Both now have tests.
+      **Observed:** the exact wire bodies, status codes, path rewriting and error envelopes over a
+      real HTTP server. **Not observed:** the two SQL statements executing, because no Postgres is
+      available locally (typechecked only, `test:db` not claimed green), and `/files/*` is still a
+      P6 Libraries item, so those paths 404 until that route is mounted.
+
 ---
 
 ## Decisions log
@@ -955,3 +982,8 @@ file stays the single "what is actually true today" view.
 | 2026-10-31 | Consistency uses a **soft** RGB histogram, strict-`>` threshold, nearest accepted scene | hard bins made visually identical scenes differ by 0.885 when one channel sat a byte either side of a 128 edge — a false outlier would spend a provider call; soft tri-linear bins measure colour distribution rather than byte boundaries, and nearest-neighbour means one unusual hero scene cannot veto every later frame |
 | 2026-10-31 | The quality guard regenerates **once** and accepts the second result even if it is still an outlier | a guard that retries until consistent can spin against an uncooperative provider; one bounded retry keeps the cost predictable, and the manifest records the `regenerated` flag so the still-outlier case is visible rather than hidden |
 | 2026-10-31 | Python runtime pins match the versions the suite has actually run against | the deleted `requirements.txt` named fastapi 0.162/pydantic 2.14 that no local run ever installed; a pin nobody has executed is an assumption, and CI should test the environment the gate uses |
+| 2026-10-31 | `GET /v1/art-styles` omits `failed` as well as `building` | an id returned by the list is handed straight to `artStyleId`; a failed build has no usable profile, so listing it only produces a guaranteed 409/500 later |
+| 2026-10-31 | The export is `{version, name, formats, profile}` only, with the profile re-validated | the document must import on another machine, so ids, storage keys, preview URLs and timestamps are local facts; re-validating the jsonb means a corrupt row is a clear `500 internal` instead of a half-export the importer must guess about |
+| 2026-10-31 | Storage keys become `/files/<key>`; absolute URLs pass through | one public prefix to rewrite when a CDN replaces the api's static route (P6), and an absolute provider URL is already a public URL and must not be prefixed |
+| 2026-10-31 | `sampleVideoUrls` accepts a path, not only a URL | the list route maps preview and sample keys through the same storage helper; the artifact proved `z.url()` turned any non-empty local sample key into a plain-text 500 |
+| 2026-10-31 | `app.onError` returns the error envelope, not Hono's plain text | the rule is that every user-facing failure has a `code`; a fixed `internal` message keeps SQL/paths/stacks out of the response while the real error is logged |
