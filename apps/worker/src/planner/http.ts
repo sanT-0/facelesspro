@@ -14,6 +14,11 @@
 /** Statuses that a retry may resolve. */
 const RETRYABLE_STATUS = new Set([408, 425, 429]);
 
+/** Shared by JSON and binary provider transports so their retry policy cannot drift. */
+export function isRetryableHttpStatus(status: number): boolean {
+  return RETRYABLE_STATUS.has(status) || status >= 500;
+}
+
 export interface PostOptions {
   url: string;
   headers: Record<string, string>;
@@ -84,7 +89,7 @@ export async function postJson(options: PostOptions): Promise<unknown> {
       `HTTP ${response.status}${detail ? `: ${detail.slice(0, 200)}` : ''}`,
       {
         status: response.status,
-        retryable: RETRYABLE_STATUS.has(response.status) || response.status >= 500,
+        retryable: isRetryableHttpStatus(response.status),
       },
     );
   }

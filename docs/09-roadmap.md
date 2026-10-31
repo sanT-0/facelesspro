@@ -380,9 +380,33 @@ every model down → heuristic still produces a valid plan.
         576×1024 and uses a dependency-free RGB8 PNG encoder over Node zlib. 7 contract + 6
         adapter tests; gate 838. Artifact: both outputs decode through ffprobe as `png/rgb24`,
         were opened visually, and identical input is byte-identical.
-      - [ ] Cloudflare Flux Schnell adapter.
-      - [ ] Pollinations adapter.
-      - [ ] ComfyUI adapter.
+      - [x] Cloudflare Flux Schnell adapter — account-scoped endpoint with caller seed and 1–8
+        steps; bounded base64 JPEG/PNG/WebP input; real ffmpeg centre-crop into exact 1024×576 /
+        576×1024 RGB24 PNG; typed retryability through the shared HTTP transport. 9 adapter + 3
+        normalizer tests; both orientations decoded and inspected through a stubbed provider
+        envelope. Live generation remains opt-in because it consumes Cloudflare neurons.
+      - [x] Pollinations adapter — current authenticated image endpoint, canonical Flux Schnell,
+        exact geometry + seed, bearer key, full-body timeout, 25 MiB streaming cap, matching raster
+        MIME/magic, known legacy-host rejection and shared RGB24 normalization. 13 hermetic tests.
+        Artifact: both orientations decoded from the exact stubbed HTTP path; the live keyless
+        legacy path was rejected because it visibly watermarks output even with `nologo=true`
+        (the current endpoint returns 401 without a key). No watermark-removal workaround.
+      - [x] ComfyUI adapter — model-agnostic API-format workflow with typed prompt/negative/seed/
+        dimension placeholders; `/prompt` submission, HTTP history polling and `/view` download;
+        one configured image output, one end-to-end deadline, 25 MiB raster cap and shared RGB24
+        normalization. 16 hermetic tests including the committed SDXL workflow-shape fixture.
+        Artifact: real localhost HTTP flow and real ffmpeg for both orientations; no local
+        ComfyUI/model/GPU was available, so semantic quality remains unobserved.
+      - [x] Ordered image adapter chain + env factory (`IMAGE=...`) with degradation provenance.
+        `image/chain` returns the first schema-valid image and fills `degradedFrom` from runtime
+        failures in attempt order; `ImageChainError` is retryable only when every failure was
+        transient. `image/factory` skips unconfigured adapters with a warning (not degradation),
+        ignores unknown/duplicate names, and falls back to `procedural` when `IMAGE` is unset or
+        names nothing runnable. 6 chain + 8 factory tests. Artifact: `IMAGE=` with all four
+        adapters, hosted Cloudflare 503/Pollinations 429 stubbed at the HTTP boundary, local
+        ComfyUI stub and real ffmpeg → both orientations returned `adapter=comfyui` with
+        `degradedFrom=[cloudflare,pollinations]`; no API key or neuron/Pollen was spent.
+      - [ ] Scene storage for generated frames + manifest + reuse.
 - [ ] Palette colour correction + per-scene consistency check + one-shot regenerate.
 - [ ] `GET /v1/art-styles[/:id/export]`.
 

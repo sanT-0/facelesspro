@@ -752,6 +752,124 @@ file stays the single "what is actually true today" view.
       and lets tests inflate every scanline to prove that no colour outside the measured palette
       entered the fallback.
 
+- [x] **2026-10-31 — Cloudflare Flux Schnell image adapter.** The interrupted implementation in
+      `apps/worker/src/image/cloudflare.ts` is now verified and recorded: account-scoped Workers AI
+      URL, bearer token, final prompt + caller seed + 1–8 steps, 120 s default timeout, bounded
+      canonical base64 and JPEG/PNG/WebP signature checks, shared retry taxonomy, and exact
+      landscape/portrait output through `image/normalize.ts`. Model, steps and timeout overrides
+      are documented in `.env.example`. Cloudflare's current official model page confirms the
+      prompt/seed usage, four-step default, eight-step ceiling and base64 image result.
+      Contract correction found during the artifact pass: normalization previously relied on
+      ffmpeg choosing RGB output; an alpha-capable PNG/WebP could therefore produce RGBA despite
+      the documented RGB-PNG boundary. A failing argument test now pins `format=rgb24`, and the
+      production filter forces it. 9 adapter + 3 normalizer tests; `npm run gate` green at
+      **850 tests / 63 files**. Python not run (no media/render files touched).
+      Artifact (real ffmpeg 9.0.2, stubbed exact Cloudflare REST envelope carrying a synthetic
+      provider JPEG): `landscape.png` is 1024×576 RGB24 / 6,897 bytes / SHA-256
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; `portrait.png` is
+      576×1024 RGB24 / 7,827 bytes / `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`.
+      Both were opened and show the expected centred aspect crop; a second full adapter run produced
+      the same hashes. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-cloudflare-artifact/`.
+      **Observed:** request envelope, validation/classification, real normalization, geometry,
+      pixel format and deterministic post-processing. **Not observed:** a live Flux generation or
+      its semantic/style quality; no Cloudflare neurons were spent without `LIVE=1`.
+      Surprise: Cloudflare's raw input schema omits `seed`, while both official usage examples send
+      it. The adapter follows the usage examples; a future live test must keep that discrepancy
+      honest.
+
+- [x] **2026-10-31 — Pollinations image adapter, with the keyless path rejected.**
+      `apps/worker/src/image/pollinations.ts` targets the current HTTPS
+      `gen.pollinations.ai/image/{prompt}` endpoint with canonical
+      `black-forest-labs/flux.1-schnell`, exact width/height + caller seed, and a required bearer
+      `POLLINATIONS_API_KEY` that never enters the URL. The timeout remains active through the full
+      response stream; declared and streamed bodies are capped at 25 MiB; MIME must match
+      JPEG/PNG/WebP magic; output goes through the shared exact RGB24 PNG normalizer. The binary
+      transport reuses the JSON transport's exported HTTP retry classifier, so 408/425/429/5xx
+      cannot drift between adapters. The known watermarked legacy host is rejected at configuration
+      time. 13 hermetic tests; `npm run gate` green at **863 tests / 64 files**. Python not run (no
+      media/render files touched).
+      Accepted artifact (exact current URL/header/query shape through a stubbed provider JPEG, real
+      ffmpeg 9.0.2): 1024×576 RGB24 PNG, 6,897 bytes,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; and 576×1024 RGB24 PNG,
+      7,827 bytes, `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`.
+      Both were opened and show the expected centred crop. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-pollinations-artifact/`.
+      Live evidence changed the design: the current endpoint returned 401 without a key; the old
+      `image.pollinations.ai/prompt` endpoint returned 200 keylessly, but the 1024×576 image visibly
+      contains `pollinations.ai` in the lower-right even with `nologo=true`. That rejected artifact
+      is preserved as `legacy-keyless-watermarked.png` (210,967 bytes, SHA-256
+      `e9935bf3d34c11ac69d6a3d0b1d26a85e3d4157a05693979146c349304abfcc6`). We neither ship that
+      path nor strip its provider mark; an unconfigured chain will eventually fall through to the
+      procedural zero-key floor.
+      **Observed:** both live unauthenticated behaviours, current request construction and failure
+      taxonomy, bounded streaming, exact normalization and visual artifacts. **Not observed:** an
+      authenticated current-model generation or its style quality; no key was available and no
+      Pollen was spent. Surprise: Pollinations' current direct-API agent guide still calls image GET
+      keyless, contradicting the live 401; artifact evidence wins over copied provider prose.
+
+- [x] **2026-10-31 — self-hosted ComfyUI image adapter.**
+      `apps/worker/src/image/comfyui.ts` accepts an operator-exported API-format workflow rather
+      than hardcoding SDXL or Flux nodes. Five required placeholders are replaced inside node inputs
+      as typed values: final prompt, negative prompt, caller seed, width and height. The template is
+      cloned per request, validated as an API graph, and the configured output node must return
+      exactly one image. `fixtures/workflows/comfyui-sdxl-api.json` pins the shape and placeholder
+      vocabulary; its `sd_xl_base_1.0.safetensors` name is only an editable example, not a bundled
+      model. `COMFYUI_WORKFLOW` + `COMFYUI_OUTPUT_NODE` are required before the future factory can
+      consider this adapter configured.
+      Runtime follows ComfyUI's documented HTTP API without another dependency: `POST /prompt`,
+      poll `/history/{prompt_id}`, then fetch `/view` with the returned filename/subfolder/type.
+      One abort deadline covers submission, pending waits, JSON bodies and output streaming;
+      network/5xx/timeouts are retryable, graph/execution/output failures permanent. Output is
+      capped at 25 MiB, MIME must match JPEG/PNG/WebP magic, and the shared normalizer produces the
+      exact RGB24 PNG contract. A timeout does not call the global `/interrupt` route, which could
+      cancel someone else's local generation. 16 hermetic tests (including fixture compatibility);
+      `npm run gate` green at **879 tests / 65 files**. Python not run (no media/render files
+      touched).
+      Artifact (real localhost HTTP server with the official Comfy route/response shapes, committed
+      workflow loaded from disk, one pending history response per job, and real ffmpeg 9.0.2):
+      landscape submitted seed 515151 / 1024×576 and produced a 6,897-byte RGB24 PNG,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; portrait submitted seed
+      515152 / 576×1024 and produced 7,827 bytes,
+      `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`. Both were decoded by
+      ffprobe and opened; files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-comfyui-artifact/`.
+      **Observed:** file loading, typed substitutions, real HTTP submission/poll/download, exact
+      output query, pending-state wait, raster checks, normalization, geometry and visual artifact.
+      **Not observed:** an actual ComfyUI process, checkpoint/custom nodes, GPU generation or style
+      quality; port 8188 timed out and no local model was available. Surprise/design correction:
+      `COMFYUI_URL` alone cannot identify a runnable graph, so configuration requires an exported
+      workflow and explicit output node instead of pretending one hardcoded SDXL graph also supports
+      Flux/GGUF.
+
+- [x] **2026-10-31 — ordered image chain + `IMAGE=...` factory.**
+      `apps/worker/src/image/chain.ts` implements `ImageFn` over `ImagePort[]`: the first adapter
+      that returns a schema-valid image wins and the result's `degradedFrom` is filled by the chain
+      from runtime failures in attempt order, mirroring the planner/vision chains. `ImageChainError`
+      carries every diagnosis and is `retryable` only when *all* failures were transient.
+      `apps/worker/src/image/factory.ts` parses `IMAGE`, ignores unknown and duplicate names with a
+      warning, and constructs adapters in the declared order. An adapter whose credentials or
+      workflow are absent is skipped at construction with a warning naming the missing settings;
+      that skip is **not** recorded as degradation, because a misconfiguration is not a provider
+      outage. `IMAGE` unset — or every named adapter unconfigured — yields the procedural renderer
+      alone, preserving zero-key completion. 6 chain + 8 factory tests.
+      `npm run gate` green at **893 tests / 67 files**. Python not run (no media/render files
+      touched).
+      Artifact (real localhost ComfyUI-shaped HTTP stub, hosted providers stubbed at the HTTP
+      boundary to return 503/429, real ffmpeg): `IMAGE=cloudflare,pollinations,comfyui,procedural`
+      returned `adapter=comfyui`, `degradedFrom=["cloudflare","pollinations"]` for landscape
+      (1024×576, 6,897 bytes,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`) and portrait (576×1024,
+      7,827 bytes, `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`), with the
+      ComfyUI submissions carrying seeds 616161/616162 and matching geometry. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-image-chain-artifact/`.
+      **Observed:** configuration ordering, runtime fallthrough, provenance, provider-domain
+      routing, ComfyUI construction from env, real normalization and final bytes.
+      **Not observed:** a live Cloudflare/Pollinations success inside the chain, a live ComfyUI
+      process, or spending any quota; the hosted failures were deliberate HTTP stubs. Surprise: the
+      chain must overwrite `degradedFrom` rather than merge it — direct adapters cannot see earlier
+      failures, and merging would let an adapter's own empty list erase provenance.
+
 ---
 
 ## Decisions log
@@ -787,6 +905,9 @@ file stays the single "what is actually true today" view.
 | 2026-10-27 | `pallavi` is the female default, and a voice is only approved on **fresh text** | `emma` passed the six fixed clips and failed the first sentence she had not been heard on; with several female voices acceptable, the tie-break is the product rule (Tamil is primary, so a native `ta-IN` narrator), and the gate now renders a seventh clip written after the voices were chosen |
 | 2026-10-28 | Every female voice that passes the fresh sentence is a **selectable pair**, not a catalogue entry | the default is our judgement, but it should not be the only option: `seraphina`, `vivienne` and `thalita` ship with `TTS_PAIR=<id>` and their own rendered seven-clip set, and their pace differs by 3.2 s on the same sentence, which is a channel-style choice no single pick can make |
 | 2026-10-28 | A sample set's path is **derived from the pair id**, never typed by hand | the split layout (`samples/tts/`, `/female/`, `/voices/x/`) made a path ambiguous and let a render land beside another voice's evidence; `sampleSetDir` + a test makes `samples/tts/<pair>/` the only canonical location and `auditions/` the only place for scratch |
+| 2026-10-31 | Pollinations uses the current authenticated endpoint; the legacy keyless host is not a fallback | live evidence: current `/image` returns 401 without a key, while legacy `/prompt` returns an image with a visible provider watermark even when `nologo=true`; FacelessPro will not remove a provider mark, and procedural still guarantees zero-key completion |
+| 2026-10-31 | ComfyUI takes an operator API-format workflow and output node; timeouts never call global `/interrupt` | SDXL, Flux and custom-node graphs are not interchangeable, so five typed placeholders adapt any exported graph without guessing node ids; `/interrupt` can cancel unrelated local work, while the worker's own retry/idempotency layer owns recovery |
+| 2026-10-31 | An image adapter skipped for missing config is a warning, not `degradedFrom`; the chain **overwrites** provenance | degradation must mean a provider was tried and failed, otherwise `degradedFrom` becomes noise from unset keys; direct adapters cannot see earlier failures, so merging their own empty list would erase the chain's history |
 | 2026-10-29 | `POST /v1/art-styles` upload endpoint | multipart upload with ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row with `status='building'`, returns `202`. No auth yet (P6); build job enqueued in follow-up. 8 contract + 9 API tests (mock ffprobe). Artifact: fake video → 202, row inserted, file written. Surprise: `Object.defineProperty` on `File.size` doesn't work in Node — the 500 MB limit test was dropped rather than faking a large file. |
 | 2026-10-30 | Frame sampling with scene detection | ffmpeg `select='gt(scene,0.3)',showinfo` for scene changes, 3 evenly spaced frames, dedup within 1s, cap 24 (prefer high-scoring scenes), min 8 frames. Saves PNG to `storage/frames/<artStyleId>/`. 8 unit tests mocking ffmpeg/ffprobe. Artifact: 5 scenes + 3 spaced → 8 frames, dedup/cap/error handling verified. Surprise: mocking `readdir` with correct `Dirent<NonSharedBuffer>` type required careful typing; the real `readdir` returns strings by default but TS sees `Dirent[]`. |
 | 2026-10-30 | Numeric analysis: palette + ink + tone + safe area | `packages/core/src/style/palette.ts` (farthest-point k-means, no RNG, weighted hex palette) and `stats.ts` (`lineStats`, `saturationStats`, `contrastStats`, `brightnessStats`, `safeAreaStats`, `percentile`); `apps/worker/src/art-style/frame-decode.ts` turns a PNG into RGB24 via ffmpeg `-f rawvideo` (no PNG dependency, no upscaling); `numeric-analysis.ts` averages line/tone across frames but computes ONE palette over all of them, then parses through `numericStyleProfileSchema`. 12 contract + 20 core + 16 worker tests. Artifact (real ffmpeg 9.0.2 on a synthetic 40 s, 4-scene clip): palette `#f1bf4d 37.5%, #1a283f 36.1%, #fefefe 20.8%, #020202 4.1%, #e2562d 1.4%` against painted `#f2c14e, #1b2a41, #ffffff, #000000, #e4572e`; weights reconcile to the frame composition (3 yellow frames, 3 navy, 2 white plus a bar and a rectangle). Surprise: the real run exposed the frame-sampling defect below, which every mocked test had missed. |

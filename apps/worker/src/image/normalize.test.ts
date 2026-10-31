@@ -32,7 +32,7 @@ describe('normalizeImageToPng', () => {
       '-i',
       'pipe:0',
       '-vf',
-      'scale=1024:576:force_original_aspect_ratio=increase,crop=1024:576,setsar=1',
+      'scale=1024:576:force_original_aspect_ratio=increase,crop=1024:576,setsar=1,format=rgb24',
       '-frames:v',
       '1',
       '-f',

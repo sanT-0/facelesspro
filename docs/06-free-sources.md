@@ -26,10 +26,10 @@ video still completes when every model is down.
 
 ### 1.2 Images
 
-| Rank | Source | Free allowance | Notes |
+| Rank | Source | Access / allowance | Notes |
 |---|---|---|---|
 | 1 | **Cloudflare Workers AI** `@cf/black-forest-labs/flux-1-schnell` | free daily neurons | 4-ish steps, fast, 1024px class |
-| 2 | **Pollinations.ai** | free, no key, rate-limited | `https://image.pollinations.ai/prompt/{…}?width=&height=&seed=&nologo=true` |
+| 2 | **Pollinations.ai** | account key + Pollen balance | current `gen.pollinations.ai/image/{…}`; legacy keyless output is watermarked and rejected |
 | 3 | **Hugging Face Inference** | small free quota | many SDXL/Flux endpoints |
 | 4 | **Local ComfyUI** (SDXL / Flux-schnell GGUF) | unlimited | needs a GPU to be usable |
 | 5 | **Procedural renderer** | unlimited | deterministic palette-only template PNG — plain but never fails |
@@ -38,6 +38,28 @@ The procedural renderer matters more than it looks: it makes the *pipeline* test
 any model, and it guarantees the "video always completes" property. The implemented adapter is
 1024×576 / 576×1024, seeded, uses only `StyleProfile.palette` colours, and encodes RGB8 PNG with
 Node's built-in zlib; it needs no ffmpeg, native image dependency, network or GPU.
+
+The implemented Cloudflare adapter calls the account-scoped Flux Schnell endpoint with the final
+prompt, caller-owned seed and 1–8 steps. Cloudflare returns a base64 JPEG without an aspect input,
+so the adapter bounds and validates the bytes, then uses ffmpeg to centre-crop them into exact
+1024×576 / 576×1024 RGB24 PNGs. Model, steps and timeout are overridable with
+`CLOUDFLARE_IMAGE_MODEL`, `CLOUDFLARE_IMAGE_STEPS` and `CLOUDFLARE_IMAGE_TIMEOUT_MS`.
+
+The implemented Pollinations adapter calls the current authenticated image endpoint with canonical
+`black-forest-labs/flux.1-schnell`, exact geometry and seed. It streams at most 25 MiB, checks MIME
+against JPEG/PNG/WebP magic, and normalizes through the same RGB24 PNG boundary. A key is required
+in practice (`POLLINATIONS_API_KEY`) even though one current agent guide still describes image GET
+as keyless: a live request returned 401. The legacy keyless host did return an image, but visibly
+watermarked it despite `nologo=true`, so FacelessPro refuses to use or strip that path. With no key,
+the factory skips Pollinations and continues to ComfyUI/procedural.
+
+The implemented ComfyUI adapter is fully local and model-agnostic: an API-format workflow supplies
+the loader/sampler nodes, while five placeholders receive FacelessPro's prompt, negative prompt,
+seed and exact dimensions. It submits through `/prompt`, polls `/history/{id}`, downloads the one
+configured output through `/view`, bounds it to 25 MiB and applies the shared RGB24 PNG normalizer.
+Use `fixtures/workflows/comfyui-sdxl-api.json` as a shape example after changing its checkpoint name,
+or export a Flux/GGUF workflow with the same placeholders. No model or custom node is downloaded by
+FacelessPro, and a server timeout does not invoke ComfyUI's global `/interrupt` route.
 
 ### 1.3 TTS
 
@@ -104,6 +126,7 @@ stopping us.
 ```env
 CLOUDFLARE_ACCOUNT_ID=...
 CLOUDFLARE_API_TOKEN=...        # Workers AI:Read
+POLLINATIONS_API_KEY=...        # optional; current image endpoint requires it
 PLANNER=cloudflare,groq,ollama,heuristic
 IMAGE=cloudflare,pollinations,comfyui,procedural
 STYLE=cloudflare,gemini,heuristic

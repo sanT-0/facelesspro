@@ -88,8 +88,10 @@ Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper
 `style/{cloudflare,gemini,heuristic}`, `storage/{disk,s3}`.
 
 Selection is **capability-first, not vendor-first**: config says
-`PLANNER=cloudflare,groq,heuristic` and the first healthy adapter wins; a failed adapter
-degrades to the next one and records why.
+`PLANNER=cloudflare,groq,heuristic` (and likewise `IMAGE=cloudflare,pollinations,comfyui,procedural`)
+and the first healthy adapter wins; a failed adapter degrades to the next one and records why. An
+adapter skipped because its credentials/workflow are unset is a configuration warning, not a
+degradation.
 
 The three hosted/local planner transports share one call path (`planner/http.ts`): POST JSON
 with an `AbortController` timeout, the provider error body truncated into the message, and one
@@ -284,10 +286,13 @@ ASR=whisper-local,cloudflare
 # optional credentials — the app runs with none of these
 CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_API_TOKEN=
+POLLINATIONS_API_KEY=
 GROQ_API_KEY=
 GEMINI_API_KEY=
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 COMFYUI_URL=http://127.0.0.1:8188
+# COMFYUI_WORKFLOW=fixtures/workflows/comfyui-sdxl-api.json
+# COMFYUI_OUTPUT_NODE=9
 
 # limits / quality
 MAX_SCRIPT_CHARS=50000

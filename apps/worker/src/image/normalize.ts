@@ -58,7 +58,7 @@ export const normalizeImageToPng: NormalizeImage = async (bytes, target) => {
       'pipe:0',
       '-vf',
       `scale=${target.width}:${target.height}:force_original_aspect_ratio=increase,` +
-        `crop=${target.width}:${target.height},setsar=1`,
+        `crop=${target.width}:${target.height},setsar=1,format=rgb24`,
       '-frames:v',
       '1',
       '-f',

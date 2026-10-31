@@ -212,8 +212,45 @@ colours from the measured palette (using measured ink for non-`none` outlines). 
 text/logo/watermark and encodes PNG directly with Node's built-in zlib — no network, GPU, ffmpeg
 or native image package.
 It is intentionally plain; its product guarantee is “a valid, reproducible, on-palette still
-always exists.” Cloudflare, Pollinations, ComfyUI, chain selection and scene storage are the next
-tasks behind the same port.
+always exists.”
+
+`image/cloudflare` is the hosted quality path: it posts the final prompt, caller seed and 1–8
+steps to the account-scoped Flux Schnell endpoint, accepts only a bounded base64 JPEG/PNG/WebP,
+then uses ffmpeg to centre-crop the provider's square output into the same 1024×576 / 576×1024
+geometry and force an RGB24 PNG. Flux Schnell has no separate negative-prompt or aspect field;
+the request's final `prompt` therefore carries the avoidance clauses, while `negativePrompt`
+remains available to adapters that expose a native field.
+
+`image/pollinations` uses the current authenticated `gen.pollinations.ai/image/{prompt}` endpoint
+with canonical Flux Schnell, exact width/height and the caller seed. The key is a bearer header,
+never a query parameter. It keeps the timeout active while streaming the body, rejects a declared
+or streamed response over 25 MiB, requires matching JPEG/PNG/WebP MIME and magic, and then passes
+through the same exact RGB24 normalizer. The old keyless `image.pollinations.ai/prompt` endpoint
+is deliberately **not** the production default: a live probe on 2026-10-31 ignored
+`nologo=true` and burned a visible `pollinations.ai` mark into the image. We do not strip provider
+watermarks.
+
+`image/comfyui` runs an operator-owned API-format workflow against a self-hosted ComfyUI server.
+The workflow carries five explicit placeholders — prompt, negative prompt, seed, width and height —
+which are replaced as typed JSON values without mutating the template; the configured output node
+must produce exactly one image. The adapter follows ComfyUI's documented HTTP flow:
+`POST /prompt` → poll `GET /history/{prompt_id}` → download `GET /view`. Polling keeps the adapter
+dependency-free and resumable without a WebSocket package. One deadline covers submission, queue,
+history bodies and download; 25 MiB plus MIME/magic checks bound the raster before the shared RGB24
+normalizer. A timeout deliberately does not call ComfyUI's global `/interrupt`, because that route
+can cancel another user's active local job. `fixtures/workflows/comfyui-sdxl-api.json` is a runnable
+shape example, not a bundled model: its checkpoint name must match the operator's install, and Flux
+or custom-node workflows can use the same placeholders.
+
+`image/chain` + `image/factory` turn `IMAGE=cloudflare,pollinations,comfyui,procedural` into the
+port. Order is the whole configuration: the first adapter that returns a schema-valid image wins and
+the result's `degradedFrom` lists exactly the adapters that failed at runtime, in attempt order.
+An adapter whose credentials/workflow are absent is **skipped at construction with a warning**, not
+counted as degradation — a misconfiguration should look like a misconfiguration, not like a
+provider outage. Unknown and duplicate names are ignored. When `IMAGE` is unset, or every requested
+adapter is unconfigured, the chain is the procedural renderer alone, so zero-key operation still
+completes. `ImageChainError` carries every diagnosis and is `retryable` only when *all* failures
+were transient, matching the planner/vision chains. Scene storage remains.
 
 **Artifacts:** `frames/0001.png …`, `frames/manifest.json` (prompt, seed, provider, recycle).
 **Ledger:** `action=image`, `units=ceil(scenes/20)`, plus animation seconds if enabled.
