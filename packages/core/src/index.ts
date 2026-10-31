@@ -81,6 +81,20 @@ export {
 } from './style/palette';
 export type { PaletteOptions, StylePalette } from './style/palette';
 export {
+  DEFAULT_HISTOGRAM_BINS,
+  DEFAULT_MAX_PALETTE_DELTA_E,
+  MAX_HISTOGRAM_BINS,
+  correctTowardPalette,
+  deltaE76,
+  histogramDistance,
+  labToRgb,
+  meanLab,
+  paletteLab,
+  rgbHistogram,
+  rgbToLab,
+} from './style/color';
+export type { Lab, PaletteCorrection, RgbColor } from './style/color';
+export {
   DARK_LUMA_MAX,
   DEFAULT_SAFE_AREA_MARGIN,
   SAFE_AREA_CONTENT_DISTANCE,

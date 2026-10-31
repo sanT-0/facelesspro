@@ -194,8 +194,10 @@ voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
    (`hash(videoId, sceneIdx)`) so a redraw is reproducible.
 2. Negative prompt from the style profile, always including `text, watermark, logo, signature`.
 3. Generate at the target aspect. Batch by provider limits.
-4. Post-process: upscale to render size, colour-correct toward the style palette (LAB shift,
-   ≤6 ΔE), consistency check (histogram distance vs. existing scenes), then store.
+4. Post-process (`image/postprocess`): decode the exact-size RGB24 PNG the adapter's normalizer
+   already produced, colour-correct toward the weighted style palette with one bounded LAB
+   translation (≤6 ΔE), compute a soft 4×4×4 RGB histogram, compare it with the scenes already
+   accepted, then store. Outliers regenerate once — see the quality guard below.
 5. Optional `motion`: `kenburns-in|out|pan-l|pan-r|none`. P10 adds real image-to-video.
 
 **Image boundary (built first, pipeline wiring lands in P5).**
@@ -252,11 +254,26 @@ adapter is unconfigured, the chain is the procedural renderer alone, so zero-key
 completes. `ImageChainError` carries every diagnosis and is `retryable` only when *all* failures
 were transient, matching the planner/vision chains. Scene storage remains.
 
+**Post-processing (`image/postprocess`).** `packages/core/src/style/color.ts` owns the pure maths:
+sRGB⇄CIELAB (D65), CIE76 `ΔE`, the weighted palette centroid, the bounded translation and the
+RGB histogram. Correction is **one translation for the whole image**, never a per-pixel nearest-
+colour remap: it moves the still's shading toward the palette without posterising it, and the
+reported `deltaE` is the applied shift (≤ `maxDeltaE`, default 6). The histogram is 4×4×4 and
+normalised, with **soft per-channel bins** — each value contributes to the two nearest bin centres
+by distance — so a channel one byte either side of a bin edge does not read as a different palette.
+Distance is total variation in `[0, 1]`: 0 identical, 1 disjoint.
+
 **Artifacts:** `frames/0001.png …`, `frames/manifest.json` (prompt, seed, provider, recycle).
 **Ledger:** `action=image`, `units=ceil(scenes/20)`, plus animation seconds if enabled.
 
-**Quality guard:** if histogram distance for a scene is an outlier, regenerate once with
-`+ same character, same palette as previous scene` appended.
+**Quality guard:** the scene's histogram is compared with every already-accepted scene and the
+**nearest** distance decides. Strictly greater than `consistencyThreshold` (default 0.35) is an
+outlier, so a scene exactly on the threshold is consistent. An outlier is regenerated **once**,
+same seed, with `, same character, same palette as previous scene` appended (the prompt is
+truncated first if needed to stay within the 1000-character contract). A second attempt that is
+still an outlier is accepted — the guard never retries twice, so it cannot spin against a
+provider that keeps answering. The accepted prompt and the `regenerated` flag are what
+`frames/manifest.json` records.
 
 ---
 

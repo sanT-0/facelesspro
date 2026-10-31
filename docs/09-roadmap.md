@@ -406,8 +406,20 @@ every model down → heuristic still produces a valid plan.
         adapters, hosted Cloudflare 503/Pollinations 429 stubbed at the HTTP boundary, local
         ComfyUI stub and real ffmpeg → both orientations returned `adapter=comfyui` with
         `degradedFrom=[cloudflare,pollinations]`; no API key or neuron/Pollen was spent.
-      - [ ] Scene storage for generated frames + manifest + reuse.
-- [ ] Palette colour correction + per-scene consistency check + one-shot regenerate.
+      - [x] Palette colour correction + per-scene consistency check + one-shot regenerate.
+        `packages/core/src/style/color.ts` is pure: sRGB⇄CIELAB (D65), `deltaE76`, weighted
+        `paletteLab`, bounded `correctTowardPalette` (one whole-image translation, ≤6 ΔE, input
+        never mutated), soft 4×4×4 `rgbHistogram` and total-variation `histogramDistance`.
+        `apps/worker/src/image/postprocess.ts` injects decode/encode (ffmpeg + the extracted
+        `image/png.ts` in production), corrects, compares the nearest accepted-scene distance to
+        a 0.35 strict-`>` threshold, and on an outlier regenerates **once** with the same seed and
+        `, same character, same palette as previous scene` (prompt truncated to stay ≤1000
+        characters); a still-outlier second attempt is accepted, never retried. 18 core + 11
+        worker tests (offline: fake raster codec, no provider call). Artifact (real ffmpeg):
+        provider teal `#2c898a` → `#41857f`, ΔE 6; off-palette green scene 2 at distance 0.563
+        regenerated once to 0.049 with the clause; scene 3 at 0.039 needed zero draw calls; all
+        three accepted stills 1024×576 RGB24 and now share `#41857f`/`#438580`/`#448581`.
+        A soft-bin fix was required: hard bins scored byte-adjacent identical scenes 0.885.
 - [ ] `GET /v1/art-styles[/:id/export]`.
 
 **Gate:** build a style from a 2-minute reference; 6 new scenes look like the same channel to

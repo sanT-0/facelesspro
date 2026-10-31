@@ -870,6 +870,43 @@ file stays the single "what is actually true today" view.
       chain must overwrite `degradedFrom` rather than merge it — direct adapters cannot see earlier
       failures, and merging would let an adapter's own empty list erase provenance.
 
+- [x] **2026-10-31 — palette correction + per-scene consistency + one-shot regenerate.**
+      `packages/core/src/style/color.ts` (pure) adds sRGB⇄CIELAB D65, CIE76 `deltaE76`, weighted
+      `paletteLab`, `correctTowardPalette` (one whole-image LAB translation, capped at 6 ΔE, returns
+      a new buffer), soft 4×4×4 `rgbHistogram` and total-variation `histogramDistance`.
+      `apps/worker/src/image/postprocess.ts` is the new boundary: decode → correct → encode →
+      nearest-neighbour histogram check → optional one-shot regenerate. Decode defaults to ffmpeg;
+      encode defaults to the PNG encoder extracted into `image/png.ts` and re-exported by
+      `image/procedural.ts`, so the procedural path and the post-processor share one deterministic
+      writer. 18 core + 11 worker tests; `npm run gate` green at **922 tests / 69 files**.
+      Python not run (no media/render files touched).
+      Artifact (real ffmpeg 9.0.2, three 1024×576 provider stills, no provider call): palette
+      correction reported exactly 6 ΔE and moved the dominant teal `#2c898a → #41857f`; scene 2
+      (off-palette green, nearest distance 0.563) regenerated exactly once with the clause appended
+      at the same seed and landed at 0.049; scene 3 at 0.039 was accepted with **zero** draw calls.
+      All accepted stills are 1024×576 `rgb24` PNG; dominants `#41857f`, `#438580`, `#448581` show
+      the scenes converging. Files and `run.ts` are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-scene-postprocess-artifact/`.
+      **Observed:** bounded correction, clause/seed/one-shot behaviour, zero-draw acceptance,
+      real decode/encode and geometry. **Not observed:** provider-level style quality after a real
+      hosted image (the stills are synthetic) or any multi-video storage/reuse.
+      Surprise: the first artifact exposed hard histogram bins scoring two visually identical teals
+      `0.885` apart because blue sat at 127 vs 128. Soft tri-linear bins fixed it: the same pair now
+      scores ≈0.05, and the test suite pins 127-vs-128 under 0.05 instead of 1.
+
+- [x] **2026-10-31 — CI Python job: restore the deleted `services/media/requirements.txt`.**
+      The workflow (`.github/workflows/ci.yml:77`), `README.md` and `docs/10-operations.md` all
+      install it, but commit `5a87751` deleted the file and `68de8b8` restored the service without
+      it, so `pip install` failed in 1 s and `ruff`/`pytest` had never actually run in CI.
+      Restored with the four direct runtime deps pinned to the versions **observed working**
+      locally: `edge-tts==7.3.1`, `fastapi==0.141.1`, `pydantic==2.13.4`, `uvicorn==0.54.0`.
+      Chose observed versions over the deleted file's `fastapi==0.162.0` / `pydantic==2.14.1`,
+      which were never installed here. Python gate green locally: `ruff check app tests` clean,
+      `python -m pytest` → **113 passed, 2 skipped** (both `RUN_LIVE=1` provider tests, the
+      documented opt-in). Node gate unchanged. **Observed:** Python 3.14.6 resolving all four
+      pins as already satisfied. **Not observed:** the GitHub runner installing them on Python
+      3.12 until the workflow runs again.
+
 ---
 
 ## Decisions log
@@ -914,3 +951,7 @@ file stays the single "what is actually true today" view.
 | 2026-10-30 | Frame sampling detector was silently returning zero cuts | `showinfo` no longer prints `scene_score` in current ffmpeg, so `select=gt(scene,0.3),showinfo` parsed an empty list and the sampler silently fell back to spaced frames only; `-v error` hid the log lines as well. Replaced with `scdet=threshold=30` read at `-v info` (score/100), and a reference with fewer than eight cuts is now padded with evenly spaced frames instead of rejected. Verified on real ffmpeg: cuts at 10.00 s (0.52) and 30.00 s (0.59) captured; the 10->20 s cut scored 0.28 and was left to the spaced frames. Lesson recorded in docs/04: a mocked subprocess test cannot prove a parser matches the tool. |
 | 2026-10-30 | Vision pass: `STYLE=cloudflare,gemini,heuristic` | `packages/contracts/src/style-vision.ts` defines `styleVisionAnswerSchema` (model fields only) and `styleVisionSchema` (answer + `adapter`/`degradedFrom`). `apps/worker/src/art-style/vision/` adds `prompt`, `parse`, `frames` (6 frames, 384 px long edge, base64 JPEG), `cloudflare`, `gemini`, `heuristic`, `chain`, `factory`. `STYLE=vlm,heuristic` was a placeholder provider name and is replaced everywhere (.env.example, docs/03 section 7, docs/06 section 1.5). Two deviations, both documented: vision answers **strip unknown keys** instead of rejecting them (models volunteer `palette`/`line.color`; an invalid enum is still fatal), and `UpstreamError.adapter` widened from `PlannerAdapter` to `string` so the style chain reuses `planner/http.ts` without copying its retry taxonomy; planner behaviour is unchanged. 16 contract + 69 worker tests, gate 50 files / 734 tests. Artifact on the real 8 frames (heuristic path): medium unknown, thin outlines, flat colour areas, simple background, low edge content, no characters, no typography -- every clause traceable to a measured number. **Unproven:** Cloudflare/Gemini description quality; no credentials locally, so both adapters are tested against recorded HTTP shapes only. |
 | 2026-10-30 | StyleProfile merge: measured palette + described style | `packages/contracts/src/style-profile.ts` adds the merged document (`version: 1`, top-level palette, `measured` block, `source` adapter/degradedFrom, `line.color` must appear in `palette.hex`); `style-vision.ts` now exports the character/typography schemas with their cross-field rules so the profile reuses them instead of copying them. Pure `lineColorFor` (darkest measured colour, ties keep the higher-weight entry) and `seedBaseFor` (FNV-1a over prompt-relevant fields, palette hexes sorted/deduped, weights excluded) live in `packages/core/src/style/profile.ts`; the schema-validated `mergeStyleProfile` is in `apps/worker/src/art-style/merge.ts`. **Correction from the plan:** the merge could not live in core because `packages/core` is dependency-free (no contracts import) and lint enforces it; core keeps the pure helpers, worker owns the boundary. The numeric profile test was renamed `numeric-style-profile.test.ts` so `style-profile.test.ts` could test the merged shape. 14 contract + 8 core + 9 worker tests; gate 53 files / 765 tests. Artifact (real 8 frames + heuristic vision): ink `#020202` (in palette), seed `676166201` stable on a second run, `measured` keeps tone/aspect/safeArea/frameCount, `source` heuristic/empty, schema-valid. **Not proven:** previews or image consistency; nothing is generated yet. |
+| 2026-10-31 | Palette correction is one bounded LAB translation, not a nearest-colour remap | a per-pixel remap posterises the model's shading into flat fills; a single ≤6 ΔE vector moves the whole still toward the palette while preserving internal contrast, and it is cheap enough to run on every scene |
+| 2026-10-31 | Consistency uses a **soft** RGB histogram, strict-`>` threshold, nearest accepted scene | hard bins made visually identical scenes differ by 0.885 when one channel sat a byte either side of a 128 edge — a false outlier would spend a provider call; soft tri-linear bins measure colour distribution rather than byte boundaries, and nearest-neighbour means one unusual hero scene cannot veto every later frame |
+| 2026-10-31 | The quality guard regenerates **once** and accepts the second result even if it is still an outlier | a guard that retries until consistent can spin against an uncooperative provider; one bounded retry keeps the cost predictable, and the manifest records the `regenerated` flag so the still-outlier case is visible rather than hidden |
+| 2026-10-31 | Python runtime pins match the versions the suite has actually run against | the deleted `requirements.txt` named fastapi 0.162/pydantic 2.14 that no local run ever installed; a pin nobody has executed is an assumption, and CI should test the environment the gate uses |
