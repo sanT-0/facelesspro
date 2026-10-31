@@ -47,7 +47,7 @@ Rules I follow:
 | **Piper** | MIT (engine); per-voice licences vary | audit each `ta_IN` voice |
 | **faster-whisper / Whisper weights** | MIT (code), weights licence per model card | fine, keep notice |
 | **Cloudflare Workers AI** | governed by Cloudflare's terms | free tier ≠ unlimited commercial use; read before launch |
-| **Pollinations.ai** | free, terms change | drafts only unless terms permit production |
+| **Pollinations.ai** | key/Pollen terms change; legacy keyless output is watermarked | drafts only unless current terms permit production; never strip the provider watermark |
 | **SDXL / Flux weights** | Flux-schnell: Apache-2.0; SDXL: CreativeML OpenRAIL | OpenRAIL has use restrictions — read them |
 | **Wav2Lip / MuseTalk / SVD** | research licences, some non-commercial | ⚠️ check before enabling lip-sync/avatar publicly |
 | **Music / SFX** | must be CC0 or licensed | keep a `data/assets/CREDITS.md` row per file |

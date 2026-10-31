@@ -1,6 +1,6 @@
-import { InvalidJobError, PING_QUEUE } from '@facelesspro/queue';
+import { ART_STYLE_QUEUE, InvalidJobError, PING_QUEUE } from '@facelesspro/queue';
 import type { JobConsumer } from '@facelesspro/queue';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import { startWorker } from './worker';
 
@@ -76,5 +76,56 @@ describe('startWorker', () => {
     await worker.stop();
 
     expect(stopped).toEqual([...worker.queues]);
+  });
+
+  it('registers the art-style build queue only when a handler is supplied', async () => {
+    const without = fakeBoss();
+    const plain = await startWorker({ boss: without.boss, log: () => {} });
+    expect(without.subscriptions.map((s) => s.queue)).toEqual([PING_QUEUE]);
+    expect(plain.queues).toEqual([PING_QUEUE]);
+
+    const withHandler = fakeBoss();
+    const worker = await startWorker({
+      boss: withHandler.boss,
+      log: () => {},
+      artStyle: async () => {},
+    });
+    expect(withHandler.subscriptions.map((s) => s.queue)).toEqual([
+      PING_QUEUE,
+      ART_STYLE_QUEUE,
+    ]);
+    expect(worker.queues).toEqual([PING_QUEUE, ART_STYLE_QUEUE]);
+  });
+
+  it('parses an art-style job before handing it to the handler', async () => {
+    const { boss, subscriptions } = fakeBoss();
+    const received: unknown[] = [];
+    await startWorker({
+      boss,
+      log: () => {},
+      artStyle: async (job) => {
+        received.push(job);
+      },
+    });
+
+    const artStyle = subscriptions.find((s) => s.queue === ART_STYLE_QUEUE);
+    const styleId = '11111111-1111-4111-8111-111111111111';
+    await artStyle?.handler([
+      { id: 'job-a', data: { styleId, referenceKey: 'references/a.mp4' } },
+    ]);
+
+    expect(received).toEqual([{ styleId, referenceKey: 'references/a.mp4' }]);
+  });
+
+  it('fails a malformed art-style job loudly and does not call the handler', async () => {
+    const { boss, subscriptions } = fakeBoss();
+    const handler = vi.fn(async () => {});
+    await startWorker({ boss, log: () => {}, artStyle: handler });
+
+    const artStyle = subscriptions.find((s) => s.queue === ART_STYLE_QUEUE);
+    await expect(
+      artStyle?.handler([{ id: 'job-b', data: { styleId: 'nope' } }]),
+    ).rejects.toThrow(InvalidJobError);
+    expect(handler).not.toHaveBeenCalled();
   });
 });

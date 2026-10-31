@@ -1,7 +1,9 @@
 export * from './schema';
+export { findArtStyle, listReadyArtStyles } from './art-styles';
 export {
   DEFAULT_DATABASE_URL,
   createDb,
+  databaseFor,
   databaseUrl,
   loadEnv,
 } from './client';

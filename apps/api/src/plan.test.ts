@@ -8,9 +8,10 @@ function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }
   return createApp({
     probes,
     now: () => new Date('2026-10-27T09:00:00.000Z'),
-    db: {
-      insertArtStyle: async () => {},
-    },
+    storageRoot: '.data-test',
+    submitArtStyle: async () => {},
+    listArtStyles: async () => [],
+    readArtStyle: async () => null,
   });
 }
 

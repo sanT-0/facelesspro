@@ -194,15 +194,86 @@ voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
    (`hash(videoId, sceneIdx)`) so a redraw is reproducible.
 2. Negative prompt from the style profile, always including `text, watermark, logo, signature`.
 3. Generate at the target aspect. Batch by provider limits.
-4. Post-process: upscale to render size, colour-correct toward the style palette (LAB shift,
-   ≤6 ΔE), consistency check (histogram distance vs. existing scenes), then store.
+4. Post-process (`image/postprocess`): decode the exact-size RGB24 PNG the adapter's normalizer
+   already produced, colour-correct toward the weighted style palette with one bounded LAB
+   translation (≤6 ΔE), compute a soft 4×4×4 RGB histogram, compare it with the scenes already
+   accepted, then store. Outliers regenerate once — see the quality guard below.
 5. Optional `motion`: `kenburns-in|out|pan-l|pan-r|none`. P10 adds real image-to-video.
+
+**Image boundary (built first, pipeline wiring lands in P5).**
+`packages/contracts/src/image.ts` owns `ImageGenerationRequest` and `GeneratedImage`;
+`apps/worker/src/ports/image.ts` owns `ImagePort`. A request is the final ≤1000-character prompt,
+negative prompt, caller-owned deterministic seed, `landscape|portrait`, and the complete
+`StyleProfile`. A result is non-empty RGB PNG bytes with exact width/height, size, seed,
+`adapter`, and ordered `degradedFrom`. The schema rejects an orientation that disagrees with
+`size`, output sides over 4096, unknown providers/fields, and malformed profiles.
+
+The first real adapter is `image/procedural`, the no-key floor: 1024×576 landscape or 576×1024
+portrait, deterministic geometry from `(seed, style.seedBase, prompt, negativePrompt)`, and only
+colours from the measured palette (using measured ink for non-`none` outlines). It draws no
+text/logo/watermark and encodes PNG directly with Node's built-in zlib — no network, GPU, ffmpeg
+or native image package.
+It is intentionally plain; its product guarantee is “a valid, reproducible, on-palette still
+always exists.”
+
+`image/cloudflare` is the hosted quality path: it posts the final prompt, caller seed and 1–8
+steps to the account-scoped Flux Schnell endpoint, accepts only a bounded base64 JPEG/PNG/WebP,
+then uses ffmpeg to centre-crop the provider's square output into the same 1024×576 / 576×1024
+geometry and force an RGB24 PNG. Flux Schnell has no separate negative-prompt or aspect field;
+the request's final `prompt` therefore carries the avoidance clauses, while `negativePrompt`
+remains available to adapters that expose a native field.
+
+`image/pollinations` uses the current authenticated `gen.pollinations.ai/image/{prompt}` endpoint
+with canonical Flux Schnell, exact width/height and the caller seed. The key is a bearer header,
+never a query parameter. It keeps the timeout active while streaming the body, rejects a declared
+or streamed response over 25 MiB, requires matching JPEG/PNG/WebP MIME and magic, and then passes
+through the same exact RGB24 normalizer. The old keyless `image.pollinations.ai/prompt` endpoint
+is deliberately **not** the production default: a live probe on 2026-10-31 ignored
+`nologo=true` and burned a visible `pollinations.ai` mark into the image. We do not strip provider
+watermarks.
+
+`image/comfyui` runs an operator-owned API-format workflow against a self-hosted ComfyUI server.
+The workflow carries five explicit placeholders — prompt, negative prompt, seed, width and height —
+which are replaced as typed JSON values without mutating the template; the configured output node
+must produce exactly one image. The adapter follows ComfyUI's documented HTTP flow:
+`POST /prompt` → poll `GET /history/{prompt_id}` → download `GET /view`. Polling keeps the adapter
+dependency-free and resumable without a WebSocket package. One deadline covers submission, queue,
+history bodies and download; 25 MiB plus MIME/magic checks bound the raster before the shared RGB24
+normalizer. A timeout deliberately does not call ComfyUI's global `/interrupt`, because that route
+can cancel another user's active local job. `fixtures/workflows/comfyui-sdxl-api.json` is a runnable
+shape example, not a bundled model: its checkpoint name must match the operator's install, and Flux
+or custom-node workflows can use the same placeholders.
+
+`image/chain` + `image/factory` turn `IMAGE=cloudflare,pollinations,comfyui,procedural` into the
+port. Order is the whole configuration: the first adapter that returns a schema-valid image wins and
+the result's `degradedFrom` lists exactly the adapters that failed at runtime, in attempt order.
+An adapter whose credentials/workflow are absent is **skipped at construction with a warning**, not
+counted as degradation — a misconfiguration should look like a misconfiguration, not like a
+provider outage. Unknown and duplicate names are ignored. When `IMAGE` is unset, or every requested
+adapter is unconfigured, the chain is the procedural renderer alone, so zero-key operation still
+completes. `ImageChainError` carries every diagnosis and is `retryable` only when *all* failures
+were transient, matching the planner/vision chains. Scene storage remains.
+
+**Post-processing (`image/postprocess`).** `packages/core/src/style/color.ts` owns the pure maths:
+sRGB⇄CIELAB (D65), CIE76 `ΔE`, the weighted palette centroid, the bounded translation and the
+RGB histogram. Correction is **one translation for the whole image**, never a per-pixel nearest-
+colour remap: it moves the still's shading toward the palette without posterising it, and the
+reported `deltaE` is the applied shift (≤ `maxDeltaE`, default 6). The histogram is 4×4×4 and
+normalised, with **soft per-channel bins** — each value contributes to the two nearest bin centres
+by distance — so a channel one byte either side of a bin edge does not read as a different palette.
+Distance is total variation in `[0, 1]`: 0 identical, 1 disjoint.
 
 **Artifacts:** `frames/0001.png …`, `frames/manifest.json` (prompt, seed, provider, recycle).
 **Ledger:** `action=image`, `units=ceil(scenes/20)`, plus animation seconds if enabled.
 
-**Quality guard:** if histogram distance for a scene is an outlier, regenerate once with
-`+ same character, same palette as previous scene` appended.
+**Quality guard:** the scene's histogram is compared with every already-accepted scene and the
+**nearest** distance decides. Strictly greater than `consistencyThreshold` (default 0.35) is an
+outlier, so a scene exactly on the threshold is consistent. An outlier is regenerated **once**,
+same seed, with `, same character, same palette as previous scene` appended (the prompt is
+truncated first if needed to stay within the 1000-character contract). A second attempt that is
+still an outlier is accepted — the guard never retries twice, so it cannot spin against a
+provider that keeps answering. The accepted prompt and the `regenerated` flag are what
+`frames/manifest.json` records.
 
 ---
 
@@ -232,7 +303,74 @@ frame sampling (scene-change detection, 8–24 frames, plus 3 evenly spaced)
 StyleProfile (jsonb) ──► preview grid + 6 s preview clip ──► status=ready
 ```
 
-`StyleProfile` (our schema, stored in `art_style.profile`):
+**Frame sampling** (`apps/worker/src/art-style/frame-sampling.ts`) uses ffmpeg's
+`scdet` filter at `threshold=30` (0–100 scale, the same cut sensitivity as the
+old `scene > 0.3`), captures one frame per detected cut plus frames at 25 / 50 /
+75 % of the duration, deduplicates anything within 1 s, and caps at 24 frames.
+`scdet` rather than `select=scene` + `showinfo` because current ffmpeg builds no
+longer print `scene_score` in `showinfo`, and the select-based version silently
+returned **zero** cuts on a real video — the failure was invisible to a mocked
+test. A reference with fewer than eight cuts is padded with evenly spaced frames
+rather than rejected; only a video too short to hold eight distinct frames (the
+1 s rule) fails.
+
+**Numeric pass** (`packages/core/src/style`, no model, no I/O). Measure these
+metrics on every sampled frame, then average across frames — except the palette:
+
+| Metric | Definition |
+|---|---|
+| `palette` | k-means over the pixels of **all frames at once** (5 colours, weights = pixel share, `#rrggbb`). Per-frame palettes would give a different channel colour per scene. Seeded farthest-point, so identical input gives identical hexes. |
+| `line.edgeEnergy` | mean Sobel gradient magnitude of luma, divided by the maximum a 0/255 step can produce. A flat frame is 0. |
+| `line.strokeDensity` | share of pixels that are **both** dark (luma < 60) **and** on an edge (gradient ≥ 0.15 of the maximum). Ink lines, not shadows: a large flat black shadow scores 0. |
+| `tone.saturation` | HSV saturation `(max−min)/max`; grey/black/white are 0. |
+| `tone.contrast` | local luma range of the 3×3 neighbourhood over 255 — two-tone art scores high where global deviation would not. |
+| `tone.brightness` | luma over 255. |
+| `aspect` | native frame size, ratio and orientation (`landscape` for ratio ≥ 1, so square counts as landscape). |
+| `safeArea.edgeContentRatio` | share of the outer `margin` (default 8 %) band that differs from that band's median colour by more than 32 in RGB. |
+
+`tone.*` reports `{mean, p95}` per frame, averaged across frames (not a pooled
+percentile — documented because that is a real difference).
+
+**Honest limitation:** `edgeContentRatio` is a *proxy* for safe-area behaviour,
+not a composition detector. A busy full-bleed photo and a deliberate full-bleed
+illustration score the same; it only answers "does the subject touch the edge".
+
+**Vision pass** (`apps/worker/src/art-style/vision`, docs/06 §1.5). A VLM
+describes only what pixels cannot: medium, line weight/texture, shading,
+background treatment, composition, typography and recurring characters.
+
+- `STYLE=cloudflare,gemini,heuristic`; the first healthy adapter wins and the
+  answer records `degradedFrom`, same pattern as the planner. Missing
+  credentials skip an adapter with a warning that names the variables.
+- At most **6 frames**, evenly spread with the first and last included, encoded
+  as JPEG at a **384 px** long edge (`frames.ts`). Six frames cost a fraction of
+  24 and the description barely changes between adjacent frames.
+- The prompt (`prompt.ts`) **forbids palette and hex colours** (measured, not
+  guessed), timings/audio, and characters that do not recur. Enum values are
+  spelled out literally; a model that invents one is rejected.
+- `parse.ts` tolerates fences and surrounding prose but validates the object
+  with `styleVisionAnswerSchema`. Unknown keys are **stripped** (models
+  volunteer `palette`/`line.color`; failing over that would waste a good
+  answer), while an invalid enum or a missing key is fatal (`VisionResponseError`).
+  The chain then degrades to the next adapter.
+- `heuristic.ts` is the floor and never pretends: `medium: "unknown"`, unknown
+  texture, no characters, no typography. It turns measured stroke density and
+  local contrast into honest clauses ("thick outlines", "flat colour areas") and
+  leaves anything it cannot see unknown.
+
+`line.color` is filled by the merge step from the *measured* palette (nearest
+colour to the described ink), never by the VLM — otherwise a model would invent
+`#141414` for art that has no such pixel.
+
+**Observed vs assumed:** the numeric metrics above were run against a real
+ffmpeg clip (docs/09). The vision adapters are proven against recorded HTTP
+request/response shapes only; no `CLOUDFLARE_API_TOKEN` or `GEMINI_API_KEY` was
+available locally, so description *quality* on a real channel reference is not
+yet measured. The heuristic path was run on the same real frames.
+
+`StyleProfile` (our schema in `packages/contracts/src/style-profile.ts`;
+numeric half in `art-style.ts`, vision half in `style-vision.ts`; stored in
+`art_style.profile`):
 
 ```jsonc
 {
@@ -240,16 +378,76 @@ StyleProfile (jsonb) ──► preview grid + 6 s preview clip ──► status=
   "medium": "flat vector cartoon",
   "promptPrefix": "flat 2d cartoon illustration, thick black outlines",
   "palette": { "hex": ["#1b2a41", "#f2c14e", "#e4572e"], "weights": [0.5,0.3,0.2] },
-  "line": { "weight": "thick", "color": "#141414", "texture": "clean" },
+  "line": { "weight": "thick", "color": "#1b2a41", "texture": "clean" },
   "shading": "cel",
   "background": "simple gradient, low detail",
   "composition": "centered subject, eye-level, medium shot",
   "characters": [{ "id": "hero", "description": "young man, red hoodie, short black hair" }],
   "typography": { "present": true, "style": "bold sans, white with black outline" },
   "negative": "photo, 3d render, text, watermark, extra fingers",
-  "seedBase": 1337
+  "seedBase": 1337,              // FNV-1a of the fields above; never random
+  "measured": {                  // numeric fields not already top-level
+    "line": { "strokeDensity": 0.08, "edgeEnergy": 0.14 },
+    "tone": {
+      "saturation": { "mean": 0.41, "p95": 0.86 },
+      "contrast": { "mean": 0.18, "p95": 0.52 },
+      "brightness": { "mean": 0.44, "p95": 0.81 }
+    },
+    "aspect": { "width": 1920, "height": 1080, "ratio": 1.7778, "orientation": "landscape" },
+    "safeArea": { "edgeContentRatio": 0.06, "margin": 0.08 },
+    "frameCount": 11
+  },
+  "source": { "adapter": "cloudflare", "degradedFrom": [] }
 }
 ```
+
+**Merge** (`apps/worker/src/art-style/merge.ts`; the pure `lineColorFor` /
+`seedBaseFor` helpers live in `packages/core/src/style/profile.ts`, because
+`packages/core` may not import contracts):
+
+- **Numeric wins palette and ink.** `palette` is copied unchanged. `line.color`
+  is the darkest measured palette colour (Rec. 709 luma; ties keep the
+  higher-weight entry) and the schema rejects any profile whose ink is not in
+  `palette.hex`. A model never gets to invent `#141414`.
+- **Vision wins description.** medium, prompt prefix, line weight/texture,
+  shading, background, composition, characters, typography, negative. An
+  honest `medium: "unknown"` stays unknown.
+- **`measured`** keeps `line`, `tone`, `aspect`, `safeArea` and `frameCount` for
+  audit and re-merge; `palette` is not duplicated.
+- **`source`** keeps the vision adapter and its `degradedFrom` order, so a
+  fallback build is explainable without logs.
+- **`seedBase`** is FNV-1a over prompt-relevant fields only: palette **hexes**
+  are sorted and deduped, weights are excluded, and `measured`/`source` are not
+  inputs. Float drift or a tone change cannot move a preview seed.
+- `version: 1` is a literal; a meaning change bumps it. The whole object is
+  parsed through `styleProfileSchema` before it is written to
+  `art_style.profile`, so a bad merge fails at the boundary.
+
+**Build job + previews.** `POST /v1/art-styles` stores the upload as the
+server-generated key `references/<styleId>.mp4|mov`; the client filename never
+becomes a path. The `art_style(status='building')` insert and the
+`build-art-style` pg-boss send share one Postgres transaction, so there is no
+row that can wait forever because its enqueue was lost. The API and worker both
+resolve that key under the same `DATA_DIR` (`./.data` by default).
+
+The worker runs `sample → numeric → vision → merge → previews → verify`. A
+sample may contain 8–24 frames; previews take an evenly spread set of eight,
+including the first and last, and add a ninth measured-palette card:
+
+- `preview.png` is a 3×3 contact sheet at 1280×720 (or 720×1280 for a portrait
+  reference). When a landscape style also offers portrait, a second
+  centre-cropped `preview-portrait.png` is written.
+- `preview.mp4` shows those same nine cells in sequence for exactly 20 frames
+  each: 180 frames / 6.000 s at 30 fps, with no audio stream. It is a reference
+  preview until `ImagePort` exists; it does not pretend generated scenes exist.
+- ffprobe must decode each PNG at the expected size and report exactly one
+  180-frame, 30 fps, silent video stream for the clip. Only after those checks
+  pass does the worker write the profile/preview keys and set `status=ready`.
+
+The queue uses `singletonKey=styleId`; an already-ready row is a no-op. A failed
+stage marks the row `failed` **and rethrows**, so pg-boss's one configured retry
+actually runs. Resolving a `{status:'failed'}` value would incorrectly mark the
+job complete and disable the retry.
 
 **Honest limitation:** this is *style locking by description + palette + character bible*, not
 a trained model. It will look consistent and on-brand, but it will not reproduce a specific

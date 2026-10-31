@@ -14,17 +14,19 @@
 import { VIDEO_STEPS } from '@facelesspro/contracts';
 
 import { queueFor } from './jobs';
+import { ART_STYLE_QUEUE } from './art-style';
 import { PING_QUEUE } from './ping';
 
 /** pg-boss's default schema; override with `PGBOSS_SCHEMA`. */
 export const PGBOSS_DEFAULT_SCHEMA = 'pgboss';
 
 /**
- * Every queue this instance must have: the five pipeline steps plus the smoke
- * test. Order is the contract order, so a log line reads like the pipeline.
+ * Every queue this instance must have: the five pipeline steps, the art-style
+ * build and the smoke test. Order is the contract order, so a log line reads
+ * like the pipeline.
  */
 export function expectedQueueNames(): readonly string[] {
-  return [...VIDEO_STEPS.map((step) => queueFor(step)), PING_QUEUE];
+  return [...VIDEO_STEPS.map((step) => queueFor(step)), ART_STYLE_QUEUE, PING_QUEUE];
 }
 
 /**

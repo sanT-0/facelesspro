@@ -59,27 +59,39 @@ interface PlanFn        { plan(request: PlanRequest): Promise<ScenePlan> }
 interface PlannerPort extends PlanFn { readonly name: PlannerAdapter }
 interface TTSPort      { synthesize(plan: VoicePlan): Promise<Narration> }
 interface ASRPort      { transcribe(audio: Buffer): Promise<WordTimings> }
-interface ImagePort    { draw(prompt: ImagePrompt, style: StyleProfile): Promise<Image> }
+interface ImageFn      { draw(request: ImageGenerationRequest): Promise<GeneratedImage> }
+interface ImagePort extends ImageFn {
+  readonly name: ImageAdapter
+  readonly capabilities: ImageCapabilities
+}
 interface StylePort    { learn(samples: Frame[]): Promise<StyleProfile> }
 interface RenderPort   { render(spec: RenderSpec): Promise<Artifact> }
 interface StoragePort  { put(key, bytes): Promise<Url>; get(key): Promise<Bytes> }
 interface NotifyPort   { deliver(event: WebhookEvent): Promise<DeliveryResult> }
 ```
 
-`PlannerPort` is the one port built so far (`apps/worker/src/ports/planner.ts`), and it is the
-template for the rest: the adapter **names itself** (`name`), returns the stored contract shape
-(`ScenePlan`, parsed with zod at the boundary), and the chain — not the adapter — owns
-`degradedFrom`, so degradation history is written in one place. Timings are never a model's
-output: adapters that ask an LLM for beats still take `startMs`/`endMs` from
-`estimateDuration()`/`packScenes()` in `packages/core`.
+The built planner, style-vision and image ports follow the same rule: an adapter **names itself**,
+declares capabilities where selection needs them, and returns a contract shape parsed with zod at
+the boundary. The chain — not an adapter — owns `degradedFrom`, so degradation history is written
+in one place. Planner timings are never a model's output: adapters that ask an LLM for beats still
+take `startMs`/`endMs` from `estimateDuration()`/`packScenes()` in `packages/core`.
+
+`ImagePort` accepts the complete, vendor-neutral input: final composed prompt, negative prompt,
+caller-owned seed, `landscape|portrait`, and the `StyleProfile`. It returns PNG bytes plus exact
+geometry, seed and provenance. The first adapter is `image/procedural`: a zero-network floor that
+renders deterministic, palette-only geometry at 1024×576 / 576×1024, uses measured ink when the
+profile calls for outlines, and encodes RGB8 PNG with Node's built-in zlib. Hosted adapters
+implement this same port; storage remains a separate concern.
 
 Adapters: `planner/{cloudflare,groq,ollama,heuristic}`, `tts/{edge,indicf5,piper}`,
-`asr/{whisper-local,cloudflare}`, `image/{cloudflare,pollinations,comfyui}`,
-`style/{vlm,heuristic}`, `storage/{disk,s3}`.
+`asr/{whisper-local,cloudflare}`, `image/{cloudflare,pollinations,comfyui,procedural}`,
+`style/{cloudflare,gemini,heuristic}`, `storage/{disk,s3}`.
 
 Selection is **capability-first, not vendor-first**: config says
-`PLANNER=cloudflare,groq,heuristic` and the first healthy adapter wins; a failed adapter
-degrades to the next one and records why.
+`PLANNER=cloudflare,groq,heuristic` (and likewise `IMAGE=cloudflare,pollinations,comfyui,procedural`)
+and the first healthy adapter wins; a failed adapter degrades to the next one and records why. An
+adapter skipped because its credentials/workflow are unset is a configuration warning, not a
+degradation.
 
 The three hosted/local planner transports share one call path (`planner/http.ts`): POST JSON
 with an `AbortController` timeout, the provider error body truncated into the message, and one
@@ -202,8 +214,14 @@ write pipeline state:
 - **`ping` is not a step.** It is a separate queue (`packages/queue/src/ping.ts`,
   `retryLimit: 0`) used to prove the worker can claim and complete a job against a real
   database. It is deliberately outside `VIDEO_STEPS`, so the public step vocabulary cannot grow
-  for an operator's convenience. `ensureQueues()` creates it alongside the five step queues, and
-  `checkQueues()` — which backs `/health.queue` — requires all six.
+  for an operator's convenience.
+- **`build-art-style` is not a video step either.** One idempotent job owns the whole reference
+  build (`sample → profile → previews`), keyed by `styleId`, with one retry. The upload route
+  inserts the `art_style` row and sends this job on the same Postgres transaction.
+
+`ensureQueues()` creates those two queues alongside the five video-step queues, and
+`checkQueues()` — which backs `/health.queue` — requires all **seven** definitions. Queue health
+proves the schema is ready, not that a worker is actively consuming; `npm run ping` proves that.
 
 ---
 
@@ -223,6 +241,11 @@ s3://bucket/
 
 Disk adapter mirrors this under `.data/` for local dev. Public URLs are signed or served by a
 static route; `videoUrl` for completed renders must be stable and unauthenticated (parity).
+
+Before workspace auth lands in P6, art-style intake uses the same root without a workspace
+prefix: `references/<styleId>.mp4|mov`, `frames/<styleId>/*.png`, and
+`art-styles/<styleId>/preview.{png,mp4}`. The ids are server-generated and the database stores
+relative keys, never absolute host paths.
 
 ---
 
@@ -256,17 +279,20 @@ DATA_DIR=.data
 # engines (first healthy wins, left-to-right)
 PLANNER=cloudflare,groq,ollama,heuristic
 IMAGE=cloudflare,pollinations,comfyui,procedural
-STYLE=vlm,heuristic
+STYLE=cloudflare,gemini,heuristic
 TTS=edge,indicf5,piper
 ASR=whisper-local,cloudflare
 
 # optional credentials — the app runs with none of these
 CLOUDFLARE_ACCOUNT_ID=
 CLOUDFLARE_API_TOKEN=
+POLLINATIONS_API_KEY=
 GROQ_API_KEY=
 GEMINI_API_KEY=
 OLLAMA_BASE_URL=http://127.0.0.1:11434
 COMFYUI_URL=http://127.0.0.1:8188
+# COMFYUI_WORKFLOW=fixtures/workflows/comfyui-sdxl-api.json
+# COMFYUI_OUTPUT_NODE=9
 
 # limits / quality
 MAX_SCRIPT_CHARS=50000

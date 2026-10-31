@@ -72,3 +72,67 @@ export type {
   ScenePlanEstimate,
   ScriptLanguagePlan,
 } from './estimate';
+export {
+  DEFAULT_PALETTE_COLORS,
+  MAX_PALETTE_COLORS,
+  hexToRgb,
+  kmeansPalette,
+  rgbToHex,
+} from './style/palette';
+export type { PaletteOptions, StylePalette } from './style/palette';
+export {
+  DEFAULT_HISTOGRAM_BINS,
+  DEFAULT_MAX_PALETTE_DELTA_E,
+  MAX_HISTOGRAM_BINS,
+  correctTowardPalette,
+  deltaE76,
+  histogramDistance,
+  labToRgb,
+  meanLab,
+  paletteLab,
+  rgbHistogram,
+  rgbToLab,
+} from './style/color';
+export type { Lab, PaletteCorrection, RgbColor } from './style/color';
+export {
+  DARK_LUMA_MAX,
+  DEFAULT_SAFE_AREA_MARGIN,
+  SAFE_AREA_CONTENT_DISTANCE,
+  STROKE_EDGE_MIN,
+  brightnessStats,
+  contrastStats,
+  edgeEnergy,
+  lineStats,
+  luma,
+  percentile,
+  safeAreaStats,
+  saturationStats,
+  strokeDensity,
+} from './style/stats';
+export type { LineStats, SafeAreaStats, StatSummary } from './style/stats';
+export { lineColorFor, seedBaseFor } from './style/profile';
+export type { PaletteHexes, StyleSeedInput } from './style/profile';
+export {
+  LANDSCAPE_PREVIEW,
+  PORTRAIT_PREVIEW,
+  PREVIEW_CELLS,
+  PREVIEW_CLIP_FRAMES,
+  PREVIEW_CLIP_SECONDS,
+  PREVIEW_COLUMNS,
+  PREVIEW_FPS,
+  PREVIEW_FRAME_COUNT,
+  PREVIEW_GUTTER,
+  PREVIEW_MARGIN,
+  PREVIEW_ROWS,
+  centreCrop,
+  paletteBands,
+  previewClipTimeline,
+  previewGrid,
+} from './style/preview';
+export type {
+  PreviewClipTimeline,
+  PreviewGrid,
+  PreviewGridOptions,
+  PreviewRect,
+  PreviewSize,
+} from './style/preview';

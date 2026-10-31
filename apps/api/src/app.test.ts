@@ -1,5 +1,5 @@
-import { healthSchema } from '@facelesspro/contracts';
-import { describe, expect, it } from 'vitest';
+import { apiErrorBodySchema, healthSchema } from '@facelesspro/contracts';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from './app';
 import { API_VERSION } from './health';
@@ -14,9 +14,10 @@ function appWith(probes: {
     probes,
     now: () => NOW,
     timeoutMs: 20,
-    db: {
-      insertArtStyle: async () => {},
-    },
+    storageRoot: '.data-test',
+    submitArtStyle: async () => {},
+    listArtStyles: async () => [],
+    readArtStyle: async () => null,
   });
 }
 
@@ -69,5 +70,34 @@ describe('unknown routes', () => {
   it('returns 404', async () => {
     const res = await appWith({ db: healthy, queue: healthy }).request('/nope');
     expect(res.status).toBe(404);
+  });
+});
+
+describe('unexpected errors', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('returns the documented envelope, never plain text or internals', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const app = createApp({
+      probes: { db: healthy, queue: healthy },
+      now: () => NOW,
+      storageRoot: '.data-test',
+      submitArtStyle: async () => {},
+      listArtStyles: async () => {
+        throw new Error('boom at D:\\srv\\secret\\preview.png');
+      },
+      readArtStyle: async () => null,
+    });
+
+    const res = await app.request('/v1/art-styles');
+    expect(res.status).toBe(500);
+    expect(res.headers.get('content-type')).toContain('application/json');
+
+    const body = apiErrorBodySchema.parse(await res.json());
+    expect(body.error.code).toBe('internal');
+    expect(JSON.stringify(body)).not.toContain('secret');
+    expect(logged).toHaveBeenCalled();
   });
 });

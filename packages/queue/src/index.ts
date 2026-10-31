@@ -34,6 +34,13 @@ export {
 export type { StepJob } from './jobs';
 
 export {
+  ART_STYLE_QUEUE,
+  ART_STYLE_QUEUE_OPTIONS,
+  enqueueArtStyleBuild,
+  parseArtStyleJob,
+} from './art-style';
+
+export {
   PING_QUEUE,
   PING_QUEUE_OPTIONS,
   parsePing,

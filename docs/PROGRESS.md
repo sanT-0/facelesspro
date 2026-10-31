@@ -697,6 +697,243 @@ file stays the single "what is actually true today" view.
       Surprise: the API route is completely DB-free — a throwing probe still returns 200,
       confirming it never touches Postgres. The `createApp` dependency shape already enforced this.
 
+### P3 — art style + images
+
+- [x] **2026-10-30 — preview grid + 6 s clip, and the build is now actually wired.**
+      `POST /v1/art-styles` writes the source under the shared `DATA_DIR` with a server-generated
+      `references/<styleId>.mp4|mov` key (the untrusted upload name is ignored), then commits the
+      `art_style(status='building')` row and `build-art-style` enqueue on one Postgres transaction.
+      The API's producer is lazy, preserving the `/health` 503 path when Postgres is down; the
+      worker entry point now consumes the queue with `createArtStyleBuildHandler` and closes its DB
+      pool on shutdown. `drizzle-orm` is declared directly by the worker instead of being used as a
+      hoisted transitive dependency.
+      Preview output: an even eight-frame spread from the sampler's 8–24 frames plus one weighted
+      palette card; 1280×720 / optional 720×1280 PNG grid; silent H.264 clip exactly 180 frames,
+      30 fps and 6.000 s. ffprobe verifies codec, stream count, geometry, fps, frames and duration
+      before `status=ready`. A failed build now marks `failed` **and rejects**, so pg-boss's one
+      retry runs instead of treating `{status:'failed'}` as a completed job.
+      Gate: typecheck + eslint + **825 tests / 59 files** green. Python not run (no media/render
+      files touched).
+      Artifact (real ffmpeg 9.0.2): a generated 40 s, 640×360 reference with an AAC audio track ran
+      through real sampling → numeric analysis → heuristic vision → merge → grid/clip → verification
+      and returned `ready`; 8 measured frames, palette weights sum to 1, seed `1903945629`,
+      schema-valid profile, decodable 1280×720 PNG, and silent 180-frame clip. The contact sheet was
+      opened and visually contains eight ordered reference frames plus the measured palette card.
+      **Observed:** the real ffmpeg artifact and hermetic API/queue/worker contracts. **Not observed:**
+      the insert+enqueue against Postgres in this run because Docker Desktop was unavailable; the
+      existing `test:db` suite was therefore not claimed green.
+      Surprises caught only by the artifact pass: the first clip graph used `xstack`, so all nine
+      20-frame inputs ended together after ~0.67 s instead of concatenating to 6 s; mocked subprocess
+      tests had only asserted `-frames:v 180`. Also, passing all sampled frames failed whenever the
+      sampler returned >8, API uploads went to `storage/` while the worker read `.data/`, and resolving
+      a failed build silently disabled the queue retry. Each failure now has a contract test.
+
+- [x] **2026-10-30 — `ImagePort` contract + deterministic procedural adapter.**
+      `packages/contracts/src/image.ts` pins `cloudflare|pollinations|comfyui|procedural`, strict
+      request/result/capability schemas, a 4096 px output ceiling, caller-owned seeds, and
+      landscape/portrait geometry checks. `apps/worker/src/ports/image.ts` is the vendor-neutral
+      port. `apps/worker/src/image/procedural.ts` is the first real adapter and the zero-key floor:
+      seeded flat geometry, 1024×576 / 576×1024, every pixel from the measured `StyleProfile`
+      palette, measured ink when outlines are requested, no text/logo/watermark, and a minimal RGB8
+      PNG encoder using only `node:zlib` (no ffmpeg, network, GPU, native module or new dependency).
+      Tests: 7 contract + 6 adapter; `npm run gate` **838 passed / 61 files**, typecheck and eslint
+      clean. Python not run (no media/render files touched).
+      Artifact: `landscape.png` (4394 bytes, SHA-256
+      `55792c8d0ebabbfd3c7b3a26038fc5481a4c7ae9276833e962aafa0042ee88b4`) and `portrait.png`
+      (4835 bytes, `1a7a32b4be9d7c2b0f73a17ebbae26e7a4a3a7d3058cf9823051114a248ab923`) under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-procedural-artifact/`; ffprobe reports
+      `png`, `rgb24`, exact 1024×576 / 576×1024. Both were opened and visibly use the four supplied
+      colours with a faceless geometric subject. Same request → same bytes; changing prompt or seed
+      changes bytes.
+      **Observed:** contract, deterministic PNG bytes, decoder geometry/pixel format and visual
+      artifact. **Not yet built/assumed:** semantic image quality, provider chain, hosted/local model
+      adapters, storage and create-images orchestration — those remain separate roadmap tasks.
+      Surprise: no SVG/ffmpeg bridge was needed; a filter-none PNG plus zlib is smaller, portable,
+      and lets tests inflate every scanline to prove that no colour outside the measured palette
+      entered the fallback.
+
+- [x] **2026-10-31 — Cloudflare Flux Schnell image adapter.** The interrupted implementation in
+      `apps/worker/src/image/cloudflare.ts` is now verified and recorded: account-scoped Workers AI
+      URL, bearer token, final prompt + caller seed + 1–8 steps, 120 s default timeout, bounded
+      canonical base64 and JPEG/PNG/WebP signature checks, shared retry taxonomy, and exact
+      landscape/portrait output through `image/normalize.ts`. Model, steps and timeout overrides
+      are documented in `.env.example`. Cloudflare's current official model page confirms the
+      prompt/seed usage, four-step default, eight-step ceiling and base64 image result.
+      Contract correction found during the artifact pass: normalization previously relied on
+      ffmpeg choosing RGB output; an alpha-capable PNG/WebP could therefore produce RGBA despite
+      the documented RGB-PNG boundary. A failing argument test now pins `format=rgb24`, and the
+      production filter forces it. 9 adapter + 3 normalizer tests; `npm run gate` green at
+      **850 tests / 63 files**. Python not run (no media/render files touched).
+      Artifact (real ffmpeg 9.0.2, stubbed exact Cloudflare REST envelope carrying a synthetic
+      provider JPEG): `landscape.png` is 1024×576 RGB24 / 6,897 bytes / SHA-256
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; `portrait.png` is
+      576×1024 RGB24 / 7,827 bytes / `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`.
+      Both were opened and show the expected centred aspect crop; a second full adapter run produced
+      the same hashes. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-cloudflare-artifact/`.
+      **Observed:** request envelope, validation/classification, real normalization, geometry,
+      pixel format and deterministic post-processing. **Not observed:** a live Flux generation or
+      its semantic/style quality; no Cloudflare neurons were spent without `LIVE=1`.
+      Surprise: Cloudflare's raw input schema omits `seed`, while both official usage examples send
+      it. The adapter follows the usage examples; a future live test must keep that discrepancy
+      honest.
+
+- [x] **2026-10-31 — Pollinations image adapter, with the keyless path rejected.**
+      `apps/worker/src/image/pollinations.ts` targets the current HTTPS
+      `gen.pollinations.ai/image/{prompt}` endpoint with canonical
+      `black-forest-labs/flux.1-schnell`, exact width/height + caller seed, and a required bearer
+      `POLLINATIONS_API_KEY` that never enters the URL. The timeout remains active through the full
+      response stream; declared and streamed bodies are capped at 25 MiB; MIME must match
+      JPEG/PNG/WebP magic; output goes through the shared exact RGB24 PNG normalizer. The binary
+      transport reuses the JSON transport's exported HTTP retry classifier, so 408/425/429/5xx
+      cannot drift between adapters. The known watermarked legacy host is rejected at configuration
+      time. 13 hermetic tests; `npm run gate` green at **863 tests / 64 files**. Python not run (no
+      media/render files touched).
+      Accepted artifact (exact current URL/header/query shape through a stubbed provider JPEG, real
+      ffmpeg 9.0.2): 1024×576 RGB24 PNG, 6,897 bytes,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; and 576×1024 RGB24 PNG,
+      7,827 bytes, `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`.
+      Both were opened and show the expected centred crop. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-pollinations-artifact/`.
+      Live evidence changed the design: the current endpoint returned 401 without a key; the old
+      `image.pollinations.ai/prompt` endpoint returned 200 keylessly, but the 1024×576 image visibly
+      contains `pollinations.ai` in the lower-right even with `nologo=true`. That rejected artifact
+      is preserved as `legacy-keyless-watermarked.png` (210,967 bytes, SHA-256
+      `e9935bf3d34c11ac69d6a3d0b1d26a85e3d4157a05693979146c349304abfcc6`). We neither ship that
+      path nor strip its provider mark; an unconfigured chain will eventually fall through to the
+      procedural zero-key floor.
+      **Observed:** both live unauthenticated behaviours, current request construction and failure
+      taxonomy, bounded streaming, exact normalization and visual artifacts. **Not observed:** an
+      authenticated current-model generation or its style quality; no key was available and no
+      Pollen was spent. Surprise: Pollinations' current direct-API agent guide still calls image GET
+      keyless, contradicting the live 401; artifact evidence wins over copied provider prose.
+
+- [x] **2026-10-31 — self-hosted ComfyUI image adapter.**
+      `apps/worker/src/image/comfyui.ts` accepts an operator-exported API-format workflow rather
+      than hardcoding SDXL or Flux nodes. Five required placeholders are replaced inside node inputs
+      as typed values: final prompt, negative prompt, caller seed, width and height. The template is
+      cloned per request, validated as an API graph, and the configured output node must return
+      exactly one image. `fixtures/workflows/comfyui-sdxl-api.json` pins the shape and placeholder
+      vocabulary; its `sd_xl_base_1.0.safetensors` name is only an editable example, not a bundled
+      model. `COMFYUI_WORKFLOW` + `COMFYUI_OUTPUT_NODE` are required before the future factory can
+      consider this adapter configured.
+      Runtime follows ComfyUI's documented HTTP API without another dependency: `POST /prompt`,
+      poll `/history/{prompt_id}`, then fetch `/view` with the returned filename/subfolder/type.
+      One abort deadline covers submission, pending waits, JSON bodies and output streaming;
+      network/5xx/timeouts are retryable, graph/execution/output failures permanent. Output is
+      capped at 25 MiB, MIME must match JPEG/PNG/WebP magic, and the shared normalizer produces the
+      exact RGB24 PNG contract. A timeout does not call the global `/interrupt` route, which could
+      cancel someone else's local generation. 16 hermetic tests (including fixture compatibility);
+      `npm run gate` green at **879 tests / 65 files**. Python not run (no media/render files
+      touched).
+      Artifact (real localhost HTTP server with the official Comfy route/response shapes, committed
+      workflow loaded from disk, one pending history response per job, and real ffmpeg 9.0.2):
+      landscape submitted seed 515151 / 1024×576 and produced a 6,897-byte RGB24 PNG,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`; portrait submitted seed
+      515152 / 576×1024 and produced 7,827 bytes,
+      `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`. Both were decoded by
+      ffprobe and opened; files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-comfyui-artifact/`.
+      **Observed:** file loading, typed substitutions, real HTTP submission/poll/download, exact
+      output query, pending-state wait, raster checks, normalization, geometry and visual artifact.
+      **Not observed:** an actual ComfyUI process, checkpoint/custom nodes, GPU generation or style
+      quality; port 8188 timed out and no local model was available. Surprise/design correction:
+      `COMFYUI_URL` alone cannot identify a runnable graph, so configuration requires an exported
+      workflow and explicit output node instead of pretending one hardcoded SDXL graph also supports
+      Flux/GGUF.
+
+- [x] **2026-10-31 — ordered image chain + `IMAGE=...` factory.**
+      `apps/worker/src/image/chain.ts` implements `ImageFn` over `ImagePort[]`: the first adapter
+      that returns a schema-valid image wins and the result's `degradedFrom` is filled by the chain
+      from runtime failures in attempt order, mirroring the planner/vision chains. `ImageChainError`
+      carries every diagnosis and is `retryable` only when *all* failures were transient.
+      `apps/worker/src/image/factory.ts` parses `IMAGE`, ignores unknown and duplicate names with a
+      warning, and constructs adapters in the declared order. An adapter whose credentials or
+      workflow are absent is skipped at construction with a warning naming the missing settings;
+      that skip is **not** recorded as degradation, because a misconfiguration is not a provider
+      outage. `IMAGE` unset — or every named adapter unconfigured — yields the procedural renderer
+      alone, preserving zero-key completion. 6 chain + 8 factory tests.
+      `npm run gate` green at **893 tests / 67 files**. Python not run (no media/render files
+      touched).
+      Artifact (real localhost ComfyUI-shaped HTTP stub, hosted providers stubbed at the HTTP
+      boundary to return 503/429, real ffmpeg): `IMAGE=cloudflare,pollinations,comfyui,procedural`
+      returned `adapter=comfyui`, `degradedFrom=["cloudflare","pollinations"]` for landscape
+      (1024×576, 6,897 bytes,
+      `f94a7c9a455593824876b0fcec887aa27314a6c7fdb4572257ec758ef5743feb`) and portrait (576×1024,
+      7,827 bytes, `e220d272dd8dcd6c0c8ecfc6a70489334d9b14329f7c13c84ba30b4f87823fb5`), with the
+      ComfyUI submissions carrying seeds 616161/616162 and matching geometry. Files are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-image-chain-artifact/`.
+      **Observed:** configuration ordering, runtime fallthrough, provenance, provider-domain
+      routing, ComfyUI construction from env, real normalization and final bytes.
+      **Not observed:** a live Cloudflare/Pollinations success inside the chain, a live ComfyUI
+      process, or spending any quota; the hosted failures were deliberate HTTP stubs. Surprise: the
+      chain must overwrite `degradedFrom` rather than merge it — direct adapters cannot see earlier
+      failures, and merging would let an adapter's own empty list erase provenance.
+
+- [x] **2026-10-31 — palette correction + per-scene consistency + one-shot regenerate.**
+      `packages/core/src/style/color.ts` (pure) adds sRGB⇄CIELAB D65, CIE76 `deltaE76`, weighted
+      `paletteLab`, `correctTowardPalette` (one whole-image LAB translation, capped at 6 ΔE, returns
+      a new buffer), soft 4×4×4 `rgbHistogram` and total-variation `histogramDistance`.
+      `apps/worker/src/image/postprocess.ts` is the new boundary: decode → correct → encode →
+      nearest-neighbour histogram check → optional one-shot regenerate. Decode defaults to ffmpeg;
+      encode defaults to the PNG encoder extracted into `image/png.ts` and re-exported by
+      `image/procedural.ts`, so the procedural path and the post-processor share one deterministic
+      writer. 18 core + 11 worker tests; `npm run gate` green at **922 tests / 69 files**.
+      Python not run (no media/render files touched).
+      Artifact (real ffmpeg 9.0.2, three 1024×576 provider stills, no provider call): palette
+      correction reported exactly 6 ΔE and moved the dominant teal `#2c898a → #41857f`; scene 2
+      (off-palette green, nearest distance 0.563) regenerated exactly once with the clause appended
+      at the same seed and landed at 0.049; scene 3 at 0.039 was accepted with **zero** draw calls.
+      All accepted stills are 1024×576 `rgb24` PNG; dominants `#41857f`, `#438580`, `#448581` show
+      the scenes converging. Files and `run.ts` are under
+      `C:/Users/sanT/AppData/Local/Temp/opencode/facelesspro-scene-postprocess-artifact/`.
+      **Observed:** bounded correction, clause/seed/one-shot behaviour, zero-draw acceptance,
+      real decode/encode and geometry. **Not observed:** provider-level style quality after a real
+      hosted image (the stills are synthetic) or any multi-video storage/reuse.
+      Surprise: the first artifact exposed hard histogram bins scoring two visually identical teals
+      `0.885` apart because blue sat at 127 vs 128. Soft tri-linear bins fixed it: the same pair now
+      scores ≈0.05, and the test suite pins 127-vs-128 under 0.05 instead of 1.
+
+- [x] **2026-10-31 — CI Python job: restore the deleted `services/media/requirements.txt`.**
+      The workflow (`.github/workflows/ci.yml:77`), `README.md` and `docs/10-operations.md` all
+      install it, but commit `5a87751` deleted the file and `68de8b8` restored the service without
+      it, so `pip install` failed in 1 s and `ruff`/`pytest` had never actually run in CI.
+      Restored with the four direct runtime deps pinned to the versions **observed working**
+      locally: `edge-tts==7.3.1`, `fastapi==0.141.1`, `pydantic==2.13.4`, `uvicorn==0.54.0`.
+      Chose observed versions over the deleted file's `fastapi==0.162.0` / `pydantic==2.14.1`,
+      which were never installed here. Python gate green locally: `ruff check app tests` clean,
+      `python -m pytest` → **113 passed, 2 skipped** (both `RUN_LIVE=1` provider tests, the
+      documented opt-in). Node gate unchanged. **Observed:** Python 3.14.6 resolving all four
+      pins as already satisfied. **Not observed:** the GitHub runner installing them on Python
+      3.12 until the workflow runs again.
+
+- [x] **2026-10-31 - `GET /v1/art-styles` and `GET /v1/art-styles/:id/export`.**
+      The catalog read lives in `packages/db/src/art-styles.ts` because the api lint boundary
+      forbids `drizzle-orm`/`pg`: `listReadyArtStyles` filters `status='ready'` and orders
+      newest-first, `findArtStyle` returns any status so the route can pick 404 vs 409, and both
+      parse rows through `artStyleRowSchema` before the route sees them. `GET /v1/art-styles`
+      re-filters on `ready` (a fake or future repository cannot leak a half-built style), rewrites
+      storage keys to `/files/<key>` and leaves absolute URLs alone. `GET /:id/export` returns
+      exactly `{version: 1, name, formats, profile}` with a full `StyleProfile` re-validated out of
+      the jsonb column and no id/key/timestamp, so the file can move between machines; `409` while
+      building, `404` unknown, `400 invalid_request` + `field: "id"`, `500 internal` if the stored
+      profile is corrupt. Gate: typecheck + eslint + **934 tests / 69 files** green. Python not run
+      (no media/render files touched).
+      Artifact (real Hono server on 127.0.0.1:3199 with a fake catalog, real HTTP):
+      `GET /v1/art-styles` `200` with `previewUrl`, `portraitPreviewUrl` and the sample clip all
+      rewritten to `/files/art-styles/<id>/…`, `building`/`failed` rows absent; export `200`, 868
+      bytes, `version:1` and the whole profile; `409 conflict`, `404 not_found`, `400` with
+      `field:"id"` for building/unknown/malformed ids.
+      The artifact caught two gaps the unit tests had missed: `sampleVideoUrls` was still
+      `z.array(z.url())`, so the first non-empty local sample key turned the list into a plain-text
+      `500` (now `urlOrPathSchema`, like both preview fields), and an unhandled throw had no
+      envelope at all (`app.onError` now answers `500 {error:{code:"internal"}}` with a fixed
+      message and logs the real error). Both now have tests.
+      **Observed:** the exact wire bodies, status codes, path rewriting and error envelopes over a
+      real HTTP server. **Not observed:** the two SQL statements executing, because no Postgres is
+      available locally (typechecked only, `test:db` not claimed green), and `/files/*` is still a
+      P6 Libraries item, so those paths 404 until that route is mounted.
+
 ---
 
 ## Decisions log
@@ -732,5 +969,21 @@ file stays the single "what is actually true today" view.
 | 2026-10-27 | `pallavi` is the female default, and a voice is only approved on **fresh text** | `emma` passed the six fixed clips and failed the first sentence she had not been heard on; with several female voices acceptable, the tie-break is the product rule (Tamil is primary, so a native `ta-IN` narrator), and the gate now renders a seventh clip written after the voices were chosen |
 | 2026-10-28 | Every female voice that passes the fresh sentence is a **selectable pair**, not a catalogue entry | the default is our judgement, but it should not be the only option: `seraphina`, `vivienne` and `thalita` ship with `TTS_PAIR=<id>` and their own rendered seven-clip set, and their pace differs by 3.2 s on the same sentence, which is a channel-style choice no single pick can make |
 | 2026-10-28 | A sample set's path is **derived from the pair id**, never typed by hand | the split layout (`samples/tts/`, `/female/`, `/voices/x/`) made a path ambiguous and let a render land beside another voice's evidence; `sampleSetDir` + a test makes `samples/tts/<pair>/` the only canonical location and `auditions/` the only place for scratch |
+| 2026-10-31 | Pollinations uses the current authenticated endpoint; the legacy keyless host is not a fallback | live evidence: current `/image` returns 401 without a key, while legacy `/prompt` returns an image with a visible provider watermark even when `nologo=true`; FacelessPro will not remove a provider mark, and procedural still guarantees zero-key completion |
+| 2026-10-31 | ComfyUI takes an operator API-format workflow and output node; timeouts never call global `/interrupt` | SDXL, Flux and custom-node graphs are not interchangeable, so five typed placeholders adapt any exported graph without guessing node ids; `/interrupt` can cancel unrelated local work, while the worker's own retry/idempotency layer owns recovery |
+| 2026-10-31 | An image adapter skipped for missing config is a warning, not `degradedFrom`; the chain **overwrites** provenance | degradation must mean a provider was tried and failed, otherwise `degradedFrom` becomes noise from unset keys; direct adapters cannot see earlier failures, so merging their own empty list would erase the chain's history |
 | 2026-10-29 | `POST /v1/art-styles` upload endpoint | multipart upload with ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row with `status='building'`, returns `202`. No auth yet (P6); build job enqueued in follow-up. 8 contract + 9 API tests (mock ffprobe). Artifact: fake video → 202, row inserted, file written. Surprise: `Object.defineProperty` on `File.size` doesn't work in Node — the 500 MB limit test was dropped rather than faking a large file. |
 | 2026-10-30 | Frame sampling with scene detection | ffmpeg `select='gt(scene,0.3)',showinfo` for scene changes, 3 evenly spaced frames, dedup within 1s, cap 24 (prefer high-scoring scenes), min 8 frames. Saves PNG to `storage/frames/<artStyleId>/`. 8 unit tests mocking ffmpeg/ffprobe. Artifact: 5 scenes + 3 spaced → 8 frames, dedup/cap/error handling verified. Surprise: mocking `readdir` with correct `Dirent<NonSharedBuffer>` type required careful typing; the real `readdir` returns strings by default but TS sees `Dirent[]`. |
+| 2026-10-30 | Numeric analysis: palette + ink + tone + safe area | `packages/core/src/style/palette.ts` (farthest-point k-means, no RNG, weighted hex palette) and `stats.ts` (`lineStats`, `saturationStats`, `contrastStats`, `brightnessStats`, `safeAreaStats`, `percentile`); `apps/worker/src/art-style/frame-decode.ts` turns a PNG into RGB24 via ffmpeg `-f rawvideo` (no PNG dependency, no upscaling); `numeric-analysis.ts` averages line/tone across frames but computes ONE palette over all of them, then parses through `numericStyleProfileSchema`. 12 contract + 20 core + 16 worker tests. Artifact (real ffmpeg 9.0.2 on a synthetic 40 s, 4-scene clip): palette `#f1bf4d 37.5%, #1a283f 36.1%, #fefefe 20.8%, #020202 4.1%, #e2562d 1.4%` against painted `#f2c14e, #1b2a41, #ffffff, #000000, #e4572e`; weights reconcile to the frame composition (3 yellow frames, 3 navy, 2 white plus a bar and a rectangle). Surprise: the real run exposed the frame-sampling defect below, which every mocked test had missed. |
+| 2026-10-30 | Frame sampling detector was silently returning zero cuts | `showinfo` no longer prints `scene_score` in current ffmpeg, so `select=gt(scene,0.3),showinfo` parsed an empty list and the sampler silently fell back to spaced frames only; `-v error` hid the log lines as well. Replaced with `scdet=threshold=30` read at `-v info` (score/100), and a reference with fewer than eight cuts is now padded with evenly spaced frames instead of rejected. Verified on real ffmpeg: cuts at 10.00 s (0.52) and 30.00 s (0.59) captured; the 10->20 s cut scored 0.28 and was left to the spaced frames. Lesson recorded in docs/04: a mocked subprocess test cannot prove a parser matches the tool. |
+| 2026-10-30 | Vision pass: `STYLE=cloudflare,gemini,heuristic` | `packages/contracts/src/style-vision.ts` defines `styleVisionAnswerSchema` (model fields only) and `styleVisionSchema` (answer + `adapter`/`degradedFrom`). `apps/worker/src/art-style/vision/` adds `prompt`, `parse`, `frames` (6 frames, 384 px long edge, base64 JPEG), `cloudflare`, `gemini`, `heuristic`, `chain`, `factory`. `STYLE=vlm,heuristic` was a placeholder provider name and is replaced everywhere (.env.example, docs/03 section 7, docs/06 section 1.5). Two deviations, both documented: vision answers **strip unknown keys** instead of rejecting them (models volunteer `palette`/`line.color`; an invalid enum is still fatal), and `UpstreamError.adapter` widened from `PlannerAdapter` to `string` so the style chain reuses `planner/http.ts` without copying its retry taxonomy; planner behaviour is unchanged. 16 contract + 69 worker tests, gate 50 files / 734 tests. Artifact on the real 8 frames (heuristic path): medium unknown, thin outlines, flat colour areas, simple background, low edge content, no characters, no typography -- every clause traceable to a measured number. **Unproven:** Cloudflare/Gemini description quality; no credentials locally, so both adapters are tested against recorded HTTP shapes only. |
+| 2026-10-30 | StyleProfile merge: measured palette + described style | `packages/contracts/src/style-profile.ts` adds the merged document (`version: 1`, top-level palette, `measured` block, `source` adapter/degradedFrom, `line.color` must appear in `palette.hex`); `style-vision.ts` now exports the character/typography schemas with their cross-field rules so the profile reuses them instead of copying them. Pure `lineColorFor` (darkest measured colour, ties keep the higher-weight entry) and `seedBaseFor` (FNV-1a over prompt-relevant fields, palette hexes sorted/deduped, weights excluded) live in `packages/core/src/style/profile.ts`; the schema-validated `mergeStyleProfile` is in `apps/worker/src/art-style/merge.ts`. **Correction from the plan:** the merge could not live in core because `packages/core` is dependency-free (no contracts import) and lint enforces it; core keeps the pure helpers, worker owns the boundary. The numeric profile test was renamed `numeric-style-profile.test.ts` so `style-profile.test.ts` could test the merged shape. 14 contract + 8 core + 9 worker tests; gate 53 files / 765 tests. Artifact (real 8 frames + heuristic vision): ink `#020202` (in palette), seed `676166201` stable on a second run, `measured` keeps tone/aspect/safeArea/frameCount, `source` heuristic/empty, schema-valid. **Not proven:** previews or image consistency; nothing is generated yet. |
+| 2026-10-31 | Palette correction is one bounded LAB translation, not a nearest-colour remap | a per-pixel remap posterises the model's shading into flat fills; a single ≤6 ΔE vector moves the whole still toward the palette while preserving internal contrast, and it is cheap enough to run on every scene |
+| 2026-10-31 | Consistency uses a **soft** RGB histogram, strict-`>` threshold, nearest accepted scene | hard bins made visually identical scenes differ by 0.885 when one channel sat a byte either side of a 128 edge — a false outlier would spend a provider call; soft tri-linear bins measure colour distribution rather than byte boundaries, and nearest-neighbour means one unusual hero scene cannot veto every later frame |
+| 2026-10-31 | The quality guard regenerates **once** and accepts the second result even if it is still an outlier | a guard that retries until consistent can spin against an uncooperative provider; one bounded retry keeps the cost predictable, and the manifest records the `regenerated` flag so the still-outlier case is visible rather than hidden |
+| 2026-10-31 | Python runtime pins match the versions the suite has actually run against | the deleted `requirements.txt` named fastapi 0.162/pydantic 2.14 that no local run ever installed; a pin nobody has executed is an assumption, and CI should test the environment the gate uses |
+| 2026-10-31 | `GET /v1/art-styles` omits `failed` as well as `building` | an id returned by the list is handed straight to `artStyleId`; a failed build has no usable profile, so listing it only produces a guaranteed 409/500 later |
+| 2026-10-31 | The export is `{version, name, formats, profile}` only, with the profile re-validated | the document must import on another machine, so ids, storage keys, preview URLs and timestamps are local facts; re-validating the jsonb means a corrupt row is a clear `500 internal` instead of a half-export the importer must guess about |
+| 2026-10-31 | Storage keys become `/files/<key>`; absolute URLs pass through | one public prefix to rewrite when a CDN replaces the api's static route (P6), and an absolute provider URL is already a public URL and must not be prefixed |
+| 2026-10-31 | `sampleVideoUrls` accepts a path, not only a URL | the list route maps preview and sample keys through the same storage helper; the artifact proved `z.url()` turned any non-empty local sample key into a plain-text 500 |
+| 2026-10-31 | `app.onError` returns the error envelope, not Hono's plain text | the rule is that every user-facing failure has a `code`; a fixed `internal` message keeps SQL/paths/stacks out of the response while the real error is logged |

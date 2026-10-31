@@ -298,20 +298,149 @@ every model down → heuristic still produces a valid plan.
       Artifact: fake video → 202, `art_style` row inserted with `status='building'`,
       file written to `storage/references/<uuid>-<name>`.
 - [x] Frame sampling with scene detection (8–24 frames) — `apps/worker/src/art-style/frame-sampling.ts`:
-      Runs ffmpeg `select='gt(scene,0.3)',showinfo` to detect scene changes,
-      extracts one PNG per scene change, adds 3 evenly spaced frames (25%/50%/75%),
-      deduplicates within 1s, caps at 24 frames (prefers highest-scoring scene frames),
-      ensures minimum 8 frames. Saves to `storage/frames/<artStyleId>/`.
-      8 unit tests (mock ffmpeg/ffprobe).
-      Artifact: fake video with 5 scenes + 3 spaced → 8 frames, dedup tested,
-      cap at 24 with highest scores kept, error handling for ffmpeg/ffprobe failures.
-- [ ] Numeric analysis: k-means palette, stroke density, edge energy, saturation.
-- [ ] VLM pass → medium / composition / character bible / typography.
-- [ ] `StyleProfile` schema + merge of numeric + VLM output.
-- [ ] Preview grid + 6 s preview clip; `status=ready` only when previews exist.
-- [ ] `ImagePort` + adapters: cloudflare flux-schnell, pollinations, comfyui, procedural.
-- [ ] Palette colour correction + per-scene consistency check + one-shot regenerate.
-- [ ] `GET /v1/art-styles[/:id/export]`.
+      ffmpeg `scdet=threshold=30` for scene changes, 3 evenly spaced frames
+      (25/50/75%), 1 s dedupe, cap 24 (prefers high-scoring scene frames),
+      padded to 8 equally spaced frames when a reference has few cuts.
+      Saves PNG to `$DATA_DIR/frames/<artStyleId>/` (default `.data`).
+      9 unit tests (mock ffmpeg/ffprobe).
+      Artifact (real ffmpeg 9.0.2, synthetic 4-scene 40 s clip): 8 frames —
+      2 scene cuts at 10.00 s (score 0.52) and 30.00 s (score 0.59) plus 6
+      spaced. The 10→20 s cut scored 0.28, below threshold, and was covered by
+      the spaced frames as designed.
+      Fixed during the numeric pass: `showinfo` no longer prints `scene_score`
+      in current ffmpeg, so the select-based detector found **zero** cuts on a
+      real video; switched to `scdet` at `-v info`.
+- [x] Numeric analysis: k-means palette, stroke density, edge energy, saturation —
+      `packages/core/src/style/palette.ts` (farthest-point k-means, deterministic,
+      weighted hex palette) + `packages/core/src/style/stats.ts` (`lineStats`,
+      `saturationStats`, `contrastStats`, `brightnessStats`, `safeAreaStats`,
+      `percentile`); `apps/worker/src/art-style/frame-decode.ts` decodes PNG →
+      RGB24 through ffmpeg `-f rawvideo` (no PNG dependency);
+      `apps/worker/src/art-style/numeric-analysis.ts` averages metrics across
+      frames and computes one palette over all of them, then parses the result
+      through `numericStyleProfileSchema` (`packages/contracts/src/art-style.ts`).
+      12 contract + 20 core + 16 worker tests.
+      Artifact (same real 40 s clip, 8 decoded frames): palette recovered every
+      colour drawn into the clip — `#f1bf4d` 37.5 %, `#1a283f` 36.1 %,
+      `#fefefe` 20.8 %, `#020202` 4.1 %, `#e2562d` 1.4 % — against painted
+      `#f2c14e / #1b2a41 / #ffffff / #000000 / #e4572e`, with the weights
+      matching the frame composition exactly (3 yellow frames, 3 navy, 2 white,
+      plus a bar and a rectangle). `strokeDensity` 0.0059 and `edgeEnergy`
+      0.0068 on a clip that is mostly flat colour; `safeArea.edgeContentRatio`
+      0.044.
+- [x] VLM pass - medium / composition / character bible / typography -
+      `packages/contracts/src/style-vision.ts` (`styleVisionAnswerSchema` +
+      `styleVisionSchema` with `adapter`/`degradedFrom`; enums for line weight,
+      texture and shading; unique kebab-case character ids; typography style
+      required only when present). `apps/worker/src/art-style/vision/`:
+      `prompt.ts`, `parse.ts`, `frames.ts` (6 frames max, 384 px long edge,
+      JPEG base64), `cloudflare.ts`, `gemini.ts`, `heuristic.ts`, `chain.ts`,
+      `factory.ts`. `STYLE=cloudflare,gemini,heuristic` replaces the placeholder
+      `vlm` name in `.env.example`, docs/03 section 7 and docs/06 section 1.5.
+      16 contract + 69 worker tests.
+      Artifact (same real 8 frames as the numeric run, heuristic path):
+      `promptPrefix` "landscape frame, thin outlines, medium-saturation palette,
+      flat colour areas", `shading: "flat"`, `background: "clean, simple
+      background with empty edges"`, `composition: "landscape 1.78:1 frame, low
+      edge content, subject kept away from the edges"`, `medium: "unknown"`,
+      no characters, no typography - every clause traceable to a measured number.
+      **Not proven:** Cloudflare/Gemini descriptions against a live model; no
+      credentials locally, so those adapters are tested against recorded HTTP
+      shapes only.
+- [x] `StyleProfile` schema + merge of numeric + VLM output —
+      `packages/contracts/src/style-profile.ts` (`version: 1` literal, `measured`
+      block for the numeric fields not already top-level, `source` with the
+      vision adapter + `degradedFrom`, and a rule that `line.color` must be one
+      of `palette.hex`). Pure `lineColorFor` / `seedBaseFor` in
+      `packages/core/src/style/profile.ts`; the schema-validated
+      `mergeStyleProfile` is in `apps/worker/src/art-style/merge.ts` because
+      `packages/core` is dependency-free and cannot import contracts.
+      14 contract + 8 core + 9 worker tests.
+      Artifact (real numeric pass + heuristic vision on the same 8 frames):
+      ink `#020202` (darkest measured colour, in the palette), seed
+      `676166201` identical on a second run, `measured` keeps tone/aspect/
+      safeArea/frameCount, `source` `{ adapter: "heuristic", degradedFrom: [] }`,
+      and the whole object validates through `styleProfileSchema`.
+      At this point previews and generated images were not yet proven; the tasks below supersede
+      that limitation one artifact at a time.
+- [x] Preview grid + 6 s preview clip; `status=ready` only when previews exist —
+      `build-art-style` is enqueued atomically with the `building` row and consumed by the real
+      worker entry point. Eight evenly spread sampled frames + one measured-palette card become
+      `preview.png`; the silent clip concatenates the same nine cells to exactly 180 frames /
+      6.000 s at 30 fps. ffprobe verifies codec, dimensions, stream count, frame count, fps and
+      duration before `ready`. API/worker share `DATA_DIR`; client filenames never become paths;
+      failures reject so the queue's one retry is real. 825 hermetic tests.
+      Artifact (real ffmpeg, synthetic 40 s reference with audio): sample → numeric → heuristic
+      vision → merge → grid + clip → verify returned `ready`; 8 measured frames, schema-valid
+      profile, 1280×720 PNG and silent 180-frame clip.
+- [~] `ImagePort` + adapters: cloudflare flux-schnell, pollinations, comfyui, procedural.
+      - [x] Shared zod boundary + `ImagePort` + procedural floor — request carries final prompt,
+        negative, seed, size and `StyleProfile`; result carries PNG bytes, geometry, seed and
+        provenance. Procedural renders deterministic palette-only geometry at 1024×576 /
+        576×1024 and uses a dependency-free RGB8 PNG encoder over Node zlib. 7 contract + 6
+        adapter tests; gate 838. Artifact: both outputs decode through ffprobe as `png/rgb24`,
+        were opened visually, and identical input is byte-identical.
+      - [x] Cloudflare Flux Schnell adapter — account-scoped endpoint with caller seed and 1–8
+        steps; bounded base64 JPEG/PNG/WebP input; real ffmpeg centre-crop into exact 1024×576 /
+        576×1024 RGB24 PNG; typed retryability through the shared HTTP transport. 9 adapter + 3
+        normalizer tests; both orientations decoded and inspected through a stubbed provider
+        envelope. Live generation remains opt-in because it consumes Cloudflare neurons.
+      - [x] Pollinations adapter — current authenticated image endpoint, canonical Flux Schnell,
+        exact geometry + seed, bearer key, full-body timeout, 25 MiB streaming cap, matching raster
+        MIME/magic, known legacy-host rejection and shared RGB24 normalization. 13 hermetic tests.
+        Artifact: both orientations decoded from the exact stubbed HTTP path; the live keyless
+        legacy path was rejected because it visibly watermarks output even with `nologo=true`
+        (the current endpoint returns 401 without a key). No watermark-removal workaround.
+      - [x] ComfyUI adapter — model-agnostic API-format workflow with typed prompt/negative/seed/
+        dimension placeholders; `/prompt` submission, HTTP history polling and `/view` download;
+        one configured image output, one end-to-end deadline, 25 MiB raster cap and shared RGB24
+        normalization. 16 hermetic tests including the committed SDXL workflow-shape fixture.
+        Artifact: real localhost HTTP flow and real ffmpeg for both orientations; no local
+        ComfyUI/model/GPU was available, so semantic quality remains unobserved.
+      - [x] Ordered image adapter chain + env factory (`IMAGE=...`) with degradation provenance.
+        `image/chain` returns the first schema-valid image and fills `degradedFrom` from runtime
+        failures in attempt order; `ImageChainError` is retryable only when every failure was
+        transient. `image/factory` skips unconfigured adapters with a warning (not degradation),
+        ignores unknown/duplicate names, and falls back to `procedural` when `IMAGE` is unset or
+        names nothing runnable. 6 chain + 8 factory tests. Artifact: `IMAGE=` with all four
+        adapters, hosted Cloudflare 503/Pollinations 429 stubbed at the HTTP boundary, local
+        ComfyUI stub and real ffmpeg → both orientations returned `adapter=comfyui` with
+        `degradedFrom=[cloudflare,pollinations]`; no API key or neuron/Pollen was spent.
+      - [x] Palette colour correction + per-scene consistency check + one-shot regenerate.
+        `packages/core/src/style/color.ts` is pure: sRGB⇄CIELAB (D65), `deltaE76`, weighted
+        `paletteLab`, bounded `correctTowardPalette` (one whole-image translation, ≤6 ΔE, input
+        never mutated), soft 4×4×4 `rgbHistogram` and total-variation `histogramDistance`.
+        `apps/worker/src/image/postprocess.ts` injects decode/encode (ffmpeg + the extracted
+        `image/png.ts` in production), corrects, compares the nearest accepted-scene distance to
+        a 0.35 strict-`>` threshold, and on an outlier regenerates **once** with the same seed and
+        `, same character, same palette as previous scene` (prompt truncated to stay ≤1000
+        characters); a still-outlier second attempt is accepted, never retried. 18 core + 11
+        worker tests (offline: fake raster codec, no provider call). Artifact (real ffmpeg):
+        provider teal `#2c898a` → `#41857f`, ΔE 6; off-palette green scene 2 at distance 0.563
+        regenerated once to 0.049 with the clause; scene 3 at 0.039 needed zero draw calls; all
+        three accepted stills 1024×576 RGB24 and now share `#41857f`/`#438580`/`#448581`.
+        A soft-bin fix was required: hard bins scored byte-adjacent identical scenes 0.885.
+- [x] `GET /v1/art-styles[/:id/export]` - catalog read only, no new vendor.
+      `packages/db/src/art-styles.ts` keeps the SQL out of the api (the api lint boundary
+      forbids `drizzle-orm`/`pg`): `listReadyArtStyles` filters `status='ready'` and orders
+      newest-first, `findArtStyle` returns any status so the route can choose 404 vs 409; both
+      parse rows through `artStyleRowSchema`. `GET /v1/art-styles` re-filters on `ready` (a fake
+      or future repository cannot leak a half-built style), rewrites storage keys to
+      `/files/<key>` and leaves absolute URLs alone, and omits `portraitPreviewUrl` when unset.
+      `GET /v1/art-styles/:id/export` returns `{version: 1, name, formats, profile}` with the
+      whole `StyleProfile` re-validated out of the jsonb column and no id/key/timestamp, so the
+      file can move between machines; `409 conflict` while building, `404 not_found`,
+      `400 invalid_request` + `field: "id"`, `500 internal` for a corrupt profile. 4 contract +
+      8 api tests, offline (fake catalog, no Postgres). Observed only through unit/route tests:
+      the two SQL statements are typechecked, not executed, because no local Postgres exists;
+      `/files/*` itself is still the P6 Libraries item, so the returned paths 404 until then.
+      Artifact (real Hono server on 127.0.0.1:3199, real HTTP): list `200` with both previews and
+      the sample clip rewritten to `/files/...`, export `200` with an 868-byte portable profile,
+      and `409`/`404`/`400` envelopes for building/unknown/malformed ids. The artifact caught two
+      things the tests had missed: `sampleVideoUrls` was still `z.url()`, so any non-empty local
+      sample key turned the list into a plain-text 500 (now `urlOrPathSchema`, like the two
+      preview fields), and an unhandled throw had no envelope at all (`app.onError` now returns
+      `500 {error:{code:"internal"}}` with a fixed message and logs the real error).
 
 **Gate:** build a style from a 2-minute reference; 6 new scenes look like the same channel to
 my eye; portrait + landscape both render; rejected inputs give clear 400s.

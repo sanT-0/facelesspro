@@ -77,7 +77,7 @@ All create responses are identical in shape:
 | Method | Path | Returns |
 |---|---|---|
 | GET | `/v1/voices` | `voices[]` (id, name, description?, gender?, accent?, age?, useCase?, previewUrl?) + our `languages[]`, `mixesEnglish` |
-| GET | `/v1/art-styles` | `styles[]` (id, name, published, formats[], previewUrl, portraitPreviewUrl, sampleVideoUrls[], createdAt) |
+| GET | `/v1/art-styles` | `styles[]` (id, name, published, formats[], previewUrl, portraitPreviewUrl, sampleVideoUrls[], status, createdAt) — ready rows only; preview and sample storage keys are rewritten to `/files/*`, absolute URLs are passed through |
 | GET | `/v1/caption-templates` | `templates[]` (id, name, spec) |
 | GET | `/v1/sound-effects` | built-ins + uploaded |
 | GET | `/v1/background-videos` | gameplay/background library |
@@ -100,7 +100,7 @@ before every video."*
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
 | POST | `/v1/art-styles` | upload reference video (multipart) → ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row `status='building'`, returns `202 {id, status, createdAt}`. Build job enqueued asynchronously. |
-| GET | `/v1/art-styles/:id/export` | portable style JSON |
+| GET | `/v1/art-styles/:id/export` | portable style JSON `{version: 1, name, formats[], profile}` — the full `StyleProfile`, no ids/keys/timestamps; `409 conflict` while building, `404 not_found`, `400 invalid_request` (`field: "id"`), `500 internal` if the stored profile fails validation |
 | POST | `/v1/voices/import` | consent-gated voice import |
 
 None of these change the parity contract; they are additive.

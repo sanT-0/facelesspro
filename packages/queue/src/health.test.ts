@@ -8,6 +8,7 @@ import {
 } from './health';
 import type { SqlExecutor } from './health';
 import { PING_QUEUE } from './ping';
+import { ART_STYLE_QUEUE } from './art-style';
 
 interface Call {
   readonly text: string;
@@ -26,8 +27,8 @@ function fakeDb(names: readonly string[]) {
 }
 
 describe('expectedQueueNames', () => {
-  it('is every pipeline step in contract order, plus the smoke test', () => {
-    expect(expectedQueueNames()).toEqual([...VIDEO_STEPS, PING_QUEUE]);
+  it('is every pipeline step in contract order, plus the art-style build and the smoke test', () => {
+    expect(expectedQueueNames()).toEqual([...VIDEO_STEPS, ART_STYLE_QUEUE, PING_QUEUE]);
   });
 });
 
