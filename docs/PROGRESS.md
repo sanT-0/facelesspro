@@ -567,14 +567,18 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Gate: docs only, `npm run gate` still **934 tests / 69 files**.
       **Observed:** the required check names come from the workflow that actually ran green
       (#25 on `pull_request`), not from guessing.
-      **Observed settings audit (public GitHub API, 2026-11-01):** the default branch is still
-      `main`; `development` reports `protected: false`; the only active ruleset targets
-      `~DEFAULT_BRANCH`, has no required checks or conversation-resolution rule, and allows merge,
-      squash and rebase; private vulnerability reporting is off; topics are empty; six project
-      labels are missing. Because GitHub reads community files from the default branch, its
-      community profile is only 28% and detects no licence, contribution guide, security policy
-      or templates. The settings checklist therefore remains **not applied**; no PR has yet been
-      merged through the required checks (Task D).
+      **Observed settings audit and correction (public GitHub API, 2026-11-01):** the initial
+      state was `main` default, `development` unprotected, no checks/conversation rule, every
+      merge method allowed, private reporting off, no topics and six labels missing; community
+      health was 28%. After the settings pass: `development` is default and protected; its active
+      ruleset requires `gate (node 22)` + `python 3.12` in strict up-to-date mode, resolved
+      conversations and squash-only PRs, with 0 approvals and code-owner review off while there
+      is one maintainer. Private reporting and web-commit DCO are on, all project labels/topics
+      exist, AGPL-3.0 is detected, and community health is 100%. CodeQL's first
+      Actions/JavaScript/Python run is green.
+      **Maintainer-observed in the authenticated UI, not independently public-API-readable:**
+      Dependabot alerts/security updates, secret scanning/push protection, read-only Actions
+      permissions and first-time-contributor approval are on.
 
 - [ ] **2026-11-01 - contributor PR rehearsal (Task D, in progress).**
       Branch `fix/maintaining-observed-facts` corrects the mistyped SHA for run #25 and replaces
@@ -586,9 +590,12 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       reproducible factual/structural check, instead of inventing a unit test for prose. This
       intentionally small workflow/docs change is the payload for required checks and a
       maintainer squash-merge.
-      **Observed so far:** run #29 is green on the branch point (`032326e`).
-      **Not yet observed:** the rehearsal PR, both required checks on that PR, squash-merge, head
-      branch deletion, or green post-merge CI. Do not tick this item until all five are observed.
+      **Observed so far:** PR #5 targets `development`, is clean/up to date and has three commits,
+      each with a matching DCO trailer. PR CI run #33 is green (`gate (node 22)` and
+      `python 3.12`); CodeQL and the code-scanning check are green too. The required-check names
+      therefore prove real enforcement rather than a guessed configuration.
+      **Not yet observed:** a completed PR body/review record, squash-merge, automatic head-branch
+      deletion, or green post-merge CI. Do not tick this item until all four are observed.
 
 ## P2 … P11
 
