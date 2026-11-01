@@ -17,8 +17,14 @@ Two halves:
 `development` is the only integration branch. Nothing lands on it except by squash-merge of a
 PR whose checks are green.
 
-Settings → Branches → Add branch ruleset (or classic branch protection) targeting
-`development`:
+First set **Settings → General → Default branch → `development`**. This is functional, not
+cosmetic: GitHub reads the licence, community-health files, issue forms, security policy and
+Dependabot configuration from the default branch. It also makes a contributor's new PR target
+the branch this project actually reviews. Keep `main` as the release branch, protected by its own
+rule if releases continue to be promoted there.
+
+Then open **Settings → Rules → Rulesets**. The active ruleset is named `development` and targets
+`~DEFAULT_BRANCH`; confirm that target in *Target branches* and keep these values:
 
 | Setting | Value | Why |
 |---|---|---|
@@ -29,6 +35,7 @@ Settings → Branches → Add branch ruleset (or classic branch protection) targ
 | Required checks | **`gate (node 22)`**, **`python 3.12`** | exact check-run names from `.github/workflows/ci.yml`; a typo here silently requires nothing |
 | Require branches to be up to date before merging | **on** | the gate proves a combination that was actually tested |
 | Require conversation resolution | **on** | an open question in review must not survive a merge |
+| Allowed merge methods | **squash only** | the ruleset and repository-wide merge settings must agree |
 | Require linear history | off | squash-merging already gives one commit per task |
 | Require signed commits | off | provenance here is the **DCO** (`git commit -s`), not GPG |
 | Block force pushes | **on** | history on `development` must be append-only |
@@ -43,14 +50,16 @@ Settings → Branches → Add branch ruleset (or classic branch protection) targ
 
 Settings → General → Pull requests:
 
-- **Allow squash merging — on.** Default message: *Pull request title*, so the PR title becomes
-  the commit subject on `development` (one commit per roadmap task is what `docs/PROGRESS.md` is
-  written against).
+- **Allow squash merging — on.** Default message: *Pull request title and description*, so the
+  title becomes the commit subject and the observed-vs-assumed record is retained as the body
+  (one commit per roadmap task is what `docs/PROGRESS.md` is written against).
 - **Allow merge commits — off.** **Allow rebase merging — off.** Two ways to merge produces two
   histories to reason about.
 - **Automatically delete head branches — on.** Keeps the branch list honest; a closed PR's branch
   is not a thing anyone needs back.
 - **Always suggest updating pull request branches — on.**
+- **Require contributors to sign off on web-based commits — on.** Browser edits must follow the
+  same DCO rule as `git commit -s`.
 
 ## 3. Security features
 
@@ -83,6 +92,10 @@ actually uses:
 Topics: `ai`, `video-generation`, `text-to-speech`, `tamil`, `ffmpeg`, `self-hosted`,
 `typescript`, `hono`, `nextjs`, `mcp`.
 
+Observed before the settings pass (2026-11-01): only GitHub's default labels exist; `dependencies`,
+`needs-triage`, `contract`, `pipeline`, `docs` and `needs-artifact` are missing, and the topics list
+is empty. After the pass, the API returns all eight project labels and all ten topics above.
+
 ## 5. Verifying an incoming PR
 
 Order matters: cheap checks first, and nothing expensive before CI is green.
@@ -98,7 +111,8 @@ Order matters: cheap checks first, and nothing expensive before CI is green.
    --amend -s` away, so it is a request, not a rejection.
 5. **Read the diff against the rules** in `AGENTS.md` and `CONTRIBUTING.md`. What I actually look
    for:
-   - a test that failed before the change, not just tests that pass after it;
+   - a test that failed before behavioural code changed, not just tests that pass after it; for
+     docs/config-only work, a reproducible factual or structural check and an honest N/A instead;
    - `packages/core` still pure — no `Date.now()`, no `process.env`, no I/O, no deps;
    - shapes in `packages/contracts`, parsed with zod, not hand-typed `interface`s;
    - the step is idempotent on `(video_id, step)`; ledger writes inside the state-change
@@ -144,7 +158,15 @@ Everything in §1–§4 is a repository setting. Editing a workflow, a template 
 reporting. Until those toggles are set in the browser, a PR can in principle be merged red — the
 settings are the enforcement, the docs are only the intent.
 
-**Observed:** run #25 (`pull_request`) and #27 (`push`) are green on `74…`/`8378bd4`, so the two
-check names and the `pull_request` trigger are real and not aspirational.
-**Assumed:** that the settings above have been applied — they are not visible from this repo, and
-`GET /branches/development/protection` returns 404 while protection is off.
+**Observed (2026-11-01):** the initial audit found `main` as the default branch, `development`
+unprotected, private vulnerability reporting off, and a 28% community profile. The settings pass
+then changed the default to `development`; GitHub now detects AGPL-3.0 and reports 100% community
+health. The active ruleset requires `gate (node 22)` and `python 3.12` in strict up-to-date mode,
+resolved conversations and squash-only PRs, while deliberately requiring zero approvals and no
+code-owner review until a second maintainer exists. Private vulnerability reporting, web-commit
+DCO sign-off, all project labels and all topics are enabled. PR #5 produced green PR CI (run #33),
+green CodeQL for Actions/JavaScript/Python and no new code-scanning alert.
+
+**Maintainer-observed in the authenticated UI, not independently readable through the public
+API:** Dependabot alerts/security updates, secret scanning/push protection, read-only Actions
+workflow permissions and first-time-contributor workflow approval are enabled.
