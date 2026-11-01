@@ -567,17 +567,22 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Gate: docs only, `npm run gate` still **934 tests / 69 files**.
       **Observed:** the required check names come from the workflow that actually ran green
       (#25 on `pull_request`), not from guessing.
-      **Not observed:** the settings themselves. `GET /branches/development/protection` is not
-      readable unauthenticated (401), so protection state is unconfirmed until it is set and
-      re-checked in the browser; and no PR has yet been merged through the required checks
-      (Task D).
+      **Observed settings audit (public GitHub API, 2026-11-01):** the default branch is still
+      `main`; `development` reports `protected: false`; the only active ruleset targets
+      `~DEFAULT_BRANCH`, has no required checks or conversation-resolution rule, and allows merge,
+      squash and rebase; private vulnerability reporting is off; topics are empty; six project
+      labels are missing. Because GitHub reads community files from the default branch, its
+      community profile is only 28% and detects no licence, contribution guide, security policy
+      or templates. The settings checklist therefore remains **not applied**; no PR has yet been
+      merged through the required checks (Task D).
 
 - [ ] **2026-11-01 - contributor PR rehearsal (Task D, in progress).**
-      Branch `fix/maintaining-observed-facts` corrects two factual mistakes in
-      `docs/12-maintaining.md`: run #25 was on `73be783` (not the mistyped `74…`), and the
-      anonymous branch-protection request returned 401 — it did not prove protection was off.
-      This intentionally small docs change is the rehearsal payload for required checks and a
-      maintainer squash-merge.
+      Branch `fix/maintaining-observed-facts` corrects the mistyped SHA for run #25 and replaces
+      an inference from the authenticated protection endpoint with the public settings audit
+      above. It also records the prerequisite discovered by that audit: change the default branch
+      from `main` to `development` before opening the rehearsal PR, or GitHub continues to ignore
+      the new licence and community files. This intentionally small docs change is the rehearsal
+      payload for required checks and a maintainer squash-merge.
       **Observed so far:** run #29 is green on the branch point (`032326e`).
       **Not yet observed:** the rehearsal PR, both required checks on that PR, squash-merge, head
       branch deletion, or green post-merge CI. Do not tick this item until all five are observed.

@@ -17,8 +17,16 @@ Two halves:
 `development` is the only integration branch. Nothing lands on it except by squash-merge of a
 PR whose checks are green.
 
-Settings → Branches → Add branch ruleset (or classic branch protection) targeting
-`development`:
+First set **Settings → General → Default branch → `development`**. This is functional, not
+cosmetic: GitHub reads the licence, community-health files, issue forms, security policy and
+Dependabot configuration from the default branch. It also makes a contributor's new PR target
+the branch this project actually reviews. Keep `main` as the release branch, protected by its own
+rule if releases continue to be promoted there.
+
+Then open **Settings → Rules → Rulesets**. The repository currently has an active ruleset named
+`main` whose target is `~DEFAULT_BRANCH`; changing the default should make that ruleset follow
+`development`. Rename it to `development`, confirm the target in *Target branches*, and edit it
+to these values (or create an equivalent branch ruleset if GitHub does not retarget it):
 
 | Setting | Value | Why |
 |---|---|---|
@@ -29,6 +37,7 @@ Settings → Branches → Add branch ruleset (or classic branch protection) targ
 | Required checks | **`gate (node 22)`**, **`python 3.12`** | exact check-run names from `.github/workflows/ci.yml`; a typo here silently requires nothing |
 | Require branches to be up to date before merging | **on** | the gate proves a combination that was actually tested |
 | Require conversation resolution | **on** | an open question in review must not survive a merge |
+| Allowed merge methods | **squash only** | the current rule allows merge, squash and rebase; the ruleset and repository-wide merge settings must agree |
 | Require linear history | off | squash-merging already gives one commit per task |
 | Require signed commits | off | provenance here is the **DCO** (`git commit -s`), not GPG |
 | Block force pushes | **on** | history on `development` must be append-only |
@@ -82,6 +91,10 @@ actually uses:
 
 Topics: `ai`, `video-generation`, `text-to-speech`, `tamil`, `ffmpeg`, `self-hosted`,
 `typescript`, `hono`, `nextjs`, `mcp`.
+
+Observed before the settings pass (2026-11-01): only GitHub's default labels exist; `dependencies`,
+`needs-triage`, `contract`, `pipeline`, `docs` and `needs-artifact` are missing, and the topics list
+is empty.
 
 ## 5. Verifying an incoming PR
 
@@ -144,8 +157,10 @@ Everything in §1–§4 is a repository setting. Editing a workflow, a template 
 reporting. Until those toggles are set in the browser, a PR can in principle be merged red — the
 settings are the enforcement, the docs are only the intent.
 
-**Observed:** run #25 (`pull_request`) and run #29 (`push`) are green on `73be783` and `032326e`,
-so the two check names and the `pull_request` trigger are real and not aspirational.
-**Not observed:** whether the settings above have been applied. The protection endpoint requires
-authenticated repository-administration access; an anonymous request returns 401 and reveals no
-protection state.
+**Observed (2026-11-01):** run #25 (`pull_request`) and run #29 (`push`) are green on `73be783`
+and `032326e`, so the two check names and the `pull_request` trigger are real. The settings have
+**not** been applied yet: the API reports `main` as the default branch, `development` as
+`protected: false`, and one active ruleset targeting `~DEFAULT_BRANCH` with no required checks,
+no conversation-resolution rule and all three merge methods allowed. Private vulnerability
+reporting is off; the community profile is 28% and detects no licence, contributing guide,
+security policy or templates because those files are not on the current default branch.
