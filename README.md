@@ -1,10 +1,15 @@
 # FacelessPro
 
+[![CI](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml)
+[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](./LICENSE)
+[![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](package.json)
+
 AI faceless video studio — script in, illustrated narrated video out, in a style cloned from
 a reference video. Built to run on free engines, with **Tamil + English code-mixed narration**
 as a first-class citizen.
 
-> Work in progress. Phase 0 of [plan.md](./plan.md).
+> Work in progress, built one roadmap task at a time. What is actually true today lives in
+> [docs/PROGRESS.md](./docs/PROGRESS.md), not in this file.
 
 ## What it does
 
@@ -73,11 +78,29 @@ docs                everything in the table above
 | Phase | State |
 |---|---|
 | Docs & plan | ✅ done |
-| P0 foundation | ✅ built locally; remote CI run pending a push |
+| P0 foundation | ✅ closed — `@facelesspro/*` workspaces, contracts, pure core, boundary lint, CI (Node 22 + Python 3.12) |
 | P1 Tamil/English TTS | ✅ closed 2026-10-28 — all 35 gate clips approved by ear; five voices (`valluvar` male default, `pallavi` female default, `seraphina`, `vivienne`, `thalita`) |
-| P2 scene planner | 🟡 in progress — splitter, duration estimate, scene packing and `PlannerPort` + heuristic adapter built; provider adapters, prompt contract, repair loop and `POST /v1/videos/plan` next |
+| P2 scene planner | ✅ checklist complete — splitter, duration estimate, scene packing, provider planner chain + heuristic floor, `POST /v1/videos/plan` |
+| P3 art style + images | 🟡 in progress — style build + previews, four image adapters, ordered chain, palette correction and cross-scene consistency, catalog/export endpoints. Gate (2-minute reference → six consistent scenes) not yet observed |
+| P4 captions + render | ⬜ next — caption cue builder, ASS writer, renderer |
 
 ## Licence
 
-TBD at launch (AGPL-3.0 or a source-available licence). Third-party assets and model
-licences are tracked in [docs/11-legal-and-compliance.md](./docs/11-legal-and-compliance.md).
+FacelessPro is free software under the **GNU Affero General Public License v3.0** — the full
+text is in [LICENSE](./LICENSE).
+
+What that means in practice:
+
+- You may run, study, modify and share it, including commercially.
+- If you run a **modified** version as a network service, you must offer that service's users
+  the corresponding source (AGPL §13). Running it unmodified for yourself carries no such duty.
+- There is no warranty.
+
+Contributions are accepted under the same licence with a **DCO sign-off** (`git commit -s`),
+so provenance stays auditable and every commit says who wrote it. The working agreement for
+changes is [AGENTS.md](./AGENTS.md); third-party assets and model licences are tracked in
+[docs/11-legal-and-compliance.md](./docs/11-legal-and-compliance.md).
+
+> **Not a hosted-service launch.** The default narration engine (`edge-tts`) drives Microsoft's
+> consumer Read Aloud endpoint, which is not a public API — see docs/11 §2. The source is open;
+> a public deployment needs a licensed TTS engine first.

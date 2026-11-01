@@ -508,6 +508,29 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       gap, one voice), but the dash survives into the spoken text and would reach captions; fix
       with the sandhi work in [09](./09-roadmap.md) P1 deferred items.
 
+## Repository and community
+
+- [x] **2026-11-01 - AGPL-3.0 licence, and the repo framed for contributors.**
+      `LICENSE` now carries the full AGPL-3.0 text; `README.md` gains CI/licence/Node badges,
+      a corrected status table (P0/P1/P2 closed, P3 in progress, P4 next — the old table still
+      said "Phase 0" and "CI pending a push") and a "what AGPL means in practice" section;
+      `docs/11-legal-and-compliance.md` §0 records the decision, the consequences and the
+      non-consequences.
+      Chosen over MIT/Apache-2.0 because a copyleft network clause is the only thing that stops
+      a hosted fork becoming a closed competitor; chosen over source-available because "open
+      source" was the goal. Contributions use a **DCO sign-off** rather than a CLA: cheaper for
+      contributors, with the recorded cost that contributions cannot be relicensed later
+      without every author. PRs land by **squash-merge, maintainer presses merge**.
+      The licence does **not** clear a launch: `edge-tts` (§2) is still a launch blocker for any
+      public deployment, and the README now says so instead of implying otherwise.
+      Gate: docs-only, `npm run gate` still green (934 tests / 69 files). Python untouched.
+      **Observed:** GitHub already had the repo public and the CI workflow already runs on
+      `pull_request` (run #25 green), and a full-history check found only `.env.example` ever
+      committed and no token-shaped strings in the tree.
+      **Assumed / not observed:** whether GitHub detects the licence in the sidebar, which only
+      happens after the push; and the branch-protection rules that make contributor PRs safe are
+      a repository setting (Task C), not a file in this commit.
+
 ## P2 … P11
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this
@@ -987,3 +1010,4 @@ file stays the single "what is actually true today" view.
 | 2026-10-31 | Storage keys become `/files/<key>`; absolute URLs pass through | one public prefix to rewrite when a CDN replaces the api's static route (P6), and an absolute provider URL is already a public URL and must not be prefixed |
 | 2026-10-31 | `sampleVideoUrls` accepts a path, not only a URL | the list route maps preview and sample keys through the same storage helper; the artifact proved `z.url()` turned any non-empty local sample key into a plain-text 500 |
 | 2026-10-31 | `app.onError` returns the error envelope, not Hono's plain text | the rule is that every user-facing failure has a `code`; a fixed `internal` message keeps SQL/paths/stacks out of the response while the real error is logged |
+| 2026-11-01 | AGPL-3.0 for our code, DCO for contributions, squash-merge by the maintainer | copyleft is the only licence that stops a hosted fork becoming a closed competitor; DCO keeps contribution friction near zero at the cost of not being able to relicense later; squash keeps `development` one commit per roadmap task, which is what the gate and `PROGRESS` are written against |

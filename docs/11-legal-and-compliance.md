@@ -5,6 +5,29 @@ instead of re-litigated at every commit.
 
 ---
 
+## 0. Licence of this repository
+
+**Decided 2026-11-01: GNU AGPL-3.0** (full text in [`LICENSE`](../LICENSE)). Chosen over MIT /
+Apache-2.0 because a copyleft network clause is the only thing that keeps a hosted fork of this
+code from becoming a closed competing product; chosen over a source-available licence because
+"open source" was the stated goal, and AGPL is OSI-approved.
+
+Consequences recorded here so they are not rediscovered later:
+
+- Our own future SaaS **is** covered: if we run a modified version publicly, its source must be
+  offered to its users (AGPL §13). That is the intended trade, not an accident.
+- Plugins and integrations that merely call the HTTP API are separate works and are unaffected.
+- `packages/art/fonts/*` stay **SIL OFL 1.1** (see §2). OFL is AGPL-compatible; the OFL text
+  stays in the third-party notices.
+- Contributions land under the same licence with a **DCO sign-off** (`git commit -s`). DCO was
+  chosen over a CLA for contributor comfort. The cost: contributions **cannot be relicensed**
+  later without every author's permission. If dual-licensing ever becomes a business plan, that
+  switch has to happen before the contributor list grows.
+- Open source is **not** a launch clearance. `edge-tts` (§2) remains a launch blocker for any
+  public deployment regardless of the source licence.
+
+---
+
 ## 1. What we copy, and what we don't
 
 Copying **behaviour** is normal competition. Copying **expression** is infringement.
