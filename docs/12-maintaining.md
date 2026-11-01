@@ -144,7 +144,8 @@ Everything in §1–§4 is a repository setting. Editing a workflow, a template 
 reporting. Until those toggles are set in the browser, a PR can in principle be merged red — the
 settings are the enforcement, the docs are only the intent.
 
-**Observed:** run #25 (`pull_request`) and #27 (`push`) are green on `74…`/`8378bd4`, so the two
-check names and the `pull_request` trigger are real and not aspirational.
-**Assumed:** that the settings above have been applied — they are not visible from this repo, and
-`GET /branches/development/protection` returns 404 while protection is off.
+**Observed:** run #25 (`pull_request`) and run #29 (`push`) are green on `73be783` and `032326e`,
+so the two check names and the `pull_request` trigger are real and not aspirational.
+**Not observed:** whether the settings above have been applied. The protection endpoint requires
+authenticated repository-administration access; an anonymous request returns 401 and reveals no
+protection state.

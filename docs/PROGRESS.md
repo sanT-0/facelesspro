@@ -572,6 +572,16 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       re-checked in the browser; and no PR has yet been merged through the required checks
       (Task D).
 
+- [ ] **2026-11-01 - contributor PR rehearsal (Task D, in progress).**
+      Branch `fix/maintaining-observed-facts` corrects two factual mistakes in
+      `docs/12-maintaining.md`: run #25 was on `73be783` (not the mistyped `74…`), and the
+      anonymous branch-protection request returned 401 — it did not prove protection was off.
+      This intentionally small docs change is the rehearsal payload for required checks and a
+      maintainer squash-merge.
+      **Observed so far:** run #29 is green on the branch point (`032326e`).
+      **Not yet observed:** the rehearsal PR, both required checks on that PR, squash-merge, head
+      branch deletion, or green post-merge CI. Do not tick this item until all five are observed.
+
 ## P2 … P11
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this
