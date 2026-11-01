@@ -580,7 +580,7 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Dependabot alerts/security updates, secret scanning/push protection, read-only Actions
       permissions and first-time-contributor approval are on.
 
-- [ ] **2026-11-01 - contributor PR rehearsal (Task D, in progress).**
+- [x] **2026-11-01 - contributor PR rehearsal (Task D) completed end to end.**
       Branch `fix/maintaining-observed-facts` corrects the mistyped SHA for run #25 and replaces
       an inference from the authenticated protection endpoint with the public settings audit
       above. It also records the prerequisite discovered by that audit: change the default branch
@@ -590,12 +590,19 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       reproducible factual/structural check, instead of inventing a unit test for prose. This
       intentionally small workflow/docs change is the payload for required checks and a
       maintainer squash-merge.
-      **Observed so far:** PR #5 targets `development`, is clean/up to date and has three commits,
-      each with a matching DCO trailer. PR CI run #33 is green (`gate (node 22)` and
-      `python 3.12`); CodeQL and the code-scanning check are green too. The required-check names
-      therefore prove real enforcement rather than a guessed configuration.
-      **Not yet observed:** a completed PR body/review record, squash-merge, automatic head-branch
-      deletion, or green post-merge CI. Do not tick this item until all four are observed.
+      **Observed final:** PR #5 targeted `development`, carried a completed observed-vs-assumed
+      review body plus the `docs` label, and had four commits with matching DCO trailers. All nine
+      latest-head checks were green, including required `gate (node 22)` / `python 3.12` and
+      CodeQL for Actions/JavaScript/Python. GitHub reported it clean and up to date; the maintainer
+      squash-merged it as the one-parent, GitHub-verified commit `9ed31fd`, whose message retains
+      one `Signed-off-by` trailer. Auto-delete removed `fix/maintaining-observed-facts` (API and
+      `git ls-remote` both absent). Post-merge CI run #48 and CodeQL run #4 both completed green
+      on `9ed31fd`. Required checks, squash-only merge, DCO preservation, branch cleanup and the
+      post-merge gate are therefore observed rather than assumed.
+      **Surprising:** the first ruleset save silently left code-owner review on, conversation
+      resolution and required checks off, and strict up-to-date mode off. Reading the ruleset API
+      after every save caught all four before merge. The first PR-body edit only toggled boxes and
+      left placeholders; the final review record was re-pasted and verified through the API.
 
 ## P2 … P11
 

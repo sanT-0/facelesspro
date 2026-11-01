@@ -165,7 +165,9 @@ health. The active ruleset requires `gate (node 22)` and `python 3.12` in strict
 resolved conversations and squash-only PRs, while deliberately requiring zero approvals and no
 code-owner review until a second maintainer exists. Private vulnerability reporting, web-commit
 DCO sign-off, all project labels and all topics are enabled. PR #5 produced green PR CI (run #33),
-green CodeQL for Actions/JavaScript/Python and no new code-scanning alert.
+green CodeQL for Actions/JavaScript/Python and no new code-scanning alert. It was squash-merged as
+one-parent commit `9ed31fd`, the head branch was automatically deleted, and post-merge CI run #48
+plus CodeQL run #4 both completed green.
 
 **Maintainer-observed in the authenticated UI, not independently readable through the public
 API:** Dependabot alerts/security updates, secret scanning/push protection, read-only Actions
