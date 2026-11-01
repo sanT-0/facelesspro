@@ -57,6 +57,7 @@ npm run ping              # smoke test: the worker completes a real job (exit 0)
 | [docs/09-roadmap.md](./docs/09-roadmap.md) | Phase-by-phase task list with acceptance criteria |
 | [docs/10-operations.md](./docs/10-operations.md) | Running it, limits, cost control, troubleshooting |
 | [docs/11-legal-and-compliance.md](./docs/11-legal-and-compliance.md) | Licences, voice consent, platform policy, what not to copy |
+| [docs/12-maintaining.md](./docs/12-maintaining.md) | How a PR is verified, and the repo settings that make it stick |
 | [docs/PROGRESS.md](./docs/PROGRESS.md) | Living checklist of what is actually done |
 
 ## Repository layout

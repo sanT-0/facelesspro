@@ -552,6 +552,26 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       real PR. **Not observed:** GitHub accepting the YAML forms — that is only visible once
       pushed and someone opens an issue.
 
+- [x] **2026-11-01 - how a PR is verified, and the settings that enforce it.**
+      `docs/12-maintaining.md`: the branch-protection table for `development` with the **exact**
+      check names (`gate (node 22)`, `python 3.12` — a typo in the UI requires nothing and blocks
+      nothing), merge policy (squash only, PR title becomes the commit subject, auto-delete head
+      branches), the security toggles that the docs already depend on (**private vulnerability
+      reporting must be on or `SECURITY.md` and the issue-form link 404**), the label list the
+      tracker uses, and the ten-step verification order: one task → agreed → green CI → DCO →
+      diff against the rules → Tamil invariants → re-run the gate locally → re-verify the
+      artifact → read observed-vs-assumed → docs ticked.
+      Note on approvals: **0 required for now**, raised to 1 with stale-approval dismissal once a
+      second maintainer exists, because a 1-approval rule with one maintainer deadlocks my own
+      PRs. Admin bypass stays on while bootstrapping for the same reason.
+      Gate: docs only, `npm run gate` still **934 tests / 69 files**.
+      **Observed:** the required check names come from the workflow that actually ran green
+      (#25 on `pull_request`), not from guessing.
+      **Not observed:** the settings themselves. `GET /branches/development/protection` is not
+      readable unauthenticated (401), so protection state is unconfirmed until it is set and
+      re-checked in the browser; and no PR has yet been merged through the required checks
+      (Task D).
+
 ## P2 … P11
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this

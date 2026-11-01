@@ -1,0 +1,150 @@
+# 12 — Maintaining this repository
+
+How a contribution is verified, and which repository settings make that verification mean
+something. Written down so the answer to "can this PR land?" does not depend on my mood or my
+memory.
+
+Two halves:
+
+- **Settings** (§1–§4) live in the GitHub UI, not in this repo. They are listed here so they can
+  be applied once and re-checked, and so a second maintainer inherits the same rules.
+- **Procedure** (§5–§6) is the review itself: what I run, what I read, and what I refuse.
+
+---
+
+## 1. Branch protection on `development`
+
+`development` is the only integration branch. Nothing lands on it except by squash-merge of a
+PR whose checks are green.
+
+Settings → Branches → Add branch ruleset (or classic branch protection) targeting
+`development`:
+
+| Setting | Value | Why |
+|---|---|---|
+| Require a pull request before merging | **on** | the review and the contract live in the PR, not in the commit |
+| Required approvals | **0 for now → 1 later** | 0 while the only maintainer is also the only author, otherwise my own PRs deadlock. Raise to 1 the day a second maintainer exists, and enable *Dismiss stale approvals on new commits* in the same edit |
+| Require review from Code Owners | **off for now** | with `.github/CODEOWNERS` pointing at the sole maintainer it is the same deadlock |
+| Require status checks to pass | **on** | this is the gate |
+| Required checks | **`gate (node 22)`**, **`python 3.12`** | exact check-run names from `.github/workflows/ci.yml`; a typo here silently requires nothing |
+| Require branches to be up to date before merging | **on** | the gate proves a combination that was actually tested |
+| Require conversation resolution | **on** | an open question in review must not survive a merge |
+| Require linear history | off | squash-merging already gives one commit per task |
+| Require signed commits | off | provenance here is the **DCO** (`git commit -s`), not GPG |
+| Block force pushes | **on** | history on `development` must be append-only |
+| Block deletions | **on** | |
+| Allow bypass (admin) | **on during bootstrap, off once stable** | with 0 required approvals a broken setting could otherwise lock the repo owner out of their own branch |
+
+> **Check names change if the workflow changes.** Renaming a job means re-editing the required
+> checks list; a required check that no longer exists shows as "expected — waiting" forever and
+> blocks every PR.
+
+## 2. Merge policy
+
+Settings → General → Pull requests:
+
+- **Allow squash merging — on.** Default message: *Pull request title*, so the PR title becomes
+  the commit subject on `development` (one commit per roadmap task is what `docs/PROGRESS.md` is
+  written against).
+- **Allow merge commits — off.** **Allow rebase merging — off.** Two ways to merge produces two
+  histories to reason about.
+- **Automatically delete head branches — on.** Keeps the branch list honest; a closed PR's branch
+  is not a thing anyone needs back.
+- **Always suggest updating pull request branches — on.**
+
+## 3. Security features
+
+| Setting | Where | Why it matters here |
+|---|---|---|
+| **Private vulnerability reporting** | Settings → Code security | `SECURITY.md` and the issue-form contact link point at `…/security/advisories/new`. **Those links 404 until this is enabled.** |
+| **Dependabot alerts** | Settings → Code security | `.github/dependabot.yml` only controls update PRs; alerts are a separate toggle |
+| **Dependabot security updates** | Settings → Code security | patches reachable CVEs without waiting for the weekly group |
+| **Secret scanning** + **Push protection** | Settings → Code security | free on public repos; stops a `vp_…` or provider key at `git push` instead of after |
+| **CodeQL / default code scanning** | Settings → Code security | do not add it to required checks until it has run green at least once |
+| **Actions → Workflow permissions** | Settings → Actions → General | **Read repository contents** — the workflow already asks for `contents: read`; the default on a fresh repo is often write. Leave *Allow GitHub Actions to create and approve pull requests* off |
+| **Require approval for first-time contributors** | Settings → Actions → General | keep the default on: no workflow runs on a stranger's first PR until a human clicks approve |
+
+## 4. Labels and metadata
+
+Labels the tracker and the docs refer to (Settings → Labels):
+
+`bug`, `enhancement`, `documentation`, `dependencies`, `needs-triage`, plus the ones this project
+actually uses:
+
+| Label | Meaning |
+|---|---|
+| `good first issue` | scoped, needs no prior context, the contract is already written |
+| `help wanted` | I will not get to it soon and would welcome a PR |
+| `contract` | touches `packages/contracts` or a public API shape — needs a spec edit in the same PR |
+| `pipeline` | touches a step, the worker or a port |
+| `docs` | docs only, gate is still required |
+| `needs-artifact` | cannot be accepted on green CI alone; the reviewer must see the PNG/MP4/audio |
+
+Topics: `ai`, `video-generation`, `text-to-speech`, `tamil`, `ffmpeg`, `self-hosted`,
+`typescript`, `hono`, `nextjs`, `mcp`.
+
+## 5. Verifying an incoming PR
+
+Order matters: cheap checks first, and nothing expensive before CI is green.
+
+1. **Is it one task?** If the PR mixes a feature and an unrelated refactor, ask for a split
+   before reading the diff. A PR that cannot be described in one sentence cannot be reviewed.
+2. **Is it on the roadmap or agreed in an issue?** A surprise PR that changes direction is
+   declined regardless of quality.
+3. **CI.** Wait for `gate (node 22)` and `python 3.12`. Red CI means no review — this is not a
+   formality, it is the whole acceptance mechanism.
+4. **DCO.** `git log --format='%an <%ae>%n%(trailers:key=Signed-off-by)' origin/development..HEAD`
+   — every commit needs a `Signed-off-by` matching its author. Missing sign-off is a `git commit
+   --amend -s` away, so it is a request, not a rejection.
+5. **Read the diff against the rules** in `AGENTS.md` and `CONTRIBUTING.md`. What I actually look
+   for:
+   - a test that failed before the change, not just tests that pass after it;
+   - `packages/core` still pure — no `Date.now()`, no `process.env`, no I/O, no deps;
+   - shapes in `packages/contracts`, parsed with zod, not hand-typed `interface`s;
+   - the step is idempotent on `(video_id, step)`; ledger writes inside the state-change
+     transaction;
+   - no `any`; `unknown` plus a parse;
+   - errors carry a `code` from `docs/07`;
+   - no vendor SDK where a port belongs;
+   - **no vsub code, copy, assets or branding** (`docs/11` §1) — this one I check deliberately,
+     file by file, because it is the one mistake that is expensive to undo.
+6. **Tamil invariants** if text, captions, fonts or audio were touched: grapheme clusters not
+   split at line breaks, bundled Noto Sans Tamil, `concat(scenes.text)` intact, word timing still
+   `global = run.start + word.local`. A green gate does not prove the clip sounds right.
+7. **Re-run the gate locally.** `npm run gate`, plus `python -m ruff check app tests` and
+   `python -m pytest` in `services/media` when that tree moved. I want to see the number of tests
+   *increase* by the tests the PR claims to add.
+8. **Re-verify the artifact** for anything labelled `needs-artifact`: open the PNG/MP4, check
+   with `ffprobe` that duration, loudness and resolution match the claim. "It renders on the
+   contributor's machine" is not evidence for mine.
+9. **Read the observed-vs-assumed section.** Anything the contributor could not run (no provider
+   key, no database) is *assumed*, and I say so in the review instead of inheriting a claim.
+10. **Docs ticked.** A dated `docs/PROGRESS.md` line, and if behaviour changed, the spec doc
+    edited in the same PR. Missing docs is a change request, not a follow-up.
+
+Expect one round of `file:line` comments. If a PR goes quiet for 30 days after a review round,
+close it and say it can be reopened.
+
+## 6. Merging
+
+- **Squash-merge only**, and press it myself. The PR title becomes the commit subject — rewrite
+  it if it is vague. The PR body becomes the squash commit message; keep the observable-facts
+  part.
+- **Wait for post-merge CI.** A green PR run does not prove the squash commit is green: the merge
+  base moved. `https://api.github.com/repos/sanT-0/facelesspro/actions/runs?branch=development&per_page=1`
+  or the Actions tab. If `development` goes red, fixing it is the next task, ahead of any feature.
+- Shadow the merge locally if the contributor's claim matters:
+  `git fetch && git checkout -b review/pr-<n> origin/development && git cherry-pick -m 1 …`, or
+  simply `npm run gate` in a worktree.
+
+## 7. What cannot be done from a file
+
+Everything in §1–§4 is a repository setting. Editing a workflow, a template or this document does
+**not** turn on branch protection, required checks, secret scanning or private vulnerability
+reporting. Until those toggles are set in the browser, a PR can in principle be merged red — the
+settings are the enforcement, the docs are only the intent.
+
+**Observed:** run #25 (`pull_request`) and #27 (`push`) are green on `74…`/`8378bd4`, so the two
+check names and the `pull_request` trigger are real and not aspirational.
+**Assumed:** that the settings above have been applied — they are not visible from this repo, and
+`GET /branches/development/protection` returns 404 while protection is off.
