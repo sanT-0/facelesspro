@@ -581,8 +581,11 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       an inference from the authenticated protection endpoint with the public settings audit
       above. It also records the prerequisite discovered by that audit: change the default branch
       from `main` to `development` before opening the rehearsal PR, or GitHub continues to ignore
-      the new licence and community files. This intentionally small docs change is the rehearsal
-      payload for required checks and a maintainer squash-merge.
+      the new licence and community files. The rehearsal also caught and fixes one contributor
+      contract bug: docs/config-only PRs can now mark the test-first item N/A when they provide a
+      reproducible factual/structural check, instead of inventing a unit test for prose. This
+      intentionally small workflow/docs change is the payload for required checks and a
+      maintainer squash-merge.
       **Observed so far:** run #29 is green on the branch point (`032326e`).
       **Not yet observed:** the rehearsal PR, both required checks on that PR, squash-merge, head
       branch deletion, or green post-merge CI. Do not tick this item until all five are observed.

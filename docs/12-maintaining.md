@@ -111,7 +111,8 @@ Order matters: cheap checks first, and nothing expensive before CI is green.
    --amend -s` away, so it is a request, not a rejection.
 5. **Read the diff against the rules** in `AGENTS.md` and `CONTRIBUTING.md`. What I actually look
    for:
-   - a test that failed before the change, not just tests that pass after it;
+   - a test that failed before behavioural code changed, not just tests that pass after it; for
+     docs/config-only work, a reproducible factual or structural check and an honest N/A instead;
    - `packages/core` still pure — no `Date.now()`, no `process.env`, no I/O, no deps;
    - shapes in `packages/contracts`, parsed with zod, not hand-typed `interface`s;
    - the step is idempotent on `(video_id, step)`; ledger writes inside the state-change
