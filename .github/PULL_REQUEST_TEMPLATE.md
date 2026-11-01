@@ -12,7 +12,9 @@ Closes #
 ## Checklist
 
 - [ ] **One task.** This PR does one thing; unrelated refactors are split out.
-- [ ] **Test first.** There is a test that failed before the change and passes after it.
+- [ ] **Test first, or N/A explained.** Behavioural code has a test that failed before the
+      change and passes after it. For docs/config only, the reproducible factual or structural
+      check is named below instead; no fake test was added for prose.
 - [ ] **Gate pasted.** `npm run gate` output is quoted below (not "tests pass").
 - [ ] **Python ran** (`python -m ruff check app tests`, `python -m pytest`) if this touches
       `services/media` or `services/render`; otherwise say "not applicable".
