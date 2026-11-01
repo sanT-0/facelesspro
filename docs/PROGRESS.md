@@ -604,6 +604,26 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       after every save caught all four before merge. The first PR-body edit only toggled boxes and
       left placeholders; the final review record was re-pasted and verified through the API.
 
+- [x] **2026-11-01 - Task E: four good-first-issue seeds created (issues #13–#16).**
+      Genuinely bounded slices carved out of the documented-but-unimplemented work, none of them
+      the P4 caption cue builder (reserved for the next maintainer task):
+      **#13** run the 14 real Postgres/pg-boss integration tests in a CI service-container job
+      (`good first issue`/`help wanted`/`pipeline`); **#14** add three original built-in caption
+      template seeds as ids `-4`/`-5`/`-6` with an idempotency artifact check; **#15** mount
+      `GET /v1/caption-templates` built-ins-only pre-auth (blocked by #14,
+      `contract` label); **#16** replace the stale "Phase 0" header in `plan.md` with a pointer to
+      this progress file (`docs` label).
+      Each body follows the repo's own review discipline: Why / Scope / acceptance criteria /
+      artifact check / explicit out-of-scope, with pointers to the spec sections to read first.
+      **Observed:** all four issues exist with the exact intended bodies (byte-identical to the
+      prepared files via the API), `good first issue` + applicable area labels attached, and zero
+      non-ASCII characters after a first-pass encoding defect (Windows clipboard mojibake of
+      smart quotes, em dashes and `§`) was found by auditing the posted bodies through the API and
+      re-pasting corrected pure-ASCII versions.
+      **Surprising:** pasting via the Windows clipboard corrupted typographic characters even
+      though the source files were correct; the fix was to avoid `§`, curly quotes and em dashes
+      entirely in GitHub bodies.
+
 ## P2 … P11
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this
