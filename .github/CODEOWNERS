@@ -1,0 +1,11 @@
+# Review ownership. CODEOWNERS does not bypass CI: a PR still needs the required
+# checks. It only decides who is asked, and (with branch protection) who must
+# approve.
+
+# Everything else.
+*                       @sanT-0
+
+# The public contract and the CI definition are the two things a drive-by PR can
+# break silently, so they always route to the maintainer.
+/packages/contracts/    @sanT-0
+/.github/workflows/     @sanT-0

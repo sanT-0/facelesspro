@@ -1,0 +1,14 @@
+# Keep the tracker for things that are actually bugs or proposals.
+# Questions and "how do I…" belong in the docs or Discussions.
+blank_issues_enabled: false
+
+contact_links:
+  - name: How the project is built (read this first)
+    url: https://github.com/sanT-0/facelesspro/blob/development/CONTRIBUTING.md
+    about: The loop, the rules, dev setup, and what gets a PR rejected.
+  - name: Roadmap and current state
+    url: https://github.com/sanT-0/facelesspro/blob/development/docs/09-roadmap.md
+    about: Most features are already planned — check here before requesting one.
+  - name: Report a vulnerability (private)
+    url: https://github.com/sanT-0/facelesspro/security/advisories/new
+    about: Do not open a public issue for security problems.

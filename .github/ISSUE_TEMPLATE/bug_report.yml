@@ -1,0 +1,74 @@
+name: Bug report
+description: Something produced the wrong result, crashed, or contradicted the docs.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. **Do not paste API keys, `.env` contents or private paths** —
+        redact them first. Security problems go to Security → Advisories, not here (see SECURITY.md).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: The actual behaviour, as concretely as you can.
+      placeholder: "POST /v1/videos/plan returned 400 invalid_request for a script that the docs say is valid…"
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: Quote the doc or spec line if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Steps to reproduce
+      description: Exact commands, payloads or inputs. A failing test is the best repro.
+      placeholder: |
+        1. npm ci && npm run gate
+        2. …
+    validations:
+      required: true
+  - type: textarea
+    id: output
+    attributes:
+      label: Output, logs or artifact
+      description: Redacted. For render problems, say which file and what ffprobe reports.
+      render: shell
+    validations:
+      required: false
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - contracts (schemas)
+        - core (pure logic)
+        - api
+        - worker / queue
+        - media service (TTS / ASR / images)
+        - render
+        - art style
+        - docs
+        - not sure
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Revision
+      description: Commit SHA or branch you ran (`git rev-parse --short HEAD`).
+    validations:
+      required: false
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Node version, Python version, ffmpeg version, Docker or not.
+      placeholder: "Windows 11, Node 22.20, Python 3.12.7, ffmpeg 9.0.2"
+    validations:
+      required: true

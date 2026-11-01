@@ -1,0 +1,25 @@
+# One source of truth for indentation and line endings.
+#
+# The repo stores LF; a Windows checkout with core.autocrlf=true shows CRLF
+# warnings on every edit. This file does not rewrite anything — it stops new
+# edits from introducing the noise in the first place.
+
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+[*.py]
+indent_size = 4
+
+# Markdown uses two trailing spaces for a hard line break.
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{yml,yaml}]
+indent_size = 2

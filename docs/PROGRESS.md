@@ -531,6 +531,27 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       happens after the push; and the branch-protection rules that make contributor PRs safe are
       a repository setting (Task C), not a file in this commit.
 
+- [x] **2026-11-01 - contributor contract: docs, templates, ownership, dependency hygiene.**
+      `CONTRIBUTING.md` states the loop (one task, test first, gate, artifact, dated
+      `PROGRESS` line), the rules that get a change rejected, the Tamil invariants, dev setup,
+      and the DCO + squash-merge policy. `.github/PULL_REQUEST_TEMPLATE.md` turns that into a
+      checklist with a pasted `npm run gate` result and an explicit **observed vs assumed**
+      section, so "it compiles" cannot be presented as "it works". Issue forms for bugs and
+      features, with blank issues disabled and pointers to the roadmap and the private security
+      flow. `CODE_OF_CONDUCT.md` (Contributor Covenant 2.1), `SECURITY.md` (Advisories first,
+      in/out of scope named), `.github/CODEOWNERS` (whole repo plus `.github/workflows/**` and
+      `packages/contracts/**` always routed to the maintainer), `.github/dependabot.yml` (grouped
+      weekly npm/pip, monthly Actions - `npm ci` fails on lockfile drift) and `.editorconfig`
+      (LF, so new edits stop producing CRLF noise).
+      Deliberately **not** done here: branch protection / required checks / merge policy are
+      GitHub settings, not files (Task C); and no `.gitattributes` renormalisation, because it
+      would rewrite every file in one commit for no functional gain.
+      Gate: docs and config only; `npm run gate` unchanged at **934 tests / 69 files**.
+      **Observed:** all files parse as intended (YAML forms, CODEOWNERS syntax), and the existing
+      workflow already runs on `pull_request`, so the template and required checks will meet a
+      real PR. **Not observed:** GitHub accepting the YAML forms — that is only visible once
+      pushed and someone opens an issue.
+
 ## P2 … P11
 
 Tracked in [docs/09-roadmap.md](./09-roadmap.md). Copy items here as they are started so this

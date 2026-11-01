@@ -1,0 +1,50 @@
+name: Feature request
+description: Propose a capability. Read the roadmap first — most of it is already planned.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **Check [`docs/09-roadmap.md`](../docs/09-roadmap.md) and
+        [`docs/01-product-spec.md`](../docs/01-product-spec.md) first.** If the feature is already
+        an unchecked roadmap item, say so — that is the fastest path, because the contract is
+        already written.
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What can you not do today? Describe the workflow, not the implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behaviour
+      description: What should happen, from a user's or API caller's point of view.
+    validations:
+      required: true
+  - type: textarea
+    id: spec
+    attributes:
+      label: Which docs would change
+      description: Spec section, API table row, pipeline step, or "new doc".
+    validations:
+      required: false
+  - type: checkboxes
+    id: fit
+    attributes:
+      label: Fit with the project
+      options:
+        - label: It keeps the zero-key path working (no mandatory paid provider).
+          required: true
+        - label: It does not require copying another product's code, copy or assets.
+          required: true
+        - label: I am willing to open a PR for it, or to help test it.
+          required: false
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+    validations:
+      required: false
