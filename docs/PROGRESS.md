@@ -567,10 +567,62 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Gate: docs only, `npm run gate` still **934 tests / 69 files**.
       **Observed:** the required check names come from the workflow that actually ran green
       (#25 on `pull_request`), not from guessing.
-      **Not observed:** the settings themselves. `GET /branches/development/protection` is not
-      readable unauthenticated (401), so protection state is unconfirmed until it is set and
-      re-checked in the browser; and no PR has yet been merged through the required checks
-      (Task D).
+      **Observed settings audit and correction (public GitHub API, 2026-11-01):** the initial
+      state was `main` default, `development` unprotected, no checks/conversation rule, every
+      merge method allowed, private reporting off, no topics and six labels missing; community
+      health was 28%. After the settings pass: `development` is default and protected; its active
+      ruleset requires `gate (node 22)` + `python 3.12` in strict up-to-date mode, resolved
+      conversations and squash-only PRs, with 0 approvals and code-owner review off while there
+      is one maintainer. Private reporting and web-commit DCO are on, all project labels/topics
+      exist, AGPL-3.0 is detected, and community health is 100%. CodeQL's first
+      Actions/JavaScript/Python run is green.
+      **Maintainer-observed in the authenticated UI, not independently public-API-readable:**
+      Dependabot alerts/security updates, secret scanning/push protection, read-only Actions
+      permissions and first-time-contributor approval are on.
+
+- [x] **2026-11-01 - contributor PR rehearsal (Task D) completed end to end.**
+      Branch `fix/maintaining-observed-facts` corrects the mistyped SHA for run #25 and replaces
+      an inference from the authenticated protection endpoint with the public settings audit
+      above. It also records the prerequisite discovered by that audit: change the default branch
+      from `main` to `development` before opening the rehearsal PR, or GitHub continues to ignore
+      the new licence and community files. The rehearsal also caught and fixes one contributor
+      contract bug: docs/config-only PRs can now mark the test-first item N/A when they provide a
+      reproducible factual/structural check, instead of inventing a unit test for prose. This
+      intentionally small workflow/docs change is the payload for required checks and a
+      maintainer squash-merge.
+      **Observed final:** PR #5 targeted `development`, carried a completed observed-vs-assumed
+      review body plus the `docs` label, and had four commits with matching DCO trailers. All nine
+      latest-head checks were green, including required `gate (node 22)` / `python 3.12` and
+      CodeQL for Actions/JavaScript/Python. GitHub reported it clean and up to date; the maintainer
+      squash-merged it as the one-parent, GitHub-verified commit `9ed31fd`, whose message retains
+      one `Signed-off-by` trailer. Auto-delete removed `fix/maintaining-observed-facts` (API and
+      `git ls-remote` both absent). Post-merge CI run #48 and CodeQL run #4 both completed green
+      on `9ed31fd`. Required checks, squash-only merge, DCO preservation, branch cleanup and the
+      post-merge gate are therefore observed rather than assumed.
+      **Surprising:** the first ruleset save silently left code-owner review on, conversation
+      resolution and required checks off, and strict up-to-date mode off. Reading the ruleset API
+      after every save caught all four before merge. The first PR-body edit only toggled boxes and
+      left placeholders; the final review record was re-pasted and verified through the API.
+
+- [x] **2026-11-01 - Task E: four good-first-issue seeds created (issues #13–#16).**
+      Genuinely bounded slices carved out of the documented-but-unimplemented work, none of them
+      the P4 caption cue builder (reserved for the next maintainer task):
+      **#13** run the 14 real Postgres/pg-boss integration tests in a CI service-container job
+      (`good first issue`/`help wanted`/`pipeline`); **#14** add three original built-in caption
+      template seeds as ids `-4`/`-5`/`-6` with an idempotency artifact check; **#15** mount
+      `GET /v1/caption-templates` built-ins-only pre-auth (blocked by #14,
+      `contract` label); **#16** replace the stale "Phase 0" header in `plan.md` with a pointer to
+      this progress file (`docs` label).
+      Each body follows the repo's own review discipline: Why / Scope / acceptance criteria /
+      artifact check / explicit out-of-scope, with pointers to the spec sections to read first.
+      **Observed:** all four issues exist with the exact intended bodies (byte-identical to the
+      prepared files via the API), `good first issue` + applicable area labels attached, and zero
+      non-ASCII characters after a first-pass encoding defect (Windows clipboard mojibake of
+      smart quotes, em dashes and `§`) was found by auditing the posted bodies through the API and
+      re-pasting corrected pure-ASCII versions.
+      **Surprising:** pasting via the Windows clipboard corrupted typographic characters even
+      though the source files were correct; the fix was to avoid `§`, curly quotes and em dashes
+      entirely in GitHub bodies.
 
 ## P2 … P11
 

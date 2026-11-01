@@ -1,8 +1,9 @@
 # Contributing to FacelessPro
 
-Thanks for wanting to help. This project is built **one roadmap task at a time**, with a test
-written before the code and a gate that must be green before anything lands. Read this page once;
-it is short, and it is the difference between a PR that merges in a day and one that stalls.
+Thanks for wanting to help. This project is built **one roadmap task at a time**, with a failing
+test written before behavioural code and a gate that must be green before anything lands. Read
+this page once; it is short, and it is the difference between a PR that merges in a day and one
+that stalls.
 
 - Licence: **AGPL-3.0** — by contributing you agree your work is released under it.
 - Sign-off: every commit needs a **DCO** line (`git commit -s`).
@@ -65,6 +66,9 @@ one task → contract + failing test → smallest real implementation
 - **One task per PR.** Not three, not "while I'm here". Split unrelated refactors out.
 - A phase does not close with a red gate, a skipped test, or an unverified artifact.
 - If you deviate from a spec, **edit the spec in the same PR**. The docs are the contract.
+- A docs/config-only correction may have no meaningful unit test. In that case, state **N/A** in
+  the PR and show the reproducible check that failed before it: an API response, schema/parser
+  result, broken link, `git diff --check`, or equivalent. Do not add a fake test for prose.
 
 ### The rules that get a change rejected
 
