@@ -51,6 +51,12 @@ export type {
 export { SAMPLE_ROOT, sampleSetDir } from './samples';
 export { normalizeScript, splitSentences } from './sentences';
 export type { Sentence } from './sentences';
+export { buildCaptionCues, clusterCount, readableCueText } from './captions';
+export type {
+  CaptionCue,
+  CaptionCueOptions,
+  CaptionWord,
+} from './captions';
 export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,
