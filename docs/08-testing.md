@@ -298,4 +298,4 @@ A phase closes only when all four are true:
 - Sleeping in tests instead of awaiting an event/condition.
 - Any engine call inside a unit test.
 - "Works on my machine" without a `docker compose up` path.
-- Adding a feature because vsub has it, without a row in [01](./01-product-spec.md).
+- Adding a feature just because another product has it, without a row in [01](./01-product-spec.md).

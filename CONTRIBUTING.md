@@ -5,10 +5,10 @@ test written before behavioural code and a gate that must be green before anythi
 this page once; it is short, and it is the difference between a PR that merges in a day and one
 that stalls.
 
-- Licence: **AGPL-3.0** — by contributing you agree your work is released under it.
+- Licence: **MIT** — by contributing you agree your work is released under it.
 - Sign-off: every commit needs a **DCO** line (`git commit -s`).
 - Target branch: **`development`**. PRs are **squash-merged by a maintainer**.
-- Non-negotiable: **no vsub code, copy, assets or branding.** See
+- Non-negotiable: **no third-party product's code, copy, assets or branding.** See
   [docs/11 §1](./docs/11-legal-and-compliance.md).
 
 ---
@@ -83,7 +83,7 @@ one task → contract + failing test → smallest real implementation
   `noUncheckedIndexedAccess`.
 - Every user-facing error carries a `code` from [docs/07](./docs/07-api-and-mcp.md).
 - Python: type hints, `ruff`-clean, no global state in `services/media`.
-- No copying vsub. Behaviour yes, expression no.
+- No copying other products. Behaviour and ideas yes, expression no.
 
 ### Tamil correctness is a hard requirement
 
@@ -138,5 +138,5 @@ Do **not** open a public issue for a vulnerability. Use GitHub's **Report a vuln
 
 ## 7. Licence and provenance
 
-Contributions are licensed under AGPL-3.0. There is no CLA; the DCO is the paper trail. Do not
+Contributions are licensed under MIT. There is no CLA; the DCO is the paper trail. Do not
 paste code from another project unless its licence is compatible and you say so in the PR.

@@ -103,7 +103,7 @@ before every video."*
 | GET | `/v1/art-styles/:id/export` | portable style JSON `{version: 1, name, formats[], profile}` — the full `StyleProfile`, no ids/keys/timestamps; `409 conflict` while building, `404 not_found`, `400 invalid_request` (`field: "id"`), `500 internal` if the stored profile fails validation |
 | POST | `/v1/voices/import` | consent-gated voice import |
 
-None of these change the parity contract; they are additive.
+None of these change the committed contract; they are additive.
 
 ---
 
@@ -122,7 +122,7 @@ Body:    { "event": "completed", "video": { …identical to GET /v1/videos/:id�
 - Any 2xx within 10 s = delivered. Body ignored. Non-2xx/timeout/DNS/TLS = failure.
 - Dedupe on `X-Faceless-Event-Id`.
 - Render finishing fires **again**, even if generation already notified.
-- Unsigned mode available for parity; signing is on by default.
+- Unsigned mode available for compatibility; signing is on by default.
 
 Delivery runs on its own pg-boss queue with `retryLimit=10` and a custom backoff schedule, so
 a slow receiver never blocks a render.
@@ -134,7 +134,7 @@ a slow receiver never blocks a render.
 **Endpoint:** `/mcp` (Streamable HTTP, JSON-RPC 2.0). Works with `Accept: application/json,
 text/event-stream`.
 
-### 4.1 Tool list (parity)
+### 4.1 Tool list (1:1 with the `/v1` routes)
 
 ```
 create_caption_video       write    spend

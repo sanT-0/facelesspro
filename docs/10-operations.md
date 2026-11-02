@@ -65,8 +65,8 @@ checkpoint or custom node. Keep plain HTTP on loopback/private networks; use HTT
 | Public URLs | api static route `/files/*` | CDN / bucket public prefix |
 | Cleanup | `npm run prune -- --older-than 30d` | lifecycle rule |
 
-Completed renders must have a **stable, unauthenticated** URL (parity). Everything else can
-expire. Suggested retention: renders 90 days, intermediate frames 14 days, source uploads 7 days.
+Completed renders must have a **stable, unauthenticated** URL (committed behaviour). Everything
+else can expire. Suggested retention: renders 90 days, intermediate frames 14 days, source uploads 7 days.
 
 ---
 
@@ -83,7 +83,7 @@ expire. Suggested retention: renders 90 days, intermediate frames 14 days, sourc
 | `TTS_CACHE_DIR` | `<MEDIA_DATA_DIR>/cache` | entry = `<sha256>.audio` + `<sha256>.json` |
 | `GET /cache` | — | hits / misses / writes / entries / bytes |
 | per-scene image cache | on, keyed by prompt+seed | a redraw is cheap, a retry is free |
-| `speed=slow` batching | off | 10% cheaper parity behaviour for image gen |
+| `speed=slow` batching | off | 10% cheaper image-gen behaviour, as specified |
 | `npm run usage` | — | prints per-step cost for the last N videos |
 
 **Watch item:** free image quotas are the real bottleneck. 35 scenes/video × 3 videos/day

@@ -426,7 +426,7 @@ reading `2024` as "two zero two four" is instantly wrong.
 | **AI4Bharat IndicF5** | ✅ (Indic-strong) | needs per-run prompting | ❌ (align after) | free, local GPU/CPU | quality upgrade, Tamil-first |
 | **Piper** | ✅ (`ta_IN` voices exist) | weak on English | ❌ | free, offline | no-network fallback |
 | **Azure Speech** | ✅ | native bilingual | ✅ | paid | prod-grade option |
-| **ElevenLabs** | ✅ multilingual v2 | strong | ✅ | paid | parity voice provider |
+| **ElevenLabs** | ✅ multilingual v2 | strong | ✅ | paid | optional quality upgrade |
 | **Google Chirp3 HD** | ✅ | native | ✅ | paid | alt |
 
 All behind `TTSPort`, selected by `TTS=edge,indicf5,piper`.
@@ -687,8 +687,8 @@ Response (also written to `timeline.json` in the request directory):
 `start_ms` and `words` are the caption contract: a word's global start is always
 `segment.start_ms + its local start`. `master.mp3` sits next to `master.wav` for listening.
 
-Public API parity (`/v1/text-to-speech`) stays vsub-shaped: `{text, voiceId, voiceStyle}` →
-`{id, url, characters, expiresAt}`. The mixed machinery is automatic:
+The public API contract (`/v1/text-to-speech`) stays intentionally small: `{text, voiceId,
+voiceStyle}` → `{id, url, characters, expiresAt}`. The mixed machinery is automatic:
 
 - `voiceId: "ta-IN-PallaviNeural"` + Tamil/English text → auto-routed to a compatible pair.
 - `voiceId: { "ta": "…", "en": "…" }` (our extension) → explicit pair.

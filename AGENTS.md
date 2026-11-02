@@ -34,8 +34,8 @@ one task → contract + failing test → smallest real implementation
 - **Idempotency is a property of every step.** `(video_id, step)` is the key. Re-running must
   charge once and produce one artifact.
 - **Ledger writes live in the same transaction as the state change.** No exceptions.
-- **No copy from vsub.** Not code, not copy, not assets. See
-  `docs/11-legal-and-compliance.md`.
+- **No copying from any third-party product.** Not their code, not their copy, not their
+  assets. See `docs/11-legal-and-compliance.md`.
 - TypeScript strict, `noUncheckedIndexedAccess` on. No `any` in new code; `unknown` + a zod parse.
 - Errors: typed results at boundaries, thrown exceptions internally. Every user-facing error has
   a `code` from the table in `docs/07-api-and-mcp.md`.
@@ -52,7 +52,7 @@ one task → contract + failing test → smallest real implementation
 | Step ids | `create-scenes`, `create-vocal`, `create-images`, `create-captions`, `render` |
 | Video status | `processing` → `rendering` → `completed` \| `failed` |
 
-Step ids and status values are a **public contract** (parity). Do not rename them casually.
+Step ids and status values are a **stable public contract**. Do not rename them casually.
 
 ## Tamil correctness is a hard requirement
 
@@ -83,7 +83,7 @@ If a change breaks any of these, it is wrong even if the feature "works".
 
 ## Things that will get a change rejected
 
-- Copying vsub assets/code/copy.
+- Copying a third-party product's assets/code/copy.
 - A new paid dependency that is not optional.
 - A model call inside a unit test.
 - A step that is not idempotent.

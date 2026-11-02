@@ -1,4 +1,4 @@
-# 02 — How vsub.io was analysed (REA notes)
+# 02 — How the reference product was analysed (REA notes)
 
 This document separates three things on purpose:
 
@@ -13,8 +13,8 @@ documentation. No authentication was bypassed, no private API was called, no cod
 
 ## 1. Target routing
 
-vsub.io is a **live SaaS web application**, not a shipped desktop artifact. So the applicable
-REA routes were:
+The product under analysis is a **live SaaS web application**, not a shipped desktop artifact.
+So the applicable REA routes were:
 
 | Route | Used | Why |
 |---|---|---|
@@ -25,8 +25,8 @@ REA routes were:
 ### Artifact identity
 
 ```
-subject   : C:\Users\sanT\AppData\Local\Temp\opencode\vsub-js
-format    : directory (mirror of https://vsub.io/_next/static/**)
+subject   : C:\Users\sanT\AppData\Local\Temp\opencode\reference-js
+format    : directory (mirror of the reference site's `/_next/static/**`)
 sha256    : 0e4ec54679811370ca8a087558804fa8c47d378fe22a2da2da34f176c3384572
 files     : 36 relevant, 34 parsed javascript, 0 parse failures
 ast nodes : 354,669
@@ -44,8 +44,9 @@ evidence  : ev_925a537540e6119a2687f1a734622aca4813369e39d1d394b8cf72e57b13e9e1 
 - Webpack/Rspack factories were recovered from AST literals; bootstrap code was not invoked.
 
 **Consequence for us:** endpoint names below are *observed strings*, not verified live
-behaviour. Where behaviour matters (validation, cost, status machine) we rely on vsub's own
-public API documentation, which is an authoritative statement of intent.
+behaviour. Where behaviour matters (validation, cost, status machine) we rely on the
+reference service's own public API documentation, which is an authoritative statement of
+intent.
 
 ---
 
@@ -55,10 +56,10 @@ public API documentation, which is an authoritative statement of intent.
 
 | Host | Role (inferred from usage) |
 |---|---|
-| `api.vsub.io` | API + MCP endpoint (`/mcp`) |
-| `storage.vsub.io` | object storage; `public-assets/client/...`, `r2-sample-videos/`, `vsub-sample-videos/` |
-| `cf-content.vsub.io` | CDN for sample videos |
-| `files.vsub.io` | generated artifact URLs (seen in API docs, e.g. `art-styles/...png`) |
+| API host | API + MCP endpoint (`/mcp`) |
+| storage host | object storage; `public-assets/client/...`, `r2-sample-videos/`, `product-sample-videos/` |
+| CDN host | CDN for sample videos |
+| files host | generated artifact URLs (seen in API docs, e.g. `art-styles/...png`) |
 
 ### 2.2 Client-side API surface
 
@@ -67,11 +68,11 @@ Observed literal paths in the bundles:
 ```
 /api/ai-videos-v3
 /api/mcp
-https://api.vsub.io
+https://<api-host>
 ```
 
 And the documented public API (see §3) is a superset. The client-side `/api/*` routes are the
-Next.js same-origin proxies; the real surface is `https://api.vsub.io/v1/*`.
+Next.js same-origin proxies; the real surface is the public `​/v1/*` API.
 
 ### 2.3 MCP tool names observed in bundle strings
 
@@ -87,7 +88,7 @@ create call: `[template name, aspect ratio × resolution, duration, voice provid
 ### 2.4 Aspect ratios
 
 Only `"16:9"` and `"9:16"` appear as literals. API-level names are `landscape` / `portrait`.
-No `1:1` was observed — treat square as our own addition, not parity.
+No `1:1` was observed — square is our own addition, not a behaviour we borrow.
 
 ### 2.5 Product copy that defines behaviour
 
@@ -118,7 +119,7 @@ Credit unit costs (observed table):
 | Image animation (V2/V3) | per 1 s | 6 credits |
 | ElevenLabs v4 Turbo TTS | per 1,000 chars (~1 min audio) | 70 credits |
 | ElevenLabs v4 TTS | per 1,000 chars | 140 credits |
-| Vsub engine TTS | per 1,000 chars | 42 credits |
+| In-house engine TTS | per 1,000 chars | 42 credits |
 | Subtitle generation | per video | 20 credits |
 | Video rendering | per 1 min | 10 credits |
 | Standalone TTS API | per 1,000 chars | 100 credits |
@@ -132,8 +133,9 @@ prices. Self-hosted default is "unlimited dev mode"; pricing is data, not code.
 
 ## 3. Documented contract (authoritative, public docs)
 
-Base URL `https://api.vsub.io`. Auth: workspace-scoped bearer token, never expires, revoked
-manually. MCP endpoint `https://api.vsub.io/mcp` (Streamable HTTP).
+Base URL: the reference service's API host (public docs). Auth: workspace-scoped bearer
+token, never expires, revoked manually. MCP endpoint: same host, `/mcp` path (Streamable
+HTTP).
 
 ### 3.1 Endpoints
 
@@ -204,7 +206,7 @@ check on ours: our step ids are `create-scenes`, `create-vocal`, `create-images`
 | Exact scene-splitting prompt/model | affects prose quality, not architecture | our own planner + deterministic fallback; quality is tunable |
 | How art-style "learning" is implemented (LoRA? prompt synthesis? image refs?) | affects fidelity ceiling | we start with prompt+palette+character-bible lock; LoRA is a later upgrade path |
 | Image model behind V3 | cosmetic | free `flux-1-schnell` first, swap behind a port |
-| Voice model for "Vsub engine" | none | our edge-tts/IndicF5 stack is already better for Tamil |
+| Voice model behind the in-house engine | none | our edge-tts/IndicF5 stack is already better for Tamil |
 | Editor internals | ux only | we design our own editor |
 
 ## 6. Evidence hygiene

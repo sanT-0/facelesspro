@@ -1,9 +1,9 @@
 # FacelessPro — Master Plan
 
 > Turn a script (or a voice recording) into a narrated, illustrated, subtitled faceless video,
-> drawn in a style cloned from a reference video. **Premium+ feature parity with vsub.io,
-> running entirely on free / self-hostable engines, with first-class Tamil + English
-> code-mixed narration.**
+> drawn in a style cloned from a reference video. **Full workflow — script → scenes → voice →
+> art → subtitles → 1080p/2K/4K export — running entirely on free / self-hostable engines,
+> with first-class Tamil + English code-mixed narration.**
 
 - **Status:** Phase 0 — planning complete, implementation starting
 - **Owner:** sanT
@@ -17,7 +17,7 @@
 
 Two goals, in this order:
 
-1. **Personal use.** I want the vsub.io Premium+ workflow (script → scenes → voice → art →
+1. **Personal use.** I want the full premium workflow (script → scenes → voice → art →
    subtitles → 1080p/2K/4K export) usable by me, on my own machine, without a $199/month
    subscription, without credit anxiety, and with a narrator that actually sounds right in
    **Tamil, English, and Tanglish (Tamil words in Latin script)** — which no western TTS
@@ -26,21 +26,21 @@ Two goals, in this order:
    product, not a clone script: multi-tenant workspaces, API keys, webhooks, an MCP server,
    a usable web editor, and a licence-clean dependency chain.
 
-**Explicit non-goal:** copying vsub.io's code, copy, artwork, templates, sample videos, or
-branding. We replicate *observable behaviour* (documented in
-[docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md)) and build our own
-implementation, our own assets, and our own copy. See
+**Explicit non-goal:** copying any third-party product's code, copy, artwork, templates,
+sample videos, or branding. This project is our own implementation, our own assets, and our
+own copy. Observed behaviour that informed the design is documented in
+[docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md). See
 [docs/11-legal-and-compliance.md](./docs/11-legal-and-compliance.md).
 
 ---
 
-## 2. What "Premium+" means here
+## 2. Scope: the full feature surface
 
-vsub.io sells three tiers; Premium+ ($199/mo) sits in the middle of the paid range and is
-the "most popular" one. The tier differences are **only** volume and export ceiling
-(minutes/month, credits, 2K/4K unlock, team seats). The *features* are effectively tier-wide.
+Commercial products in this space sell tiers whose differences are **only** volume and export
+ceiling (minutes/month, credits, 2K/4K unlock, team seats). The *features* are effectively
+tier-wide.
 
-So "all Premium+ features" = the full product surface:
+So the scope of this project = the full feature surface:
 
 | # | Capability | Phase |
 |---|---|---|

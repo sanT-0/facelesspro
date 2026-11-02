@@ -1056,13 +1056,14 @@ file stays the single "what is actually true today" view.
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-02 | Docs de-anonymized from any third-party product: names and hosts replaced with neutral wording, "parity" reworded to "committed behaviour/compatibility", copy-guardrails generalized | the docs stand on their own spec; behavioural content unchanged |
 | 2026-10-26 | Keep `@stickman/*` code, rename scope in P0 | it is real prior work (segmenter + edge-tts + fonts), not scaffolding |
 | 2026-10-26 | pg-boss over Redis/BullMQ | ledger + job state must commit in one transaction |
 | 2026-10-26 | Raw ffmpeg + ASS before Remotion | deterministic output, 4K without Node memory, ASS gives per-word karaoke |
 | 2026-10-26 | TTS before any visual work | it is the differentiator and the riskiest quality problem |
 | 2026-10-26 | Cloudflare Workers AI as default free engine | user has it; covers planner + images + VLM with one credential |
 | 2026-10-26 | No LoRA in v1 | style locking by description + palette + character bible is enough to test the product; LoRA needs GPU and is a P10 upgrade |
-| 2026-10-26 | Webhooks signed by default | parity requires unsigned, security requires signed — signed default, opt-out for parity |
+| 2026-10-26 | Webhooks signed by default | the base contract allows unsigned, security requires signed — signed default, opt-out for compatibility |
 | 2026-10-26 | Timestamps normalised on the drizzle column, not by `pg`'s parser | drizzle bypasses `pg`'s type parsers, so a global parser is dead code; a column-level `customType` is the only place it actually runs |
 | 2026-10-26 | Plans are code, not a table | docs/03 has no plan table and there are no prices to copy; `workspace.plan_id` is a pointer, so a plan change is not a migration |
 | 2026-10-26 | One commit per step, network work outside it | artifacts + ledger + cursor + next job must be one transaction; a transaction held open during TTS/image calls would pin a connection and row locks for minutes |
@@ -1104,3 +1105,4 @@ file stays the single "what is actually true today" view.
 | 2026-10-31 | `sampleVideoUrls` accepts a path, not only a URL | the list route maps preview and sample keys through the same storage helper; the artifact proved `z.url()` turned any non-empty local sample key into a plain-text 500 |
 | 2026-10-31 | `app.onError` returns the error envelope, not Hono's plain text | the rule is that every user-facing failure has a `code`; a fixed `internal` message keeps SQL/paths/stacks out of the response while the real error is logged |
 | 2026-11-01 | AGPL-3.0 for our code, DCO for contributions, squash-merge by the maintainer | copyleft is the only licence that stops a hosted fork becoming a closed competitor; DCO keeps contribution friction near zero at the cost of not being able to relicense later; squash keeps `development` one commit per roadmap task, which is what the gate and `PROGRESS` are written against |
+| 2026-11-02 | Relicensed AGPL-3.0 → MIT | sole-maintainer relicence; concrete trigger: an open code-reuse index asked for a permissive reuse of one commit; trade-off accepted: a fork may be hosted closed-source, recorded in docs/11 §0; DCO unchanged |
