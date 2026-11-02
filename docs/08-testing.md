@@ -73,7 +73,7 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 | `captions.test.ts` | line breaking, word limit, Tamil grapheme clusters never split, cue monotonicity |
 | `timeline.test.ts` | global = run.start + word.local; gaps by boundary class; no overlaps |
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
-| `ass.test.ts` | ASS document well-formed, style ids reference real styles, font names bundled |
+| `ass.test.ts` | ASS v4+ header/style/events, BGR colour packing, centisecond timecodes, karaoke `\k` durations, explicit `\N` line breaks, text escaping, template position/font/colour mapping |
 | `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
 | `sentences.test.ts` | Tamil/Latin terminators, abbreviations (`Dr.`, `Rs.500`, `p.m.`, `திரு.`), decimals, initials, ellipsis, closing quotes, Tamil quotatives (`"…?" என்று` stays one sentence), paragraph breaks, offsets into the normalised script, `concat === script` |
 | `duration.test.ts` | ta 130 / en 150 / mixed 140 wpm, per-word blend, numbers expanded before counting, `₹1,20,000` = 5 words not 1 and unspellable digits keep the mixed rate, one 300 ms gap per sentence, `durationMs`, zero for silence, override rates, rate validation |
@@ -82,7 +82,13 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 Property tests (fast-check) for the timing invariants: 10k random voice plans must produce a
 monotonic, gap-respecting, non-overlapping timeline.
 
-### 3.2 `packages/contracts` (zod only, no I/O)
+### 3.2 `packages/art` (real ffmpeg/libass)
+
+| File | Asserts |
+|---|---|
+| `ass-render.test.ts` | bundled font SHA-256 pins; committed 1280×720 human-review golden PNG; real ffmpeg selects `NotoSansTamil-Variable.ttf`; exact 640×360 RGB output; >1,000 non-background glyph pixels. Pixel digest is advisory, never a hard failure. |
+
+### 3.3 `packages/contracts` (zod only, no I/O)
 
 | File | Asserts |
 |---|---|
@@ -96,7 +102,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 Because these schemas are the single shape source, a red contract test blocks api, worker, web
 and mcp at once — that is the point.
 
-### 3.3 `apps/api`
+### 3.4 `apps/api`
 
 | Test | Asserts |
 |---|---|
@@ -112,7 +118,7 @@ and mcp at once — that is the point.
 | `app` | an unexpected throw from any dependency returns `500 application/json` with `error.code: "internal"`, a fixed message and no path/stack leak; the real error is logged |
 | `mcp.tools` | tool list matches the endpoint list 1:1 (a test, not a convention) |
 
-### 3.4 `packages/db` (schema only, no network)
+### 3.5 `packages/db` (schema only, no network)
 
 | Test | Asserts |
 |---|---|
@@ -123,7 +129,7 @@ and mcp at once — that is the point.
 The migration itself is verified by running it (docs/09 P0), not by a unit test: `npm run
 db:migrate` twice must report `17 tables, 1 migrations applied` then `0 new caption templates`.
 
-### 3.5 `packages/queue` (hermetic) + `test:db` (Postgres)
+### 3.6 `packages/queue` (hermetic) + `test:db` (Postgres)
 
 `jobs.test.ts`, `ping.test.ts`, `art-style.test.ts` and `health.test.ts` run in
 `npm run gate`, no database:
@@ -154,7 +160,7 @@ against `docker compose` Postgres:
 | no commit | a body that neither commits nor reports `reused` fails with `internal` |
 | concurrency | two jobs for one `(video, step)` run the body once: the second sees `locked` while the first holds it |
 
-### 3.6 `apps/worker`
+### 3.7 `apps/worker`
 
 | Test | Asserts |
 |---|---|
@@ -203,7 +209,7 @@ against `docker compose` Postgres:
 | `adapter.allfail` | every adapter down → `failed`, `step` correct, no charge |
 | `ledger.atomic` | a throw after artifact write rolls back both the ledger and the step |
 
-### 3.7 `services/media` (pytest)
+### 3.8 `services/media` (pytest)
 
 | Test | Asserts |
 |---|---|
@@ -221,7 +227,7 @@ against `docker compose` Postgres:
 Cross-language parity matters: the Python service must route exactly like the TypeScript core,
 or the editor's inspector will lie.
 
-### 3.8 `services/render`
+### 3.9 `services/render`
 
 | Test | Asserts |
 |---|---|
@@ -230,7 +236,7 @@ or the editor's inspector will lie.
 | `test_tamil_shaping.py` | render a frame with `தமிழ்` + `ஸ்ரீ` and compare against a committed golden PNG (glyph shaping is the thing that silently breaks) |
 | `test_determinism.py` | same input twice → same duration/fps/frame-hash for frame 30 |
 
-### 3.9 `apps/web`
+### 3.10 `apps/web`
 
 | Test | Asserts |
 |---|---|

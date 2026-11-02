@@ -57,6 +57,8 @@ export type {
   CaptionCueOptions,
   CaptionWord,
 } from './captions';
+export { assColour, buildAss, toAssTimecode } from './ass';
+export type { AssDimensions, AssStyleSpec } from './ass';
 export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,

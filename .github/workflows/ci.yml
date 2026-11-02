@@ -1,6 +1,7 @@
 # CI: the two gates that must never be red on a branch.
 #
-#   gate    = typecheck + lint + hermetic tests (no database, no network)
+#   gate    = typecheck + lint + hermetic tests (no database, no provider
+#             network; real ffmpeg/libass for render tests)
 #   python  = ruff + pytest for services/media (real ffmpeg, fake engines)
 #
 # What is deliberately *not* here, and why (docs/08 §2):
@@ -45,6 +46,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+
+      # packages/art render tests are deliberately real: they prove libass
+      # selects the bundled Tamil font and shapes a frame. Never skip this
+      # test merely because the runner image changes its preinstalled tools.
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
 
       # `ci`, not `install`: fails when package-lock.json disagrees with
       # package.json, which is exactly the drift a lockfile exists to prevent.

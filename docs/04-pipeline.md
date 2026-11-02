@@ -468,8 +468,10 @@ telling the user what to upload instead.
    priority, never break a Tamil grapheme cluster.
 2. Karaoke styling: per-word highlight spans (`\k`) so the current word pops.
 3. Emoji sprinkling: only on emphasis words, only from an allow-list, ≤1 per 2 cues (opt-in).
-4. Render `ASS` with the **bundled** fonts (`NotoSansTamil-Regular/Bold`), explicit
-   `ScaledBorderAndShadow`, and a fallback chain, so Tamil shaping is correct.
+4. Render `ASS` with the **bundled** variable fonts (`NotoSansTamil-Variable.ttf` and
+   `NotoSans-Variable.ttf`), explicit `ScaledBorderAndShadow`, and libass's fallback chain,
+   so Tamil shaping is correct. The files retain their internal `Noto Sans Tamil` / `Noto Sans`
+   family names; `packages/art/fonts/fonts.conf` exposes only the `ttf/` directory.
 5. `--copyts`/timing accounted for the audio's actual start.
 
 **Ledger:** `action=subtitles`, `units=1` per video (20 credits, as specified).
