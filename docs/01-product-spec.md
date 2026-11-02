@@ -1,9 +1,10 @@
 # 01 — Product spec
 
-The behavioural contract we are building to. Split into **parity** (must match vsub.io's
-observable behaviour) and **our additions** (things we do differently or better).
+The behavioural contract we are building to. Split into **committed behaviour** (the observable
+contract this API makes) and **our additions** (things we do differently or better).
 
-Legend: `[P]` parity · `[+]` our addition · `[~]` parity but different implementation.
+Legend: `[P]` committed behaviour · `[+]` our addition · `[~]` committed behaviour, our own
+implementation.
 
 ---
 
@@ -26,8 +27,8 @@ Workspace ─┬─ Member (role: owner|admin|editor|viewer)
 ```
 
 A **Video** is a project. `status` describes generation; a render is a separate artifact.
-This is why vsub can say *"the video stays an editable project you can render later"* and why
-re-rendering at 60fps or green-screen is allowed on an already-completed video.
+This is why the API can honestly say *"the video stays an editable project you can render
+later"* and why re-rendering at 60fps or green-screen is allowed on an already-completed video.
 
 ---
 
@@ -127,8 +128,8 @@ Upload (multipart `file`, ≤500 MB, ≤2 h) or `url`. ASR → word timings → 
 
 ### 3.7 Comment / commentary video
 
-Present in nav on the site; no public API page was found. `[+]` We implement it as a thin
-preset over V3 (background + comment text + voice), and mark it **not parity-critical**.
+Present in nav on the reference site; no public API page was found. `[+]` We implement it as a
+thin preset over V3 (background + comment text + voice), and mark it **not contract-critical**.
 
 ---
 
@@ -180,7 +181,7 @@ with `field: "id"`.
 `GET /v1/voices` → `{id, name, description?, gender?, accent?, age?, useCase?, previewUrl?}`.
 Filtered metadata is acceptable (fields omitted when unknown).
 
-`[~]` Our voice catalogue is **capability-tagged**, which vsub does not expose:
+`[~]` Our voice catalogue is **capability-tagged**, beyond the base catalogue shape:
 
 ```jsonc
 {
@@ -224,11 +225,11 @@ drawtext pipelines (see roadmap P4).
 
 ## 7. Export `[P]` `[+]`
 
-| | vsub Premium+ | ours |
+| | typical paid tier | ours |
 |---|---|---|
 | 1080p | ✅ | ✅ default |
 | 2K | ✅ | ✅ `[P]` |
-| 4K | ✅ (Max listed) | ✅ `[P]` |
+| 4K | ✅ (top tier) | ✅ `[P]` |
 | 30 / 60 fps | ✅ | ✅ |
 | green screen variant | ✅ | ✅ |
 | aspect | 16:9, 9:16 | 16:9, 9:16 `[P]`; 1:1 `[+]` |
@@ -269,7 +270,7 @@ records unit costs, so cost-per-video remains measurable.
 - Dedupe via an id header.
 - `[+]` We **will** sign bodies (HMAC-SHA256 + timestamp) *and* keep the id header, because
   unsigned webhooks are a real security weakness at scale. Unsigned mode stays available for
-  parity.
+  compatibility.
 
 ---
 

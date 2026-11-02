@@ -7,22 +7,27 @@ instead of re-litigated at every commit.
 
 ## 0. Licence of this repository
 
-**Decided 2026-11-01: GNU AGPL-3.0** (full text in [`LICENSE`](../LICENSE)). Chosen over MIT /
-Apache-2.0 because a copyleft network clause is the only thing that keeps a hosted fork of this
-code from becoming a closed competing product; chosen over a source-available licence because
-"open source" was the stated goal, and AGPL is OSI-approved.
+**Decided 2026-11-02: MIT** (full text in [`LICENSE`](../LICENSE)). Relicensed from
+GNU AGPL-3.0, which held from 2026-11-01, by the sole maintainer. MIT was chosen so that
+finished, working pieces of this repo can be freely reused and indexed by others — concrete
+trigger: an open code-reuse index asked to include a commit and needed permissive terms.
+The trade-off is recorded here so it is chosen with
+eyes open: **MIT is permissive — a fork of this code may be hosted closed-source.** The
+AGPL network clause (§13) that would have prevented that is gone by choice, not by
+accident.
 
 Consequences recorded here so they are not rediscovered later:
 
-- Our own future SaaS **is** covered: if we run a modified version publicly, its source must be
-  offered to its users (AGPL §13). That is the intended trade, not an accident.
-- Plugins and integrations that merely call the HTTP API are separate works and are unaffected.
-- `packages/art/fonts/*` stay **SIL OFL 1.1** (see §2). OFL is AGPL-compatible; the OFL text
-  stays in the third-party notices.
-- Contributions land under the same licence with a **DCO sign-off** (`git commit -s`). DCO was
-  chosen over a CLA for contributor comfort. The cost: contributions **cannot be relicensed**
-  later without every author's permission. If dual-licensing ever becomes a business plan, that
-  switch has to happen before the contributor list grows.
+- Anyone may use, modify, distribute, sublicense and sell this code, including as a
+  closed-source hosted service. Copies must keep the copyright notice and licence text.
+- Plugins and integrations that merely call the HTTP API are separate works and are
+  unaffected.
+- `packages/art/fonts/*` stay **SIL OFL 1.1** (see §2). OFL and MIT coexist fine; the OFL
+  text stays in the third-party notices.
+- Contributions land under the same licence with a **DCO sign-off** (`git commit -s`). DCO
+  was chosen over a CLA for contributor comfort. The cost survives the relicensing:
+  later relicensing of the whole project needs every contributor's permission, so any
+  dual-licensing switch has to happen before the contributor list grows.
 - Open source is **not** a launch clearance. `edge-tts` (§2) remains a launch blocker for any
   public deployment regardless of the source licence.
 
@@ -44,16 +49,16 @@ Copying **behaviour** is normal competition. Copying **expression** is infringem
 
 Rules I follow:
 
-1. **No vsub code, ever.** Nothing from the bundle mirror is pasted into this repo. The mirror
-   lives outside the repo and is not committed.
-2. **No vsub assets.** Every image, font, sample, and screenshot in this repo is generated or
-   licensed by us. `packages/art/fonts/*` are Noto (SIL OFL 1.1).
+1. **No third-party code, ever.** Nothing from an observed product's bundles or internals is
+   pasted into this repo. Any bundle mirror lives outside the repo and is not committed.
+2. **No third-party assets.** Every image, font, sample, and screenshot in this repo is
+   generated or licensed by us. `packages/art/fonts/*` are Noto (SIL OFL 1.1).
 3. **Own copy.** Product text is written from scratch. If a sentence could be confused for
    theirs, rewrite it.
 4. **Own visual identity.** Different name, different palette, different type, different
    illustration direction. Similar *capability*, distinct *dress*.
-5. **Trademark hygiene.** Never use "vsub" in the product name, domain, or metadata. Use it only
-   in factual comparison text ("compatible with the vsub API shape"), if at all.
+5. **Trademark hygiene.** Never use another product's name or mark in the product name, domain,
+   or metadata, and don't build the brand on comparisons with other products.
 6. **No implied affiliation.** No "official", no "powered by", no compatibility badge on the
    landing page without a clear disclaimer that this is an independent implementation.
 
@@ -140,8 +145,9 @@ Self-host default: nothing leaves the machine except calls to the engines I expl
 - [ ] Voice-import consent flow implemented before the feature ships.
 - [ ] Reference-video retention + deletion implemented and stated in the UI.
 - [ ] Terms of Service + Privacy Policy + Acceptable Use drafted.
-- [ ] No vsub trademark in name, domain, meta tags, or app store listing.
-- [ ] No vsub asset anywhere in the repo (grep for their hosts before tagging a release).
+- [ ] No third-party trademark in name, domain, meta tags, or app store listing.
+- [ ] No third-party asset anywhere in the repo (grep for known third-party hosts before
+      tagging a release).
 - [ ] DMCA/abuse contact published.
 - [ ] Synthetic-media disclosure option present in export.
 
@@ -152,13 +158,15 @@ Self-host default: nothing leaves the machine except calls to the engines I expl
 Run before every tag:
 
 ```bash
-# nothing from their infrastructure should ever be referenced
-git grep -nE "vsub\.io|storage\.vsub|cf-content\.vsub|api\.vsub" -- . \
+# nothing from a reference product's infrastructure should ever be referenced;
+# extend the alternation with the domain fragments of any product to stay clear of
+git grep -nE "<reference-host-fragment>|<reference-host-2>" -- . \
   ':!docs/02-reverse-engineering.md' ':!docs/11-legal-and-compliance.md'
 
-# no accidentally committed mirror
-git ls-files | grep -E "_next/static|vsub-js" && echo "ERROR: mirror committed"
+# no accidentally committed bundle mirror
+git ls-files | grep -E "_next/static|reference-js" && echo "ERROR: mirror committed"
 ```
 
-The reverse-engineering doc is allowed to name the target — it is the record of how this was
-built. Everything else must be clean.
+The reverse-engineering doc is the record of how the behaviour was learned, and it keeps
+third-party names out as placeholders. Everything else must be clean of any third-party
+product's names, hosts, or assets.

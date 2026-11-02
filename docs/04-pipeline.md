@@ -148,7 +148,7 @@ If `voiceoverUrl` is present:
 2. ASR with word timestamps (faster-whisper) → transcript + timings + detected language.
 3. Transcript **is** the script; scenes are split on the ASR sentence boundaries so the
    picture cuts land where the speaker breathes.
-4. **No TTS is run.** `voiceId`/`voiceStyle` are ignored (parity).
+4. **No TTS is run.** `voiceId`/`voiceStyle` are ignored (committed behaviour).
 5. Narration asset = the uploaded audio, normalised (loudness + true peak) and re-encoded to
    AAC 48 kHz.
 
@@ -454,7 +454,7 @@ a trained model. It will look consistent and on-brand, but it will not reproduce
 artist's linework pixel-for-pixel. LoRA/finetune per style is the upgrade path (P10), and it
 needs GPU time — a paid accelerator or a local GPU, never a hard dependency.
 
-**Rejection rules (parity):** < 30 s, silent video, unreadable file → 400 with a clear message
+**Rejection rules (committed):** < 30 s, silent video, unreadable file → 400 with a clear message
 telling the user what to upload instead.
 
 ---
@@ -472,7 +472,7 @@ telling the user what to upload instead.
    `ScaledBorderAndShadow`, and a fallback chain, so Tamil shaping is correct.
 5. `--copyts`/timing accounted for the audio's actual start.
 
-**Ledger:** `action=subtitles`, `units=1` per video (20 credits parity).
+**Ledger:** `action=subtitles`, `units=1` per video (20 credits, as specified).
 
 ---
 
@@ -560,7 +560,7 @@ Artifacts from *earlier* steps survive, which is what makes "retry after `failed
 | create-images | 60–150 s | 2–5 min | ~35 scenes; free image tiers are the bottleneck |
 | create-captions | < 1 s | < 1 s | pure TS + one ASS write |
 | render 1080p | 30–60 s | 1–3 min | CPU; 4K is 3–4× |
-| **total** | **~3 min** | **~10 min** | comfortably under the "3 hours" parity ceiling |
+| **total** | **~3 min** | **~10 min** | comfortably under the documented "3 hours" ceiling |
 
 ---
 

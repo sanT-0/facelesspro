@@ -120,8 +120,8 @@ Order matters: cheap checks first, and nothing expensive before CI is green.
    - no `any`; `unknown` plus a parse;
    - errors carry a `code` from `docs/07`;
    - no vendor SDK where a port belongs;
-   - **no vsub code, copy, assets or branding** (`docs/11` §1) — this one I check deliberately,
-     file by file, because it is the one mistake that is expensive to undo.
+   - **no third-party product's code, copy, assets or branding** (`docs/11` §1) — this one I
+     check deliberately, file by file, because it is the one mistake that is expensive to undo.
 6. **Tamil invariants** if text, captions, fonts or audio were touched: grapheme clusters not
    split at line breaks, bundled Noto Sans Tamil, `concat(scenes.text)` intact, word timing still
    `global = run.start + word.local`. A green gate does not prove the clip sounds right.
@@ -160,7 +160,8 @@ settings are the enforcement, the docs are only the intent.
 
 **Observed (2026-11-01):** the initial audit found `main` as the default branch, `development`
 unprotected, private vulnerability reporting off, and a 28% community profile. The settings pass
-then changed the default to `development`; GitHub now detects AGPL-3.0 and reports 100% community
+then changed the default to `development`; GitHub detects the repository licence (AGPL-3.0
+at the time of that audit, MIT since the 2026-11-02 relicensing) and reports 100% community
 health. The active ruleset requires `gate (node 22)` and `python 3.12` in strict up-to-date mode,
 resolved conversations and squash-only PRs, while deliberately requiring zero approvals and no
 code-owner review until a second maintainer exists. Private vulnerability reporting, web-commit

@@ -25,7 +25,7 @@ Closes #
 - [ ] **Contract updated** in `packages/contracts` if a request/response shape moved.
 - [ ] **No skipped tests.** Nothing was disabled to get green.
 - [ ] **DCO.** Commits carry `Signed-off-by` (`git commit -s`).
-- [ ] **No vsub** code, copy, assets or branding (docs/11 §1).
+- [ ] **No third-party product's** code, copy, assets or branding (docs/11 §1).
 - [ ] **No new mandatory paid dependency**; anything new is optional and documented in
       `.env.example`.
 - [ ] **Tamil rules hold** if text/captions/fonts/audio were touched: no grapheme split,

@@ -1,7 +1,7 @@
 # FacelessPro
 
 [![CI](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml)
-[![Licence: AGPL-3.0](https://img.shields.io/badge/licence-AGPL--3.0-blue.svg)](./LICENSE)
+[![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](package.json)
 
 AI faceless video studio — script in, illustrated narrated video out, in a style cloned from
@@ -47,7 +47,7 @@ npm run ping              # smoke test: the worker completes a real job (exit 0)
 |---|---|
 | [plan.md](./plan.md) | Goals, scope, stack, phases, gates, definition of done |
 | [docs/01-product-spec.md](./docs/01-product-spec.md) | Feature-by-feature spec and API field contract |
-| [docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md) | How vsub.io was analysed, evidence, what was and wasn't observed |
+| [docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md) | How a reference product was analysed — evidence, what was and wasn't observed |
 | [docs/03-architecture.md](./docs/03-architecture.md) | Services, data model, ports/adapters, storage, queue |
 | [docs/04-pipeline.md](./docs/04-pipeline.md) | Step-by-step generation pipeline, artifacts, resumability |
 | [docs/05-tts-tamil-mixed.md](./docs/05-tts-tamil-mixed.md) | The Tamil/English/Tanglish narration design |
@@ -87,14 +87,13 @@ docs                everything in the table above
 
 ## Licence
 
-FacelessPro is free software under the **GNU Affero General Public License v3.0** — the full
-text is in [LICENSE](./LICENSE).
+FacelessPro is released under the **MIT License** — the full text is in [LICENSE](./LICENSE).
 
 What that means in practice:
 
-- You may run, study, modify and share it, including commercially.
-- If you run a **modified** version as a network service, you must offer that service's users
-  the corresponding source (AGPL §13). Running it unmodified for yourself carries no such duty.
+- You may use, copy, modify, merge, publish, distribute, sublicense and sell it.
+- The copyright notice and this licence text must be included in all copies or substantial
+  parts of the software.
 - There is no warranty.
 
 Contributions are accepted under the same licence with a **DCO sign-off** (`git commit -s`),

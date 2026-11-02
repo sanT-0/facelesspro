@@ -184,7 +184,7 @@ daily quotas. That is the trade this project is built around.
 
 ## 5. Addendum: what we will *not* rely on
 
-- No scraping of vsub.io at runtime. Their API is not our backend.
+- No scraping of third-party services at runtime. A reference product's API is not our backend.
 - No unofficial paid-service key sharing, no trial farming.
 - No model that requires accepting a licence incompatible with publishing.
 - No silent telemetry to third parties.

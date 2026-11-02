@@ -149,7 +149,7 @@ Column notes, all encoded in `packages/contracts/src/db.ts`:
   cannot hold `Infinity` and neither can JSON, so the meaning is carried by the null.
 - `voice.id` is **text**, not uuid — engine ids (`ta-IN-PallaviNeural`) are the natural key and
   must survive a re-seed.
-- `caption_tpl.id` is an integer; negative ids are built-ins (parity), `0` is never valid.
+- `caption_tpl.id` is an integer; negative ids are built-ins (committed behaviour), `0` is never valid.
 - `user` is a reserved word in Postgres, but it is the documented table name; Drizzle quotes it.
 - `video.step` is nullable once a render completes; the enum is ours
   (`create-scenes`…`render`), not the leaked upstream spelling.
@@ -240,7 +240,8 @@ s3://bucket/
 ```
 
 Disk adapter mirrors this under `.data/` for local dev. Public URLs are signed or served by a
-static route; `videoUrl` for completed renders must be stable and unauthenticated (parity).
+static route; `videoUrl` for completed renders must be stable and unauthenticated (committed
+behaviour).
 
 Before workspace auth lands in P6, art-style intake uses the same root without a workspace
 prefix: `references/<styleId>.mp4|mov`, `frames/<styleId>/*.png`, and
