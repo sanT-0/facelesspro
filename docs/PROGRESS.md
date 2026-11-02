@@ -199,7 +199,10 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       Assumed until the runner proves it: ubuntu's apt `ffmpeg` (6.x) has every filter the audio
       tests use (`loudnorm`, `alimiter latency`, `silenceremove`), which this machine's 9.0.2
       build cannot demonstrate for it.
-- [ ] P0 close-out: first green CI run on the remote (needs a push).
+- [x] 2026-11-02 — P0 close-out: first green CI runs on the remote, observed via the GitHub
+      checks API on PRs #25/#26: `gate (node 22)` ✅, `python 3.12` ✅, CodeQL ✅. The
+      2026-10-30 assumption above (ubuntu apt ffmpeg filter coverage) now has a green runner
+      run behind it, observed result green, so the item closes.
 
 ## P1 Tamil + English TTS ⭐ — closed (2026-10-28)
 
@@ -500,6 +503,9 @@ Format: `[x] date — note`. Anything surprising goes in the note.
       and the verdict is the user's.
       Still deferred (not acceptance criteria, no gate clip exercises them): numeral sandhi for
       glued case suffixes, and the dangling hyphen in `channel-க்கு`.
+- [x] 2026-11-02 — Python 3.12 runner pin observed for the first time: the `python 3.12` CI
+      check on PR #26 ✅, closing the "not observed on the runner" note from 2026-10-31
+      (all four pinned deps installed remotely, ruff/pytest green there).
 - [ ] 2026-10-27 — `rate` joins the cache key if it is adopted (key is `(engine, voice, text)`
       today; the same text at a different rate is different audio). Not adopted yet: the verdict
       named gaps and timbre, and `rate=+12%` was only a prototype.

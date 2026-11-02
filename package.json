@@ -10,6 +10,10 @@
   "engines": {
     "node": ">=22"
   },
+  "overrides": {
+    "minimatch": "^11.0.1",
+    "esbuild": "^0.25.0"
+  },
   "scripts": {
     "test": "vitest run",
     "test:watch": "vitest",
