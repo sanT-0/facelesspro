@@ -1074,6 +1074,28 @@ file stays the single "what is actually true today" view.
       70 files / 949 tests (typecheck + eslint + vitest 5). **Not observed:** render against a
       real ffmpeg draw/ASS path yet (that is the ASS-writer task next).
 
+- [x] 2026-11-02 — **ASS writer + bundled fonts** (roadmap P4 task 2). New pure
+      `packages/core/src/ass.ts` serialises complete ASS v4+ documents: `H:MM:SS.CC`
+      timestamps, `&HAABBGGRR` colour packing, deterministic style/events, one dialogue per
+      cue, word-duration `\k` spans (centiseconds, half-up, minimum 1), explicit `\N` from the
+      cue builder, brace/backslash escaping, uppercase as presentation only, and template
+      font/size/position/highlight/outline mapping. 13 writer tests. Bundled upstream variable
+      `Noto Sans` + `Noto Sans Tamil` at Google Fonts revision
+      `6c1dbe27dcf7d817d4b62cec033ba77fa8e2a5ec`, SHA-256 pinned, SIL OFL 1.1 text and
+      `THIRD_PARTY_NOTICES.md` shipped. Font binaries are isolated under `fonts/ttf/` because
+      the first artifact run revealed that libass's `fontsdir` tries to parse README/OFL/config
+      files as fonts (harmless but noisy); the clean run emits no such warnings.
+      `packages/art/src/ass-render.test.ts` uses **real ffmpeg/libass**, asserts the exact bundled
+      Tamil file was selected, hard 640×360 RGB output and a non-empty glyph raster; the
+      committed 1280×720 golden is `fixtures/render/tamil-frame.png` (pixel digest advisory).
+      **Observed:** retained frame `.data/artifacts/p4-ass-writer/tamil-glyph-frame.png`,
+      1280×720 RGB24, SHA-256
+      `7631e4559a2fa6893969df3964c71096f2ffb3ae1169e6fd6c213341a4a215bc`; visually opened:
+      Tamil shaping is intact, current word yellow, remaining words white, no tofu boxes.
+      Full gate green: typecheck + eslint + **72 files / 965 tests** (including real ffmpeg).
+      **Not observed:** subtitles over moving footage/audio or 60-second timing (ffmpeg composer
+      task, still open).
+
 ---
 
 ## Decisions log

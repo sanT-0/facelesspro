@@ -451,8 +451,8 @@ my eye; portrait + landscape both render; rejected inputs give clear 400s.
 
 ## P4 — Captions + render
 
-- [ ] Caption cue builder (word limits, line limits, Tamil grapheme safety, punctuation priority).
-- [ ] ASS writer with karaoke `\k` spans + bundled Noto Sans / Noto Sans Tamil.
+- [x] Caption cue builder (word limits, line limits, Tamil grapheme safety, punctuation priority).
+- [x] ASS writer with karaoke `\k` spans + bundled Noto Sans / Noto Sans Tamil.
 - [ ] Caption templates (≥6 built-ins, negative ids) + `GET /v1/caption-templates`.
 - [ ] Emoji sprinkling (allow-list, opt-in, ≤1 per 2 cues).
 - [ ] ffmpeg composer: stills → `zoompan` clips → concat → audio → burn subs → mux.
