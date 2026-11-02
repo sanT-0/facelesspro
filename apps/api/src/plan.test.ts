@@ -12,6 +12,7 @@ function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }
     submitArtStyle: async () => {},
     listArtStyles: async () => [],
     readArtStyle: async () => null,
+    listCaptionTemplates: async () => [],
   });
 }
 

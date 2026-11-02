@@ -12,6 +12,7 @@ import {
   artStyleStatusSchema,
   assetKindSchema,
   balanceKindSchema,
+  captionTemplateIdSchema,
   creditActionSchema,
   engineSchema,
   frameRateSchema,
@@ -302,7 +303,7 @@ export const captionSpecSchema = z.strictObject({
 export type CaptionSpec = z.infer<typeof captionSpecSchema>;
 
 export const captionTemplateSchema = z.strictObject({
-  id: z.int(),
+  id: captionTemplateIdSchema,
   name: z.string().min(1),
   spec: captionSpecSchema,
 });

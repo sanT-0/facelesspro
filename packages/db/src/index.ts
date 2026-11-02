@@ -1,5 +1,6 @@
 export * from './schema';
 export { findArtStyle, listReadyArtStyles } from './art-styles';
+export { listBuiltInCaptionTemplates } from './caption-templates';
 export {
   DEFAULT_DATABASE_URL,
   createDb,

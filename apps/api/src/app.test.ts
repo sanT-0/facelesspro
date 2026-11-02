@@ -18,6 +18,7 @@ function appWith(probes: {
     submitArtStyle: async () => {},
     listArtStyles: async () => [],
     readArtStyle: async () => null,
+    listCaptionTemplates: async () => [],
   });
 }
 
@@ -89,6 +90,7 @@ describe('unexpected errors', () => {
         throw new Error('boom at D:\\srv\\secret\\preview.png');
       },
       readArtStyle: async () => null,
+      listCaptionTemplates: async () => [],
     });
 
     const res = await app.request('/v1/art-styles');

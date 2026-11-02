@@ -137,8 +137,12 @@ describe('schema ↔ contracts', () => {
 describe('seed data', () => {
   it('built-in templates are valid rows with negative, unique ids', () => {
     const ids = BUILTIN_CAPTION_TEMPLATES.map((template) => template.id);
+    expect(ids).toEqual([-1, -2, -3, -4, -5, -6]);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(id).toBeLessThan(0);
+
+    const names = BUILTIN_CAPTION_TEMPLATES.map((template) => template.name);
+    expect(new Set(names).size).toBe(6);
 
     for (const template of BUILTIN_CAPTION_TEMPLATES) {
       expect(

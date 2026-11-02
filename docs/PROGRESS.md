@@ -1100,6 +1100,23 @@ file stays the single "what is actually true today" view.
       **Not observed:** subtitles over moving footage/audio or 60-second timing (ffmpeg composer
       task, still open).
 
+- [x] 2026-11-02 — **Six built-in caption templates + library endpoint** (roadmap P4 task 3).
+      Existing immutable IDs -1…-3 stay byte-for-byte; new -4 `Top Headline`, -5
+      `Minimal Center`, -6 `Focus Word` bring the clean seed to six, all bundled-font specs.
+      `captionTemplateSchema` now reuses the shared non-zero ID contract, so reserved ID `0`
+      is rejected on responses as well as requests/rows. New DB boundary query returns only
+      `workspace_id IS NULL`, ordered -1…-6; custom workspace templates remain for P6 auth.
+      `GET /v1/caption-templates` strips `workspace_id`, parses the shared response schema,
+      sets `Cache-Control: private, max-age=300`, derives a quoted SHA-256 ETag from content,
+      and answers matching `If-None-Match` with an empty `304`. Five route tests + one response
+      contract test; seed test now pins all IDs and six unique names. **Observed artifact:** real
+      HTTP server returned `200`, six IDs/names, ETag
+      `"a2f6cd67a22af16eb79ecb0f88c66a10cba1641e06cdbcae199784bedaf75ab0"`;
+      conditional request returned `304`, zero bytes. **Not observed:** real Postgres query/seed
+      this run — Docker daemon unavailable; clean/existing seed counts remain an explicit DB
+      artifact check rather than a compile claim. Full gate green: typecheck + eslint +
+      **74 files / 971 tests**.
+
 ---
 
 ## Decisions log

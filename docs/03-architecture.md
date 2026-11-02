@@ -164,7 +164,7 @@ Column notes, all encoded in `packages/contracts/src/db.ts`:
   image style is not.
 
 Plans are **code, not rows**: there is no plan table, and `workspace.plan_id` is the pointer.
-`npm run db:seed` (also run by `db:migrate`) inserts the three built-in caption templates and
+`npm run db:seed` (also run by `db:migrate`) inserts the six built-in caption templates and
 one `selfhost` dev workspace with `credits = null`.
 
 ### 3.1 Timestamp handling, and why not `pg`'s parser

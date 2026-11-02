@@ -98,6 +98,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 | `planner.test.ts` | adapter and motion vocabularies pinned; a heuristic-shaped plan parses; `degradedFrom` keeps the order tried; unknown motion, empty text/prompt, over-long prompt rejected; zero-length scene, overlap, a first scene not at 0, `totalMs ≠ last endMs`, empty plan, >120 scenes, unknown keys all rejected |
 | `image.test.ts` | image adapter vocabulary pinned; capabilities require unique non-empty sizes, profile styling and caller seed; request requires final prompt, negative, seed, size and valid `StyleProfile`; generated result requires non-empty PNG bytes, provenance, ≤4096 geometry and orientation matching `landscape|portrait`; unknown keys rejected |
 | `art-style.test.ts` | request side: formats default to `["landscape"]`, `published` defaults false, empty/unknown formats and unknown keys rejected, only `status: "building"` accepted on create. Response side: a list entry requires `previewUrl`, non-empty `formats` and echoes `status`; a full `StyleProfile` round-trips through the export document and a profile missing `source` or a `version ≠ 1` is rejected |
+| `responses.test.ts` | caption-template responses accept negative built-in and positive custom IDs but reject reserved ID `0` through the same shared ID schema as requests/database rows |
 
 Because these schemas are the single shape source, a red contract test blocks api, worker, web
 and mcp at once — that is the point.
@@ -113,6 +114,7 @@ and mcp at once — that is the point.
 | `status` | status/step transitions; `render` while processing → 409 |
 | `plan` | `POST /v1/videos/plan`: 200 estimate parses through `planVideoResponseSchema`, `adapter: "heuristic"`, scene texts rejoin to `normalizeScript(script)`, `totalMs` equals the last `endMs`; blank / punctuation-only / portrait-over-ceiling / unknown key / missing script → `400 invalid_request` with `field: "script"`; invalid JSON → `400 invalid_request`; a throwing DB probe still returns 200 (no database touch) |
 | `art-styles` | `POST /v1/art-styles`: `202` with `createArtStyleResponseSchema` (`id`, `status: "building"`, `createdAt`); submission contains one contract-shaped row plus `{styleId, referenceKey}` for an atomic insert+enqueue; the key is `references/<server uuid>.mp4|mov` and ignores the untrusted client filename; bytes land under the injected shared storage root; missing file / non-video / invalid formats / empty name → `400 invalid_request` with `field: "file"` or `"formats"`; no submission on validation failure; ffprobe mocked in tests. `GET /v1/art-styles`: only `status='ready'` rows, `building`/`failed` filtered even if the repository returns them; body parses through `artStyleListSchema`; `art-styles/<id>/preview.png` → `/files/art-styles/<id>/preview.png`, absolute URLs untouched, `sampleVideoUrls` keys mapped the same way, absent `portraitPreviewUrl` omitted; empty catalog → `{styles: []}`. `GET /v1/art-styles/:id/export`: body is exactly `{version: 1, name, formats, profile}` with no `id`/`status`/`previewUrl`; a full `StyleProfile` round-trips; `building` → `409 conflict`, unknown id → `404 not_found`, malformed id → `400 invalid_request` + `field: "id"`, corrupt stored profile → `500 internal` |
+| `caption-templates` | `GET /v1/caption-templates`: list parses through `captionTemplateListSchema`; database-only `workspace_id` omitted; empty list valid; private five-minute cache + 64-hex content ETag; matching `If-None-Match` → bodyless `304`; invalid stored ID `0` → fixed `500 internal` envelope |
 | `webhooks` | http:// rejected, localhost rejected, signing header present |
 | `errors` | codes table from [07](./07-api-and-mcp.md#12-errors-p) is exhaustive |
 | `app` | an unexpected throw from any dependency returns `500 application/json` with `error.code: "internal"`, a fixed message and no path/stack leak; the real error is logged |
@@ -122,12 +124,13 @@ and mcp at once — that is the point.
 
 | Test | Asserts |
 |---|---|
-| `schema.test.ts` | the 17 tables are exactly `DB_TABLES`; every column name matches its contract row schema; the three public enums are built from the contract tuples; `workspace.credits` is nullable; `caption_tpl.id` is an integer primary key; built-in templates have unique negative ids; the dev workspace is `selfhost` with `credits = null`; compile-time `$inferSelect` ⊇ contract row for five tables |
+| `schema.test.ts` | the 17 tables are exactly `DB_TABLES`; every column name matches its contract row schema; the three public enums are built from the contract tuples; `workspace.credits` is nullable; `caption_tpl.id` is an integer primary key; built-ins are exactly IDs -1…-6 with six unique names and valid row specs; the dev workspace is `selfhost` with `credits = null`; compile-time `$inferSelect` ⊇ contract row for five tables |
 | `timestamp.test.ts` | Postgres text (`2026-10-26 18:12:34.567+00`) → ISO UTC; real offsets (+05:30, −04:00, +05:45) converted, not stripped; already-ISO input stable; missing fraction filled; output passes `isoDateTimeSchema`; microseconds truncated (documented); unparseable passthrough; `infinity` preserved; `created_at.mapFromDriverValue` normalises the exact string drizzle hands back |
 | `client.test.ts` | the default connection string agrees with `.env.example`; an empty `DATABASE_URL` falls back; `loadEnv` is silent with no `.env` |
 
-The migration itself is verified by running it (docs/09 P0), not by a unit test: `npm run
-db:migrate` twice must report `17 tables, 1 migrations applied` then `0 new caption templates`.
+The migration itself is verified by running it (docs/09 P0), not by a unit test: from a clean
+database, `npm run db:migrate` twice must report `6 new caption templates` then
+`0 new caption templates` (with the same 17 tables / one applied migration both times).
 
 ### 3.6 `packages/queue` (hermetic) + `test:db` (Postgres)
 
