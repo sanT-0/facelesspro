@@ -1093,6 +1093,10 @@ file stays the single "what is actually true today" view.
       `7631e4559a2fa6893969df3964c71096f2ffb3ae1169e6fd6c213341a4a215bc`; visually opened:
       Tamil shaping is intact, current word yellow, remaining words white, no tofu boxes.
       Full gate green: typecheck + eslint + **72 files / 965 tests** (including real ffmpeg).
+      **CI surprise/fix:** PR #29's first Node gate failed honestly with
+      `spawnSync ffmpeg ENOENT`: the Python job installed ffmpeg but the Node job did not.
+      `.github/workflows/ci.yml` now installs ffmpeg in both jobs; the render test remains
+      mandatory (not skipped or softened).
       **Not observed:** subtitles over moving footage/audio or 60-second timing (ffmpeg composer
       task, still open).
 
