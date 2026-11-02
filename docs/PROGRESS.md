@@ -1058,6 +1058,24 @@ file stays the single "what is actually true today" view.
 
 ---
 
+## P4 - captions + render
+
+- [x] 2026-11-02 — **Caption cue builder** (roadmap P4 task 1). New pure module
+      `packages/core/src/captions.ts`: narration word timings → cues under the template rules
+      (`wordLimit`, `maxLines`, `maxCharsPerLine`), punctuation priority (a clause-ending word
+      closes the cue early instead of padding to `wordLimit`), and shrink-to-fit: a window that
+      cannot render inside `maxLines` shrinks rather than overflows. Line width is measured in
+      `Intl.Segmenter` grapheme clusters, not code units — the AGENTS.md hard rule "no combining
+      mark alone on a line" holds because breaks happen only between words; the one deviation
+      from typical Tamil counting is documented: ICU keeps a word-final virama with its
+      consonant (`க்ஷ` = 2 clusters, not 1 glyph, never 3 code units). Words are never dropped
+      or rewritten — every cue's lines joined with spaces reconstruct the input. Hard errors:
+      empty input, or a single word wider than one line. 15 tests. **Observed:** gate green
+      70 files / 949 tests (typecheck + eslint + vitest 5). **Not observed:** render against a
+      real ffmpeg draw/ASS path yet (that is the ASS-writer task next).
+
+---
+
 ## Decisions log
 
 | Date | Decision | Why |
