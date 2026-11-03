@@ -462,7 +462,7 @@ telling the user what to upload instead.
 ## 5. `create-captions`
 
 **In:** narration word timings, caption template, `captions` flag, word limit, emoji setting.
-**Out:** `captions.ass` (+ `captions.json`).
+**Out:** `captions.ass`, `captions.srt`, `captions.vtt`, `captions.json`.
 
 1. Group words into cues by template rules: max chars/line, max lines, max words, punctuation
    priority, never break a Tamil grapheme cluster.
@@ -484,6 +484,22 @@ telling the user what to upload instead.
    only the `ttf/` directory. Noto Emoji is monochrome by design, so the glyph inherits the
    caption's primary colour instead of forcing a colour bitmap font.
 5. `--copyts`/timing accounted for the audio's actual start.
+
+Sidecars are pure serializers over the same validated cues
+(`packages/core/src/caption-export.ts`), never four independently regrouped transcripts:
+
+- **SRT** — numbered cues, `HH:MM:SS,mmm`, authored line breaks retained.
+- **WebVTT** — `WEBVTT`, numbered cues, `HH:MM:SS.mmm`, same lines.
+- **ASS** — the existing styled karaoke writer; export requires PlayRes dimensions.
+- **JSON v1** — strict `{version:1,durationMs,cues[]}`; each cue has a sequential index,
+  milliseconds, raw `lines`, word timings and optional separate emoji. No path, storage key or
+  database field is exported.
+
+SRT/VTT append an already-selected emoji to a **copy** of the final display line; raw cue lines
+and JSON remain unchanged. All serializers reject empty, overlapping or non-monotonic cues,
+line/word drift, fractional timings, embedded newlines and an emoji that is not one grapheme
+cluster. Output uses UTF-8/LF, stable MIME/extension metadata and exactly one trailing newline.
+The API route that serves stored sidecars remains P6; P4 supplies and verifies the serializers.
 
 **Ledger:** `action=subtitles`, `units=1` per video (20 credits, as specified).
 

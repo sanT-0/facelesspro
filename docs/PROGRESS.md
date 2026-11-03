@@ -1173,6 +1173,23 @@ file stays the single "what is actually true today" view.
       production render or chroma-keying in a third-party editor; the P4 60-second watch gate
       remains open. Full gate green: typecheck + eslint + **78 files / 1015 tests**.
 
+- [x] 2026-11-03 — **Portable caption sidecars** (roadmap P4 task 7). New pure
+      `packages/core/src/caption-export.ts` serializes the same validated cues as SRT, WebVTT,
+      existing karaoke ASS or stable pretty JSON v1. SRT/VTT retain line breaks and exact
+      milliseconds (`comma` vs `dot`), append optional emoji only to a copied final line, and
+      carry stable extension/MIME metadata. JSON keeps sequential indexes, raw lines, global
+      word timings and separate one-cluster emoji; its strict shared contract rejects paths,
+      unknown fields, timing/line drift, overlap and a false final duration. ASS dispatch reuses
+      the bundled-font writer and requires PlayRes dimensions. Cross-package tests pin the
+      dependency-free format tuple/schema parity. **Observed real-ffmpeg gate:** libass parsed
+      generated Tamil SRT and WebVTT, selected the bundled Tamil font and rasterized >500 pixels
+      from each. **Observed bilingual artifacts:** SRT 147 B SHA-256 `cab0d7d4…05fd7bc`, VTT
+      155 B `465e8c32…fbfaf94`, ASS 809 B `49aed464…ac029b7`, JSON 960 B
+      `382f7868…6ef5d26`; inspected VTT frame showed correctly shaped Tamil, Latin and the
+      allow-listed check glyph. **Not observed:** persisted `caption_track` writes or
+      `GET /v1/videos/:id/captions`; those require the P5 pipeline/P6 authenticated video route.
+      Full gate green: typecheck + eslint + **81 files / 1034 tests**.
+
 ---
 
 ## Decisions log
