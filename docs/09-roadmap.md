@@ -460,7 +460,7 @@ my eye; portrait + landscape both render; rejected inputs give clear 400s.
 - [x] ffmpeg composer: stills → `zoompan` clips → concat → audio → burn subs → mux.
 - [x] `format=greenscreen` variant; `frameRate` 30/60; 1080p/2K/4K.
 - [x] `srt` / `vtt` / `ass` / `json` caption exports.
-- [ ] Thumbnail extraction.
+- [x] Thumbnail extraction.
 
 **Gate:** Tamil glyph golden-frame test green; duration within 100 ms; determinism test green;
 a 60 s video with correct Tamil captions plays.

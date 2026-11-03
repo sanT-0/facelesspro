@@ -106,6 +106,14 @@ export type {
   RenderSize,
 } from './render';
 export {
+  THUMBNAIL_MAX_EDGE,
+  THUMBNAIL_POSITION,
+  buildThumbnailPlan,
+  thumbnailDimensions,
+  thumbnailTimestampMs,
+} from './thumbnail';
+export type { ThumbnailPlan, ThumbnailSourceMeta } from './thumbnail';
+export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,
   estimateDuration,

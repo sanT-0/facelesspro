@@ -547,6 +547,15 @@ resolution combinations. Real ffmpeg covers standard 1080/30 and captioned green
 portrait 4K/60; the latter deliberately points at a missing still, proving the variant does not
 silently compose the scene image underneath the key colour.
 
+Thumbnail extraction runs only after the final MP4 verifies. ffprobe supplies duration and
+source geometry; pure `packages/core/src/thumbnail.ts` chooses the frame at **25%** (past a
+typical opening transition but still representative) and caps the long edge at 1280 without
+upscaling or changing aspect. `packages/art/src/thumbnail.ts` seeks that exact millisecond,
+Lanczos-scales one RGB PNG, strips metadata and writes `<output>.part`. It verifies the PNG
+signature plus IHDR dimensions before atomically renaming it, so a killed/retried extraction
+cannot publish a truncated thumbnail. Re-running the same source/path must produce identical
+bytes.
+
 **Ledger:** `action=render`, `units=minutes`, 10 cr/min @30fps, 20 @60fps.
 
 ---
