@@ -15,3 +15,6 @@ export const BUNDLED_CAPTION_FONT_FILES = [
 
 /** Rendered only for `Cue.emoji`; the ASS writer names it inline. */
 export const BUNDLED_EMOJI_FONT_FAMILY = 'Noto Emoji';
+
+export { renderVideo } from './render';
+export type { RenderResult } from './render';

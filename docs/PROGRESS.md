@@ -1136,6 +1136,27 @@ file stays the single "what is actually true today" view.
       correctly; the emoji inherits the caption primary colour. Full gate green: typecheck +
       eslint + **75 files / 992 tests**.
 
+- [x] 2026-11-03 — **Deterministic ffmpeg composer** (roadmap P4 task 5). New pure
+      `packages/core/src/render.ts` turns stills + durations + the five public motion presets
+      into one filter graph: per-still scale/crop/`zoompan`, exact-frame video concat, optional
+      ASS burn, narration map, H.264/AAC mux. Scene frames use cumulative rounding, so awkward
+      thirds at 60 fps total exactly 60 rather than accumulating independent-rounding drift.
+      The profile is `libx264`, CRF 18 at 1080 / 16 above, `yuv420p`, AAC 192k/48 kHz,
+      `+faststart`, current `-fps_mode cfr`, metadata stripped and bitexact flags. Pure tests pin
+      dimensions, all motion expressions, path escaping, validation and the deterministic arg
+      vector; a worker cross-package test prevents the dependency-free core vocabulary drifting
+      from contracts. New `packages/art/src/render.ts` only creates the parent, bounds ffmpeg,
+      reports stderr on failure and returns observed bytes. **Observed real-ffmpeg gate:** two
+      stills + WAV + Tamil ASS produced 1920×1080 H.264/AAC, 30 fps, exactly 45 frames, duration
+      within 100 ms, visible red→blue cut and >500 burned-caption pixels; rendering the same
+      inputs to a second path produced byte-identical MP4. **Observed artifacts:** cached real
+      Valluvar narration → 2.933333 s / 88-frame English render, SHA-256
+      `f0fb6ac6…e8c595a`; Tamil shaping/tone render → 2.400000 s / 72 frames, SHA-256
+      `99fcbaeb…56f84c1`; four sampled frames visually checked for scene cuts, karaoke and Tamil
+      shaping. **Not observed:** 60 fps, portrait, 2K/4K and green-screen artifacts — those are
+      the next roadmap task; the P4 60-second end-to-end gate remains open. Full gate green:
+      typecheck + eslint + **78 files / 1011 tests**.
+
 ---
 
 ## Decisions log

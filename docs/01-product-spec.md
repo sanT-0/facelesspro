@@ -257,6 +257,11 @@ drawtext pipelines (see roadmap P4).
 | aspect | 16:9, 9:16 | 16:9, 9:16 `[P]`; 1:1 `[+]` |
 | background music / ducking | implied | `[+]` planned P10 |
 
+`[+]` The standard renderer is an ffmpeg filter graph: each still becomes an exact-frame
+`zoompan` clip, clips concatenate in memory, narration is mapped, ASS is burned, and H.264/AAC is
+muxed with `+faststart`. Cumulative frame rounding prevents scene-by-scene drift. The
+green-screen/profile-variant verification is the next P4 task; music/ducking remains P10.
+
 ---
 
 ## 8. Credits & plans `[P]`

@@ -495,17 +495,27 @@ telling the user what to upload instead.
 **Out:** mp4 (+ optional green-screen mp4) + thumbnail + srt/vtt sidecars.
 
 ```
-ffmpeg -f concat scene clips
-  scene clip = still (or motion) ── zoompan/scale ── trim to scene duration
-  + audio: narration (already stitched)
-  + subtitles: burn ASS
-  + optional music with ducking (sidechaincompress)
+ffmpeg -filter_complex
+  each still ── scale/crop ── zoompan(d=exact scene frames) ── fixed-fps clip
+  scene clips ── concat filter (video only)
+  + audio: narration (already stitched, mapped without filtering)
+  + subtitles: optional ASS burn after concat
   → libx264 -preset medium -crf 18 (1080p) / 16 (2K/4K)
   → +faststart, yuv420p, AAC 192k
 ```
 
-Determinism rules: fixed fps and `-r`, `-vsync cfr`, no timestamps in output, seeded zoompan.
-That makes the render snapshot-testable (duration/fps/resolution/digest of first N frames).
+`packages/core/src/render.ts` is the pure plan builder; it validates the public motion/profile
+vocabulary, maps 1080/1440/2160 to 16:9 or 9:16 dimensions, allocates frames by **cumulative**
+rounding (rounding each scene separately drifts), and returns the complete filter graph and
+argument vector. `packages/art/src/render.ts` is the thin I/O adapter: create the output parent,
+spawn ffmpeg with a bounded timeout, retain only the stderr tail, then report the output bytes.
+No intermediate scene clips are written.
+
+Determinism rules: fixed fps and `-r`, current ffmpeg `-fps_mode cfr` (not removed `-vsync`),
+`-map_metadata -1`, bitexact mux/codec flags, and zoom/pan expressions based only on output frame
+number. A real-ffmpeg test renders the same input twice to different paths and requires identical
+MP4 bytes. Duration (within 100 ms), actual frame count, fps, resolution and stream codecs are
+hard checks; a digest alone is not evidence. Background-music ducking remains P10.
 
 Variants by `format`:
 - `standard` → normal composition.
