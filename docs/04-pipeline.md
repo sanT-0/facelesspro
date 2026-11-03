@@ -518,8 +518,18 @@ MP4 bytes. Duration (within 100 ms), actual frame count, fps, resolution and str
 hard checks; a digest alone is not evidence. Background-music ducking remains P10.
 
 Variants by `format`:
-- `standard` → normal composition.
-- `greenscreen` → background replaced with `#00FF00`, captions/overlays retained.
+- `standard` → normal composition; one still input per scene.
+- `greenscreen` → a generated, frame-exact `#00FF00` source replaces every scene image;
+  still files are not read, narration is mapped at input 0, and ASS captions remain burned on
+  top. The source is trimmed by `end_frame`, not a floating duration, so its frame count is the
+  same cumulative total as the standard variant.
+
+The profile matrix is a hard contract: 30 or 60 fps × 1080, 1440 (2K) or 2160 (4K). The
+resolution is the short edge: landscape dimensions are 1920×1080, 2560×1440, 3840×2160;
+portrait dimensions are 1080×1920, 1440×2560, 2160×3840. Pure tests build all six fps/
+resolution combinations. Real ffmpeg covers standard 1080/30 and captioned greenscreen
+portrait 4K/60; the latter deliberately points at a missing still, proving the variant does not
+silently compose the scene image underneath the key colour.
 
 **Ledger:** `action=render`, `units=minutes`, 10 cr/min @30fps, 20 @60fps.
 

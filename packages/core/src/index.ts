@@ -66,6 +66,7 @@ export {
   DEFAULT_AUDIO_RATE,
   MAX_RENDER_SCENES,
   RENDER_FRAME_RATES,
+  RENDER_FORMATS,
   RENDER_MOTIONS,
   RENDER_PRESETS,
   RENDER_RESOLUTIONS,
@@ -77,6 +78,7 @@ export {
 export type {
   RenderCaptions,
   RenderFps,
+  RenderFormat,
   RenderMotion,
   RenderPlan,
   RenderPlanInput,

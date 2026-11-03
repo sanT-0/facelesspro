@@ -259,8 +259,10 @@ drawtext pipelines (see roadmap P4).
 
 `[+]` The standard renderer is an ffmpeg filter graph: each still becomes an exact-frame
 `zoompan` clip, clips concatenate in memory, narration is mapped, ASS is burned, and H.264/AAC is
-muxed with `+faststart`. Cumulative frame rounding prevents scene-by-scene drift. The
-green-screen/profile-variant verification is the next P4 task; music/ducking remains P10.
+muxed with `+faststart`. Cumulative frame rounding prevents scene-by-scene drift. Green-screen
+uses a generated, frame-exact `#00FF00` source instead of reading scene stills, then burns the
+same captions on top. The complete 30/60 fps × 1080/2K/4K profile matrix is validated; music/
+ducking remains P10.
 
 ---
 

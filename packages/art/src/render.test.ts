@@ -143,6 +143,7 @@ describe('renderVideo (real ffmpeg)', () => {
       resolution: 1080,
       fps: 30,
       size: 'landscape',
+      format: 'standard',
       captions: { path: ass, fontsDir: resolve('packages/art/fonts/ttf') },
     });
 
@@ -195,9 +196,85 @@ describe('renderVideo (real ffmpeg)', () => {
       resolution: 1080,
       fps: 30,
       size: 'landscape',
+      format: 'standard',
       captions: { path: ass, fontsDir: resolve('packages/art/fonts/ttf') },
     });
     expect(readFileSync(repeatOutput)).toEqual(readFileSync(output));
+  }, 120_000);
+
+  it('renders captioned 4K portrait greenscreen at 60 fps without reading scene stills', async () => {
+    mkdirSync(TEMP_ROOT, { recursive: true });
+    const directory = mkdtempSync(join(TEMP_ROOT, 'render-green-'));
+    temporaryDirectories.push(directory);
+
+    const audio = join(directory, 'voice.wav');
+    const ass = resolve(directory, 'captions.ass');
+    const output = join(directory, 'green.mp4');
+    ffmpeg([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'sine=frequency=440:duration=0.1',
+      '-c:a', 'pcm_s16le', audio,
+    ]);
+    const cues = buildCaptionCues(
+      [{ text: 'தமிழ்!', startMs: 0, endMs: 100 }],
+      { wordLimit: 2, maxLines: 1, maxCharsPerLine: 20 },
+    );
+    writeFileSync(
+      ass,
+      buildAss(cues, { width: 2160, height: 3840 }, { fontSize: 160 }),
+      'utf8',
+    );
+
+    const result = await renderVideo({
+      scenes: [
+        {
+          imagePath: join(directory, 'deliberately-missing.png'),
+          durationMs: 100,
+          motion: 'kenburns-in',
+        },
+      ],
+      audioPath: audio,
+      outputPath: output,
+      resolution: 2160,
+      fps: 60,
+      size: 'portrait',
+      format: 'greenscreen',
+      captions: { path: ass, fontsDir: resolve('packages/art/fonts/ttf') },
+    });
+
+    expect(result.width).toBe(2160);
+    expect(result.height).toBe(3840);
+    expect(result.fps).toBe(60);
+    expect(result.totalFrames).toBe(6);
+
+    const info = probe(output);
+    const video = info.streams.find((stream) => stream.codec_type === 'video');
+    const sound = info.streams.find((stream) => stream.codec_type === 'audio');
+    expect(video?.width).toBe(2160);
+    expect(video?.height).toBe(3840);
+    expect(video?.r_frame_rate).toBe('60/1');
+    expect(video?.nb_frames).toBe('6');
+    expect(sound?.codec_name).toBe('aac');
+    expect(Math.abs(Number(info.format.duration) * 1000 - 100)).toBeLessThanOrEqual(100);
+
+    const frame = frameAt(output, 0.05);
+    const centre = centrePixel(frame, 2160, 3840);
+    expect(centre[1]).toBeGreaterThan(200);
+    expect(centre[0]).toBeLessThan(40);
+    expect(centre[2]).toBeLessThan(40);
+
+    // The deliberately missing still proves the variant uses a generated
+    // colour source. Bright caption pixels prove overlays remain on top.
+    let captionPixels = 0;
+    for (let row = 2880; row < 3840; row += 1) {
+      for (let column = 0; column < 2160; column += 1) {
+        const offset = (row * 2160 + column) * 3;
+        const redPixel = frame[offset] ?? 0;
+        const greenPixel = frame[offset + 1] ?? 0;
+        if (redPixel > 120 && greenPixel > 120) captionPixels += 1;
+      }
+    }
+    expect(captionPixels).toBeGreaterThan(1_000);
   }, 120_000);
 
   it('rejects a missing still with ffmpeg stderr, not a silent empty video', async () => {
@@ -213,6 +290,7 @@ describe('renderVideo (real ffmpeg)', () => {
         resolution: 1080,
         fps: 30,
         size: 'landscape',
+        format: 'standard',
       }),
     ).rejects.toThrow(/ffmpeg/i);
   }, 60_000);

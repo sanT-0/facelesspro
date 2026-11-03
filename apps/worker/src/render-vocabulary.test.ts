@@ -11,20 +11,23 @@ import {
   RESOLUTIONS,
   SCENE_MOTIONS,
   frameRateSchema,
+  renderFormatSchema,
   resolutionSchema,
   sizeSchema,
 } from '@facelesspro/contracts';
 import {
   MAX_RENDER_SCENES,
   RENDER_FRAME_RATES,
+  RENDER_FORMATS,
   RENDER_MOTIONS,
   RENDER_RESOLUTIONS,
   RENDER_SIZES,
 } from '@facelesspro/core';
 
 describe('composer vocabulary ↔ contracts', () => {
-  it('uses the same motions, sizes, resolutions and scene cap', () => {
+  it('uses the same motions, formats, sizes, resolutions and scene cap', () => {
     expect(RENDER_MOTIONS).toEqual(SCENE_MOTIONS);
+    expect(RENDER_FORMATS).toEqual(renderFormatSchema.options);
     expect(RENDER_SIZES).toEqual(sizeSchema.options);
     expect(RENDER_RESOLUTIONS).toEqual(RESOLUTIONS);
     expect(MAX_RENDER_SCENES).toBe(MAX_SCENES);
