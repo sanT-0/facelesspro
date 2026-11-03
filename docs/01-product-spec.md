@@ -234,6 +234,10 @@ allow-list, and at most one per two cues. The emoji is presentational: `Cue.emoj
 from `Cue.words`/`Cue.lines`, so caption text still reconstructs the narration exactly.
 `Noto Emoji` ships with the caption fonts and the ASS writer names it inline.
 
+`[+]` Every caption track exports from those same cues as SRT, WebVTT, karaoke ASS and strict
+JSON v1. SRT/VTT preserve authored lines and millisecond timing; JSON retains raw lines, words,
+global timings and optional separate emoji. Exports never expose a storage path or database row.
+
 `[+]` Two caption sources, in priority order:
 
 1. **TTS word boundaries** — exact, free, already aligned to the audio we generated.

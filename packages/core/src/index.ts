@@ -59,6 +59,24 @@ export type {
 } from './captions';
 export { assColour, buildAss, toAssTimecode } from './ass';
 export type { AssDimensions, AssStyleSpec } from './ass';
+export {
+  CAPTION_EXPORT_FORMATS,
+  buildCaptionJson,
+  buildCaptionJsonDocument,
+  buildSrt,
+  buildVtt,
+  exportCaptions,
+  toSrtTimecode,
+  toVttTimecode,
+} from './caption-export';
+export type {
+  CaptionExport,
+  CaptionExportFormat,
+  CaptionExportOptions,
+  CaptionJsonCue,
+  CaptionJsonDocument,
+  CaptionJsonWord,
+} from './caption-export';
 export { EMOJI_ALLOW_LIST, emojiForWord, isEmphasisWord, sprinkleEmoji } from './emoji';
 export type { EmojiRule, SprinkleEmojiOptions } from './emoji';
 export {

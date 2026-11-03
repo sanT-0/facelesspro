@@ -217,6 +217,7 @@ export const aspectRatioSchema = z.enum(ASPECT_RATIOS);
 export type AspectRatio = z.infer<typeof aspectRatioSchema>;
 
 export const captionExportFormatSchema = z.enum(['srt', 'vtt', 'ass', 'json']);
+export type CaptionExportFormat = z.infer<typeof captionExportFormatSchema>;
 
 // --- workspace / credits ----------------------------------------------------
 
