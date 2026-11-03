@@ -45,6 +45,11 @@ export interface CaptionCue {
   startMs: number;
   /** Last word's `endMs`. */
   endMs: number;
+  /**
+   * Opt-in decoration from `sprinkleEmoji` (one grapheme cluster). Kept out of
+   * `lines`/`words` so text reconstruction is unaffected.
+   */
+  emoji?: string;
 }
 
 export interface CaptionCueOptions {

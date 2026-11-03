@@ -10,4 +10,8 @@ export const BUNDLED_FONTCONFIG_URL = new URL('../fonts/fonts.conf', import.meta
 export const BUNDLED_CAPTION_FONT_FILES = [
   'NotoSansTamil-Variable.ttf',
   'NotoSans-Variable.ttf',
+  'NotoEmoji-Variable.ttf',
 ] as const;
+
+/** Rendered only for `Cue.emoji`; the ASS writer names it inline. */
+export const BUNDLED_EMOJI_FONT_FAMILY = 'Noto Emoji';

@@ -59,6 +59,8 @@ export type {
 } from './captions';
 export { assColour, buildAss, toAssTimecode } from './ass';
 export type { AssDimensions, AssStyleSpec } from './ass';
+export { EMOJI_ALLOW_LIST, emojiForWord, isEmphasisWord, sprinkleEmoji } from './emoji';
+export type { EmojiRule, SprinkleEmojiOptions } from './emoji';
 export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,

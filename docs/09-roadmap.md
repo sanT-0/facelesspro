@@ -456,7 +456,7 @@ my eye; portrait + landscape both render; rejected inputs give clear 400s.
 - [x] Caption cue builder (word limits, line limits, Tamil grapheme safety, punctuation priority).
 - [x] ASS writer with karaoke `\k` spans + bundled Noto Sans / Noto Sans Tamil.
 - [x] Caption templates (≥6 built-ins, negative ids) + `GET /v1/caption-templates`.
-- [ ] Emoji sprinkling (allow-list, opt-in, ≤1 per 2 cues).
+- [x] Emoji sprinkling (allow-list, opt-in, ≤1 per 2 cues).
 - [ ] ffmpeg composer: stills → `zoompan` clips → concat → audio → burn subs → mux.
 - [ ] `format=greenscreen` variant; `frameRate` 30/60; 1080p/2K/4K.
 - [ ] `srt` / `vtt` / `ass` / `json` caption exports.

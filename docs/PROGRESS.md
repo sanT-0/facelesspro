@@ -1117,6 +1117,23 @@ file stays the single "what is actually true today" view.
       artifact check rather than a compile claim. Full gate green: typecheck + eslint +
       **74 files / 971 tests**.
 
+- [x] 2026-11-03 — **Opt-in emoji sprinkling** (roadmap P4 task 4). New pure
+      `packages/core/src/emoji.ts`: ten-emoji allow-list with curated English and Tamil
+      topic words (no function words), punctuation/case-insensitive lookup, and emphasis
+      detection (cue-final word, or `!`/`?`/`…`/ALL-CAPS mid-cue). Selection scans a cue
+      backwards, decorates at most one cue per two (`minCueGap`, configurable upward), and
+      is idempotent: an existing `Cue.emoji` is preserved and still counts toward the gap.
+      The emoji is a separate presentation field, so `Cue.words`/`Cue.lines` and the
+      "join lines reconstructs the narration" invariant are untouched. The ASS writer gains
+      `spec.emoji` plus an inline `\fnNoto Emoji` override, validates one grapheme cluster,
+      and leaves karaoke spans unchanged. Bundled upstream `NotoEmoji-Variable.ttf`
+      (SHA-256 `de6c1883…d27551`, OFL 1.1, same pinned Google Fonts revision) with its own
+      notice. 13 emoji tests, 6 ASS emoji tests, and a real-ffmpeg test that renders 🔥 and
+      ✅ in identical layouts and fails if the frames are byte-identical (identical tofu).
+      **Observed artifact:** 1280×720 ffmpeg render of `மிக்க நன்றி!` with a monochrome
+      folded-hands glyph, Tamil shaped correctly; the emoji inherits the caption primary
+      colour. Full gate green: typecheck + eslint + **75 files / 991 tests**.
+
 ---
 
 ## Decisions log

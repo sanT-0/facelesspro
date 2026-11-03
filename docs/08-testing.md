@@ -73,7 +73,8 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 | `captions.test.ts` | line breaking, word limit, Tamil grapheme clusters never split, cue monotonicity |
 | `timeline.test.ts` | global = run.start + word.local; gaps by boundary class; no overlaps |
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
-| `ass.test.ts` | ASS v4+ header/style/events, BGR colour packing, centisecond timecodes, karaoke `\k` durations, explicit `\N` line breaks, text escaping, template position/font/colour mapping |
+| `ass.test.ts` | ASS v4+ header/style/events, BGR colour packing, centisecond timecodes, karaoke `\k` durations, explicit `\N` line breaks, text escaping, template position/font/colour mapping; emoji only with `spec.emoji`, inline `\fn` family override, one-cluster validation, karaoke spans unchanged |
+| `emoji.test.ts` | allow-list is unique single-cluster emoji and lowercase unique words; punctuation/case-insensitive lookups for English and Tamil; emphasis by `!`/`?`/`…` or ≥3-letter ALL-CAPS; opt-in no-op; cue-final and mid-cue emphasis selection; ≤1 per 2 cues and a larger configurable gap; never rewrites words/lines/timing; idempotent with preserved emoji; invalid gaps rejected |
 | `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
 | `sentences.test.ts` | Tamil/Latin terminators, abbreviations (`Dr.`, `Rs.500`, `p.m.`, `திரு.`), decimals, initials, ellipsis, closing quotes, Tamil quotatives (`"…?" என்று` stays one sentence), paragraph breaks, offsets into the normalised script, `concat === script` |
 | `duration.test.ts` | ta 130 / en 150 / mixed 140 wpm, per-word blend, numbers expanded before counting, `₹1,20,000` = 5 words not 1 and unspellable digits keep the mixed rate, one 300 ms gap per sentence, `durationMs`, zero for silence, override rates, rate validation |
@@ -86,7 +87,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 
 | File | Asserts |
 |---|---|
-| `ass-render.test.ts` | bundled font SHA-256 pins; committed 1280×720 human-review golden PNG; real ffmpeg selects `NotoSansTamil-Variable.ttf`; exact 640×360 RGB output; >1,000 non-background glyph pixels. Pixel digest is advisory, never a hard failure. |
+| `ass-render.test.ts` | bundled font SHA-256 pins (Tamil, Sans, Emoji); committed 1280×720 human-review golden PNG; real ffmpeg selects `NotoSansTamil-Variable.ttf` and `NotoEmoji-Variable.ttf`; exact 640×360 RGB output; >1,000 non-background glyph pixels; two different emoji at the same layout rasterise to different frames (catches identical `.notdef` tofu). Pixel digest is advisory, never a hard failure. |
 
 ### 3.3 `packages/contracts` (zod only, no I/O)
 

@@ -468,10 +468,21 @@ telling the user what to upload instead.
    priority, never break a Tamil grapheme cluster.
 2. Karaoke styling: per-word highlight spans (`\k`) so the current word pops.
 3. Emoji sprinkling: only on emphasis words, only from an allow-list, ≤1 per 2 cues (opt-in).
-4. Render `ASS` with the **bundled** variable fonts (`NotoSansTamil-Variable.ttf` and
-   `NotoSans-Variable.ttf`), explicit `ScaledBorderAndShadow`, and libass's fallback chain,
+   The list is curated in `packages/core/src/emoji.ts` (ten emoji, distinct topic words in
+   English and Tamil, never frequent function words). Selection is deterministic: scan a cue
+   from its last word backwards; the cue-final word is the natural stress position, while a
+   mid-cue word needs an explicit `!`, `?`, `…` or ALL-CAPS Latin form. Chosen cues are at
+   least two apart (configurable upward), and the emoji is a separate `Cue.emoji` field — it
+   never enters `Cue.words` or `Cue.lines`, so text reconstruction stays exact. Already
+   decorated cues are preserved, making the pass idempotent.
+4. Render `ASS` with the **bundled** variable fonts (`NotoSansTamil-Variable.ttf`,
+   `NotoSans-Variable.ttf`, and `NotoEmoji-Variable.ttf`), explicit `ScaledBorderAndShadow`,
+   and libass's fallback chain,
    so Tamil shaping is correct. The files retain their internal `Noto Sans Tamil` / `Noto Sans`
-   family names; `packages/art/fonts/fonts.conf` exposes only the `ttf/` directory.
+   / `Noto Emoji` family names; the emoji is wrapped in an inline `\fnNoto Emoji` override so
+   rendering does not depend on host fallback order. `packages/art/fonts/fonts.conf` exposes
+   only the `ttf/` directory. Noto Emoji is monochrome by design, so the glyph inherits the
+   caption's primary colour instead of forcing a colour bitmap font.
 5. `--copyts`/timing accounted for the audio's actual start.
 
 **Ledger:** `action=subtitles`, `units=1` per video (20 credits, as specified).

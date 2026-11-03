@@ -229,6 +229,11 @@ built-in means adding a new ID, never silently changing an old saved project:
 Matching `If-None-Match` returns `304` with no body. ID `0` is invalid on both request and
 response paths.
 
+`[+]` Emoji are opt-in (`emoji: true`), only on emphasis words, only from a curated
+allow-list, and at most one per two cues. The emoji is presentational: `Cue.emoji` is separate
+from `Cue.words`/`Cue.lines`, so caption text still reconstructs the narration exactly.
+`Noto Emoji` ships with the caption fonts and the ASS writer names it inline.
+
 `[+]` Two caption sources, in priority order:
 
 1. **TTS word boundaries** — exact, free, already aligned to the audio we generated.
