@@ -62,6 +62,30 @@ export type { AssDimensions, AssStyleSpec } from './ass';
 export { EMOJI_ALLOW_LIST, emojiForWord, isEmphasisWord, sprinkleEmoji } from './emoji';
 export type { EmojiRule, SprinkleEmojiOptions } from './emoji';
 export {
+  DEFAULT_AUDIO_BITRATE,
+  DEFAULT_AUDIO_RATE,
+  MAX_RENDER_SCENES,
+  RENDER_FRAME_RATES,
+  RENDER_MOTIONS,
+  RENDER_PRESETS,
+  RENDER_RESOLUTIONS,
+  RENDER_SIZES,
+  buildRenderPlan,
+  escapeFilterPath,
+  renderDimensions,
+} from './render';
+export type {
+  RenderCaptions,
+  RenderFps,
+  RenderMotion,
+  RenderPlan,
+  RenderPlanInput,
+  RenderPreset,
+  RenderResolution,
+  RenderScene,
+  RenderSize,
+} from './render';
+export {
   DEFAULT_DURATION_RATES,
   DEFAULT_SENTENCE_PAUSE_SECONDS,
   estimateDuration,

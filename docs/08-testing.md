@@ -75,6 +75,7 @@ relative files, `packages/contracts` only `zod`, packages may not import `apps/*
 | `pricing.test.ts` | unit-cost math matches the table; `ceil` boundaries; zero-minute guard |
 | `ass.test.ts` | ASS v4+ header/style/events, BGR colour packing, centisecond timecodes, karaoke `\k` durations, explicit `\N` line breaks, text escaping, template position/font/colour mapping; emoji only with `spec.emoji`, inline `\fn` family override, one-cluster validation, karaoke spans unchanged |
 | `emoji.test.ts` | allow-list is unique single-cluster emoji and lowercase unique words; punctuation/case-insensitive lookups for English and Tamil; emphasis by `!`/`?`/`…` or ≥3-letter ALL-CAPS; opt-in no-op; cue-final and mid-cue emphasis selection; ≤1 per 2 cues and a larger configurable gap; never rewrites words/lines/timing; idempotent with preserved emoji; invalid gaps rejected |
+| `render.test.ts` | render vocabulary pinned; 1080/1440/2160 landscape/portrait geometry; cumulative frame allocation sums exactly without per-scene drift; one scale/crop/zoompan chain per still; every motion expression; video-only concat then optional escaped ASS burn; narration mapped as the next input; H.264/AAC/CRF/CFR/faststart/metadata flags; deterministic args; malformed and sub-frame timelines rejected |
 | `samples.test.ts` | one sample directory per pair id, every set under `samples/tts`, and non-ids rejected (engine voice id, absolute path, `..`) |
 | `sentences.test.ts` | Tamil/Latin terminators, abbreviations (`Dr.`, `Rs.500`, `p.m.`, `திரு.`), decimals, initials, ellipsis, closing quotes, Tamil quotatives (`"…?" என்று` stays one sentence), paragraph breaks, offsets into the normalised script, `concat === script` |
 | `duration.test.ts` | ta 130 / en 150 / mixed 140 wpm, per-word blend, numbers expanded before counting, `₹1,20,000` = 5 words not 1 and unspellable digits keep the mixed rate, one 300 ms gap per sentence, `durationMs`, zero for silence, override rates, rate validation |
@@ -88,6 +89,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 | File | Asserts |
 |---|---|
 | `ass-render.test.ts` | bundled font SHA-256 pins (Tamil, Sans, Emoji); committed 1280×720 human-review golden PNG; real ffmpeg selects `NotoSansTamil-Variable.ttf` and `NotoEmoji-Variable.ttf`; exact 640×360 RGB output; >1,000 non-background glyph pixels; two different emoji at the same layout rasterise to different frames (catches identical `.notdef` tofu). Pixel digest is advisory, never a hard failure. |
+| `render.test.ts` | real ffmpeg composes two stills with motion + WAV narration + burned Tamil ASS into H.264/AAC MP4; ffprobe requires 1920×1080, 30/1, exactly 45 video frames and duration within 100 ms; sampled centre pixels prove the red→blue cut; >500 caption-colour pixels prove subtitles were burned; a second render to another path must be byte-identical; missing inputs surface ffmpeg stderr rather than an empty artifact |
 
 ### 3.3 `packages/contracts` (zod only, no I/O)
 
@@ -170,6 +172,7 @@ against `docker compose` Postgres:
 |---|---|
 | `ping` | `startWorker` consumes exactly the `ping` queue while the pipeline is unbuilt; a job is logged and resolves (so pg-boss marks it completed); a malformed payload throws `InvalidJobError` rather than being swallowed; `stop()` calls `offWork` for every queue it started and nothing else |
 | `art-style worker wiring` | supplying the real-build handler registers `build-art-style` after `ping`, parses the contract payload before handing it over, rejects malformed jobs without calling the handler, and drains both queues on stop; omitting the handler keeps isolated wiring tests on `ping` only |
+| `render-vocabulary.test.ts` | core's dependency-free restatement exactly matches contracts for scene motions, landscape/portrait sizes, 1080/1440/2160 resolutions and the 120-scene cap; only contract frame rates 30/60 parse |
 | `step.idempotent` | running a step twice charges once, produces one artifact |
 | `step.resume` | kill between `create-images` and `create-captions` → resume skips completed scenes |
 | `planner.heuristic` | the fixture plans into a valid 8–20 s plan; `concat(text) === script`; style prefix/suffix/negative land in every prompt; prompts ≤1000 chars and trimmed by whole word (never inside a Tamil cluster); punctuation and emoji stripped from descriptions; motion cycles; no emphasis invented without a model; a slower voice gets more scenes; the cap is honoured past 20 s; empty script rejected; deterministic |
