@@ -107,6 +107,7 @@ its visible provider watermark remains even when `nologo=true`.
 | `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |
 | Render OOM at 4K | filter graph holding frames | raise `ffmpeg` memory, or render in scene chunks then concat |
 | Thumbnail missing after a completed render | ffprobe/ffmpeg stderr and `<thumbnail>.part` | source MP4 must verify first; retry extraction — `.part` is removed and only a signature/IHDR-verified PNG is published |
+| MP4 has video but the voice is silent in a desktop player | `ffprobe` audio profile/channels, then play the extracted WAV/MP3 | renderer must emit AAC-LC, 48 kHz, stereo; mono AAC can decode in ffmpeg yet fail in a playback path — re-render with current profile |
 
 Every failure path writes `error` + `step` + the stderr tail (for ffmpeg) into the video row, so
 the editor can show it and `curl /v1/videos/:id` returns it.
