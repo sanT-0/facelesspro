@@ -268,6 +268,10 @@ uses a generated, frame-exact `#00FF00` source instead of reading scene stills, 
 same captions on top. The complete 30/60 fps × 1080/2K/4K profile matrix is validated; music/
 ducking remains P10.
 
+`[+]` A render thumbnail is the frame at 25% of the verified MP4, exported as RGB PNG with a
+1280 px maximum long edge and no upscaling. It is verified before publish and byte-idempotent on
+retry; `thumbnailUrl` is not populated from an unchecked partial file.
+
 ---
 
 ## 8. Credits & plans `[P]`

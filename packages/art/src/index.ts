@@ -18,3 +18,5 @@ export const BUNDLED_EMOJI_FONT_FAMILY = 'Noto Emoji';
 
 export { renderVideo } from './render';
 export type { RenderResult } from './render';
+export { extractThumbnail } from './thumbnail';
+export type { ThumbnailResult } from './thumbnail';

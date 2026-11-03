@@ -1190,6 +1190,20 @@ file stays the single "what is actually true today" view.
       `GET /v1/videos/:id/captions`; those require the P5 pipeline/P6 authenticated video route.
       Full gate green: typecheck + eslint + **81 files / 1034 tests**.
 
+- [x] 2026-11-03 — **Verified thumbnail extraction** (roadmap P4 task 8). New pure
+      `packages/core/src/thumbnail.ts` chooses 25% of the final duration and caps the long edge
+      at 1280 without upscaling/distortion; very short videos clamp inside their duration. New
+      `packages/art/src/thumbnail.ts` ffprobes source metadata, seeks that exact millisecond,
+      Lanczos-scales one RGB PNG and writes `<output>.part`; PNG signature + IHDR geometry must
+      verify before atomic rename. Missing/probe/extract failures remove the partial, while retry
+      over an existing thumbnail is byte-idempotent. **Observed mandatory real-ffmpeg gate:** a
+      4.000 s 1920×1080 source switched red→blue at 0.5 s; extraction selected 1.000 s, produced
+      1280×720, and the centre pixel was blue (not frame zero). Re-running produced identical
+      bytes and one final file. **Observed artifact:** 4,352-byte PNG, SHA-256
+      `b2419fd5…8794c3fd`, visually inspected as uniform blue. **Not observed:** thumbnail wiring
+      into a persisted render row/`thumbnailUrl` (P5). The P4 60-second watch/listening artifact
+      gate remains open. Full gate green: typecheck + eslint + **83 files / 1044 tests**.
+
 ---
 
 ## Decisions log
