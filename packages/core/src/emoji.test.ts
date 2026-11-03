@@ -65,6 +65,12 @@ describe('emoji allow-list', () => {
     expect(emojiForWord('')).toBeUndefined();
   });
 
+  it('trims long punctuation runs without a backtracking regex', () => {
+    const noise = '"'.repeat(20_000);
+    expect(emojiForWord(`${noise}fire!${noise}`)).toBe('🔥');
+    expect(isEmphasisWord(`${noise}wow!${noise}`)).toBe(true);
+  });
+
   it('treats trailing ! ? … and ALL-CAPS Latin words as emphasis', () => {
     expect(isEmphasisWord('wow!')).toBe(true);
     expect(isEmphasisWord('really?')).toBe(true);

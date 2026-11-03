@@ -50,12 +50,41 @@ const EMOJI_BY_WORD: ReadonlyMap<string, string> = new Map(
 );
 
 /** Bidi-safe: punctuation and symbols around a word are ignored; marks stay. */
-const WORD_EDGES = /^[^\p{L}\p{M}\p{N}]+|[^\p{L}\p{M}\p{N}]+$/gu;
+const WORD_CHAR = /^[\p{L}\p{M}\p{N}]$/u;
 /** Closing quotes/brackets stay outside an emphasis mark. */
-const TRAILING_CLOSERS = /[)\]}"'”’»]+$/u;
+const TRAILING_CLOSERS: ReadonlySet<string> = new Set([
+  ')',
+  ']',
+  '}',
+  '"',
+  "'",
+  '”',
+  '’',
+  '»',
+]);
+
+/**
+ * Linear edge trim. The obvious regex (`[^…]+$`) backtracks quadratically on a
+ * long run of quotes, and caption text is untrusted; CodeQL flags exactly
+ * that, so these loops are deliberate.
+ */
+function stripWordEdges(text: string): string {
+  const characters = [...text];
+  let start = 0;
+  let end = characters.length;
+  while (start < end && !WORD_CHAR.test(characters[start] ?? '')) start += 1;
+  while (end > start && !WORD_CHAR.test(characters[end - 1] ?? '')) end -= 1;
+  return characters.slice(start, end).join('');
+}
+
+function stripTrailingClosers(text: string): string {
+  let end = text.length;
+  while (end > 0 && TRAILING_CLOSERS.has(text[end - 1] ?? '')) end -= 1;
+  return text.slice(0, end);
+}
 
 function bareWord(text: string): string {
-  return text.replace(WORD_EDGES, '').toLowerCase();
+  return stripWordEdges(text).toLowerCase();
 }
 
 /** Allow-list lookup; punctuation-wrapped and case-insensitive. */
@@ -70,9 +99,9 @@ export function emojiForWord(text: string): string | undefined {
  * curated allow-list word itself when it ends the cue.
  */
 export function isEmphasisWord(text: string): boolean {
-  const withoutClosers = text.replace(TRAILING_CLOSERS, '');
+  const withoutClosers = stripTrailingClosers(text);
   if (/[!?…]$/u.test(withoutClosers)) return true;
-  const stripped = withoutClosers.replace(WORD_EDGES, '');
+  const stripped = stripWordEdges(withoutClosers);
   return /^[A-Z][A-Z0-9]{2,}$/u.test(stripped);
 }
 

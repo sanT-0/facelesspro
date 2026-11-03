@@ -1128,11 +1128,13 @@ file stays the single "what is actually true today" view.
       `spec.emoji` plus an inline `\fnNoto Emoji` override, validates one grapheme cluster,
       and leaves karaoke spans unchanged. Bundled upstream `NotoEmoji-Variable.ttf`
       (SHA-256 `de6c1883…d27551`, OFL 1.1, same pinned Google Fonts revision) with its own
-      notice. 13 emoji tests, 6 ASS emoji tests, and a real-ffmpeg test that renders 🔥 and
+      notice. 14 emoji tests, 6 ASS emoji tests, and a real-ffmpeg test that renders 🔥 and
       ✅ in identical layouts and fails if the frames are byte-identical (identical tofu).
-      **Observed artifact:** 1280×720 ffmpeg render of `மிக்க நன்றி!` with a monochrome
-      folded-hands glyph, Tamil shaped correctly; the emoji inherits the caption primary
-      colour. Full gate green: typecheck + eslint + **75 files / 991 tests**.
+      Edge trimming is a linear scan, not a `+$` regex: CodeQL correctly flagged the first
+      version as a polynomial regex on untrusted caption text. **Observed artifact:** 1280×720
+      ffmpeg render of `மிக்க நன்றி!` with a monochrome folded-hands glyph, Tamil shaped
+      correctly; the emoji inherits the caption primary colour. Full gate green: typecheck +
+      eslint + **75 files / 992 tests**.
 
 ---
 
