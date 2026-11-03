@@ -50,6 +50,7 @@ function probe(path: string): {
     height?: number;
     r_frame_rate?: string;
     nb_frames?: string;
+    channels?: number;
     duration?: string;
   }>;
   format: { duration: string };
@@ -59,7 +60,7 @@ function probe(path: string): {
     [
       '-hide_banner',
       '-loglevel', 'error',
-      '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,duration',
+      '-show_entries', 'stream=codec_type,codec_name,width,height,r_frame_rate,nb_frames,channels,duration',
       '-show_entries', 'format=duration',
       '-of', 'json',
       path,
@@ -163,6 +164,7 @@ describe('renderVideo (real ffmpeg)', () => {
     expect(video?.r_frame_rate).toBe('30/1');
     expect(video?.nb_frames).toBe('45');
     expect(sound?.codec_name).toBe('aac');
+    expect(sound?.channels).toBe(2);
     expect(Math.abs(Number(info.format.duration) * 1000 - 1500)).toBeLessThanOrEqual(100);
 
     const early = centrePixel(frameAt(output, 0.2), 1920, 1080);
@@ -255,6 +257,7 @@ describe('renderVideo (real ffmpeg)', () => {
     expect(video?.r_frame_rate).toBe('60/1');
     expect(video?.nb_frames).toBe('6');
     expect(sound?.codec_name).toBe('aac');
+    expect(sound?.channels).toBe(2);
     expect(Math.abs(Number(info.format.duration) * 1000 - 100)).toBeLessThanOrEqual(100);
 
     const frame = frameAt(output, 0.05);

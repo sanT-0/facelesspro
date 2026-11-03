@@ -81,6 +81,7 @@ export { EMOJI_ALLOW_LIST, emojiForWord, isEmphasisWord, sprinkleEmoji } from '.
 export type { EmojiRule, SprinkleEmojiOptions } from './emoji';
 export {
   DEFAULT_AUDIO_BITRATE,
+  DEFAULT_AUDIO_CHANNELS,
   DEFAULT_AUDIO_RATE,
   MAX_RENDER_SCENES,
   RENDER_FRAME_RATES,

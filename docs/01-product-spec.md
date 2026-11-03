@@ -268,6 +268,9 @@ uses a generated, frame-exact `#00FF00` source instead of reading scene stills, 
 same captions on top. The complete 30/60 fps × 1080/2K/4K profile matrix is validated; music/
 ducking remains P10.
 
+Final MP4 audio is stereo AAC-LC at 48 kHz/192 kbps. Mono narration is duplicated to both
+channels because codec-valid mono AAC was observed silent in a real user playback path.
+
 `[+]` A render thumbnail is the frame at 25% of the verified MP4, exported as RGB PNG with a
 1280 px maximum long edge and no upscaling. It is verified before publish and byte-idempotent on
 retry; `thumbnailUrl` is not populated from an unchecked partial file.

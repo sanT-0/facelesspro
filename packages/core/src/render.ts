@@ -55,6 +55,8 @@ export type RenderPreset = (typeof RENDER_PRESETS)[number];
 export const MAX_RENDER_SCENES = 120;
 export const DEFAULT_AUDIO_BITRATE = '192k';
 export const DEFAULT_AUDIO_RATE = 48_000;
+/** Stereo AAC-LC is more widely decoded by desktop/browser players than mono AAC. */
+export const DEFAULT_AUDIO_CHANNELS = 2;
 
 export interface RenderScene {
   /** Absolute or relative path to a still image; unused by `greenscreen`. */
@@ -281,10 +283,14 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     'cfr',
     '-c:a',
     'aac',
+    '-profile:a',
+    'aac_low',
     '-b:a',
     DEFAULT_AUDIO_BITRATE,
     '-ar',
     String(DEFAULT_AUDIO_RATE),
+    '-ac',
+    String(DEFAULT_AUDIO_CHANNELS),
     '-movflags',
     '+faststart',
     '-map_metadata',

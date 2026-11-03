@@ -1204,6 +1204,18 @@ file stays the single "what is actually true today" view.
       into a persisted render row/`thumbnailUrl` (P5). The P4 60-second watch/listening artifact
       gate remains open. Full gate green: typecheck + eslint + **83 files / 1044 tests**.
 
+- [x] 2026-11-03 — **Stereo AAC playback compatibility fix** (user-reported P4 gate defect).
+      The first 61-second candidate carried valid AAC-LC mono: ffprobe showed 48 kHz/61.038 s,
+      decoding produced full PCM, and volume measured −15.5 dB mean / −1.6 dB peak — but the
+      user heard no voice in their playback path, so the artifact failed regardless of metadata.
+      The composer now explicitly emits AAC-LC 192 kbps/48 kHz **stereo** (`-ac 2`); both standard
+      and 4K greenscreen real-ffmpeg tests probe and require two channels. Regenerated candidate
+      at the same path is 7,841,120 bytes, SHA-256 `a5ec00fd…8950646`, 61.038 s, stereo from time
+      zero; a standalone MP3 voice check is beside it. **Observed:** ffmpeg decodes both channels;
+      automated duration/drift/caption checks remain green. **Not observed:** user playback of
+      the replacement — P4 human watch/listening gate remains open. Full gate green: typecheck +
+      eslint + **83 files / 1044 tests**.
+
 ---
 
 ## Decisions log

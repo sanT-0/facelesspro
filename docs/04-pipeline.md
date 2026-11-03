@@ -517,7 +517,7 @@ ffmpeg -filter_complex
   + audio: narration (already stitched, mapped without filtering)
   + subtitles: optional ASS burn after concat
   → libx264 -preset medium -crf 18 (1080p) / 16 (2K/4K)
-  → +faststart, yuv420p, AAC 192k
+  → +faststart, yuv420p, stereo AAC-LC 192k / 48 kHz
 ```
 
 `packages/core/src/render.ts` is the pure plan builder; it validates the public motion/profile
@@ -532,6 +532,11 @@ Determinism rules: fixed fps and `-r`, current ffmpeg `-fps_mode cfr` (not remov
 number. A real-ffmpeg test renders the same input twice to different paths and requires identical
 MP4 bytes. Duration (within 100 ms), actual frame count, fps, resolution and stream codecs are
 hard checks; a digest alone is not evidence. Background-music ducking remains P10.
+
+Audio output is explicitly `AAC-LC`, 48 kHz, **stereo** (`-ac 2`) even when narration input is
+mono. The duplicated centre voice is deliberate compatibility: a locally generated mono AAC
+stream decoded correctly in ffmpeg but was silent in the user's desktop playback path. Real
+render tests therefore probe and require two output channels rather than trusting codec presence.
 
 Variants by `format`:
 - `standard` → normal composition; one still input per scene.
