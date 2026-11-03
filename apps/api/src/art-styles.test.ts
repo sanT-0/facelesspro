@@ -38,6 +38,7 @@ function appWith(
     now: () => new Date('2026-10-27T09:00:00.000Z'),
     storageRoot,
     submitArtStyle,
+    listCaptionTemplates: async () => [],
     ...catalog,
   });
 }

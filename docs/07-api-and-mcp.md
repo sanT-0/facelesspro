@@ -87,8 +87,8 @@ All create responses are identical in shape:
 | GET | `/v1/balance-logs` | top-ups / charges |
 
 Caching: libraries are slow-changing; responses carry `ETag` and `Cache-Control: private,
-max-age=300`. Parity note: *"The list rarely changes, so cache it rather than calling it
-before every video."*
+max-age=300`. A matching `If-None-Match` returns `304`; cache a list rather than calling it
+before every video.
 
 ### 2.4 Our additions `[+]`
 

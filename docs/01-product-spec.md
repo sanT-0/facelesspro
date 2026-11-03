@@ -212,6 +212,23 @@ emoji sprinkling, burn-in on render.
 `highlightColor`, `outlineColor`, `outlineWidth`. All optional, because a template that omits a
 field inherits the renderer default.
 
+Built-ins are immutable, have negative IDs and use the bundled `Noto Sans Tamil`. Changing a
+built-in means adding a new ID, never silently changing an old saved project:
+
+| ID | Name | Size | Words / lines | Position | Highlight / outline | Uppercase | Emoji |
+|---:|---|---:|---:|---|---|---|---|
+| -1 | Bold Tamil | 72 | 4 / 2 | bottom | `#FFD400` / black 6 | no | no |
+| -2 | Clean Sans | 56 | 6 / 2 | bottom | renderer default / black 4 | no | no |
+| -3 | Emoji Pop | 64 | 3 / 2 | center | `#FF4D8D` / white 5 | yes | yes |
+| -4 | Top Headline | 58 | 5 / 2 | top | `#00E5FF` / black 5 | yes | no |
+| -5 | Minimal Center | 52 | 6 / 2 | center | white / black 2 | no | no |
+| -6 | Focus Word | 82 | 2 / 2 | center | `#7CFF6B` / black 7 | no | no |
+
+`GET /v1/caption-templates` returns `{templates:[{id,name,spec}]}` with no database-only
+`workspace_id`; it carries a content-derived ETag and `Cache-Control: private, max-age=300`.
+Matching `If-None-Match` returns `304` with no body. ID `0` is invalid on both request and
+response paths.
+
 `[+]` Two caption sources, in priority order:
 
 1. **TTS word boundaries** — exact, free, already aligned to the audio we generated.

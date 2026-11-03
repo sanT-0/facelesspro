@@ -13,6 +13,7 @@ import {
   databaseFor,
   databaseUrl,
   findArtStyle,
+  listBuiltInCaptionTemplates,
   listReadyArtStyles,
   loadEnv,
 } from '@facelesspro/db';
@@ -94,6 +95,7 @@ async function main(): Promise<void> {
     submitArtStyle,
     listArtStyles: () => listReadyArtStyles(db),
     readArtStyle: (id) => findArtStyle(db, id),
+    listCaptionTemplates: () => listBuiltInCaptionTemplates(db),
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

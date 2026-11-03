@@ -6,6 +6,8 @@ import type { HealthDeps } from './health';
 import { planVideo } from './plan';
 import { createArtStyleRoutes } from './art-styles';
 import type { ArtStyleDeps } from './art-styles';
+import { createCaptionTemplateRoutes } from './caption-templates';
+import type { CaptionTemplateDeps } from './caption-templates';
 
 /**
  * The api as a set of routes over injected dependencies.
@@ -14,7 +16,7 @@ import type { ArtStyleDeps } from './art-styles';
  * and a top-level export would make every test that imports the app a silent
  * integration test. `server.ts` builds the real deps; tests build fakes.
  */
-export interface ApiDeps extends HealthDeps, ArtStyleDeps {}
+export interface ApiDeps extends HealthDeps, ArtStyleDeps, CaptionTemplateDeps {}
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
@@ -71,6 +73,9 @@ export function createApp(deps: ApiDeps): Hono {
    * and returns `202`. No auth yet (P6).
    */
   app.route('/v1/art-styles', createArtStyleRoutes(deps));
+
+  /** Slow-changing built-ins; auth-scoped custom templates land with P6. */
+  app.route('/v1/caption-templates', createCaptionTemplateRoutes(deps));
 
   return app;
 }

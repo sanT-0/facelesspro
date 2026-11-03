@@ -32,6 +32,8 @@ Goal: the repo can build, migrate, queue and serve, with the new name and the sh
       Verified by running it: migrate twice → `17 tables, 1 migrations applied, 3 new templates`
       then `0 new templates`; a drizzle insert→select round-trip parses through
       `videoRowSchema`.
+      That is the dated P0 artifact. P4 added immutable IDs -4…-6; a new clean database now seeds
+      six, while an existing P0 database idempotently inserts only the three new rows.
 - [x] pg-boss wiring: `enqueue`, `consume`, `withStep` helper (idempotency + lock + ledger tx).
       One queue per step, named after the step id, so the queue vocabulary cannot drift from
       `video.step`. `withStep` claims under a row lock, fences the commit with
@@ -453,7 +455,7 @@ my eye; portrait + landscape both render; rejected inputs give clear 400s.
 
 - [x] Caption cue builder (word limits, line limits, Tamil grapheme safety, punctuation priority).
 - [x] ASS writer with karaoke `\k` spans + bundled Noto Sans / Noto Sans Tamil.
-- [ ] Caption templates (≥6 built-ins, negative ids) + `GET /v1/caption-templates`.
+- [x] Caption templates (≥6 built-ins, negative ids) + `GET /v1/caption-templates`.
 - [ ] Emoji sprinkling (allow-list, opt-in, ≤1 per 2 cues).
 - [ ] ffmpeg composer: stills → `zoompan` clips → concat → audio → burn subs → mux.
 - [ ] `format=greenscreen` variant; `frameRate` 30/60; 1080p/2K/4K.
