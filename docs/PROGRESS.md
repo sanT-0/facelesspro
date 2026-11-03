@@ -1157,6 +1157,22 @@ file stays the single "what is actually true today" view.
       the next roadmap task; the P4 60-second end-to-end gate remains open. Full gate green:
       typecheck + eslint + **78 files / 1011 tests**.
 
+- [x] 2026-11-03 — **Render format/profile matrix** (roadmap P4 task 6). The pure
+      composer now requires the public `standard|greenscreen` format vocabulary (cross-checked
+      against contracts). Standard keeps one still input per scene. Greenscreen reads **no**
+      stills: it generates exact `#00FF00` at the requested dimensions/fps, trims by cumulative
+      `end_frame`, maps narration as input 0 and burns the same ASS overlay chain. Pure tests
+      build 30/60 fps × 1080/1440/2160 and require exact frame totals; landscape and portrait
+      short-edge geometry stays pinned. **Observed mandatory real-ffmpeg gate:** a deliberately
+      missing still still produced captioned portrait 2160×3840 H.264/AAC at 60 fps, exactly six
+      frames, within 100 ms, with a clean green centre and >1,000 Tamil-caption pixels.
+      **Observed profile artifacts:** standard 2K/60, 0.500 s / 30 frames / 277,474 bytes,
+      SHA-256 `a559f748…87e6b30`; captioned greenscreen portrait 4K/60, 0.500 s / 30 frames /
+      56,034 bytes, SHA-256 `d03bcc48…ff9fec2`. Extracted frames visually checked: Tamil shapes
+      correctly and the green canvas is uniform behind the overlay. **Not observed:** a long 4K
+      production render or chroma-keying in a third-party editor; the P4 60-second watch gate
+      remains open. Full gate green: typecheck + eslint + **78 files / 1015 tests**.
+
 ---
 
 ## Decisions log

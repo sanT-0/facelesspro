@@ -1,13 +1,14 @@
 /**
  * ffmpeg render composer — pure plan builder.
  *
- * Still images become short `zoompan` clips at a fixed fps, are concatenated,
- * optionally have ASS captions burned in, and are muxed with the narration.
+ * Standard renders turn still images into short `zoompan` clips at a fixed
+ * fps. Greenscreen renders use a frame-exact `#00FF00` colour source and never
+ * read the stills. Both optionally burn ASS captions and mux narration.
  * This module owns every decision (dimensions, cumulative frame rounding, the
  * filter graph, the argument vector) so it can be tested without spawning a
  * process; `packages/art/src/render.ts` is the thin adapter that runs ffmpeg.
  *
- * Determinism: fixed fps, `-vsync cfr`, `-map_metadata -1`, bitexact flags and
+ * Determinism: fixed fps, `-fps_mode cfr`, `-map_metadata -1`, bitexact flags and
  * a seeded-by-construction zoompan (an expression of the output frame number,
  * never wall-clock state). Same input → byte-identical argument vector.
  *
@@ -19,6 +20,10 @@ export type RenderResolution = (typeof RENDER_RESOLUTIONS)[number];
 
 export const RENDER_FRAME_RATES = [30, 60] as const;
 export type RenderFps = (typeof RENDER_FRAME_RATES)[number];
+
+/** Mirrors `renderFormatSchema` in `packages/contracts/src/common.ts`. */
+export const RENDER_FORMATS = ['standard', 'greenscreen'] as const;
+export type RenderFormat = (typeof RENDER_FORMATS)[number];
 
 export const RENDER_SIZES = ['landscape', 'portrait'] as const;
 export type RenderSize = (typeof RENDER_SIZES)[number];
@@ -52,7 +57,7 @@ export const DEFAULT_AUDIO_BITRATE = '192k';
 export const DEFAULT_AUDIO_RATE = 48_000;
 
 export interface RenderScene {
-  /** Absolute or relative path to a still image. */
+  /** Absolute or relative path to a still image; unused by `greenscreen`. */
   imagePath: string;
   durationMs: number;
   motion: RenderMotion;
@@ -72,6 +77,7 @@ export interface RenderPlanInput {
   resolution: RenderResolution;
   fps: RenderFps;
   size: RenderSize;
+  format: RenderFormat;
   captions?: RenderCaptions;
   /** Overrides the ladder default (18 at 1080, 16 at 2K/4K). */
   crf?: number;
@@ -138,7 +144,7 @@ function motionFilter(motion: RenderMotion, frames: number): string {
 }
 
 export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
-  const { scenes, fps, resolution, size } = input;
+  const { scenes, fps, resolution, size, format } = input;
 
   if (!RENDER_RESOLUTIONS.includes(resolution)) {
     throw new Error(`resolution must be one of ${RENDER_RESOLUTIONS.join(', ')}`);
@@ -148,6 +154,9 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
   }
   if (!RENDER_SIZES.includes(size)) {
     throw new Error(`size must be one of ${RENDER_SIZES.join(', ')}`);
+  }
+  if (!RENDER_FORMATS.includes(format)) {
+    throw new Error(`format must be one of ${RENDER_FORMATS.join(', ')}`);
   }
   if (scenes.length === 0) {
     throw new Error('buildRenderPlan: at least one scene is required');
@@ -198,28 +207,49 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
   const totalFrames = previousBoundary;
   const durationMs = cumulativeMs;
 
-  const superWidth = width * 2;
-  const superHeight = height * 2;
-  const clips = scenes.map((scene, index) => {
-    const frames = sceneFrames[index] ?? 0;
-    return (
-      `[${index}:v]scale=${superWidth}:${superHeight}:force_original_aspect_ratio=increase` +
-      `:flags=lanczos,crop=${superWidth}:${superHeight},` +
-      `${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps}` +
-      `,setsar=1[v${index}]`
-    );
-  });
-
-  const labels = scenes.map((_scene, index) => `[v${index}]`).join('');
   const captions = input.captions;
-  const graphParts: string[] = [...clips];
-  if (captions === undefined) {
-    graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[vout]`);
+  const graphParts: string[] = [];
+  let imageInputArgs: string[];
+  let audioInputIndex: number;
+
+  if (format === 'greenscreen') {
+    imageInputArgs = [];
+    audioInputIndex = 0;
+    const colour =
+      `color=c=0x00FF00:s=${width}x${height}:r=${fps},` +
+      `trim=end_frame=${totalFrames},setpts=N/(${fps}*TB)`;
+    if (captions === undefined) {
+      graphParts.push(`${colour}[vout]`);
+    } else {
+      graphParts.push(`${colour}[cat]`);
+      graphParts.push(
+        `[cat]ass='${escapeFilterPath(captions.path)}':fontsdir='${escapeFilterPath(captions.fontsDir)}'[vout]`,
+      );
+    }
   } else {
-    graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[cat]`);
-    graphParts.push(
-      `[cat]ass='${escapeFilterPath(captions.path)}':fontsdir='${escapeFilterPath(captions.fontsDir)}'[vout]`,
-    );
+    imageInputArgs = scenes.flatMap((scene) => ['-i', scene.imagePath]);
+    audioInputIndex = scenes.length;
+    const superWidth = width * 2;
+    const superHeight = height * 2;
+    const clips = scenes.map((scene, index) => {
+      const frames = sceneFrames[index] ?? 0;
+      return (
+        `[${index}:v]scale=${superWidth}:${superHeight}:force_original_aspect_ratio=increase` +
+        `:flags=lanczos,crop=${superWidth}:${superHeight},` +
+        `${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps}` +
+        `,setsar=1[v${index}]`
+      );
+    });
+    graphParts.push(...clips);
+    const labels = scenes.map((_scene, index) => `[v${index}]`).join('');
+    if (captions === undefined) {
+      graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[vout]`);
+    } else {
+      graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[cat]`);
+      graphParts.push(
+        `[cat]ass='${escapeFilterPath(captions.path)}':fontsdir='${escapeFilterPath(captions.fontsDir)}'[vout]`,
+      );
+    }
   }
   const filterGraph = graphParts.join(';');
 
@@ -228,7 +258,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     '-hide_banner',
     '-loglevel',
     'error',
-    ...scenes.flatMap((scene) => ['-i', scene.imagePath]),
+    ...imageInputArgs,
     '-i',
     input.audioPath,
     '-filter_complex',
@@ -236,7 +266,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     '-map',
     '[vout]',
     '-map',
-    `${scenes.length}:a:0`,
+    `${audioInputIndex}:a:0`,
     '-c:v',
     'libx264',
     '-preset',

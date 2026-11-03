@@ -15,6 +15,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   RENDER_FRAME_RATES,
+  RENDER_FORMATS,
   RENDER_MOTIONS,
   RENDER_RESOLUTIONS,
   RENDER_SIZES,
@@ -38,6 +39,7 @@ function input(overrides: Partial<RenderPlanInput> = {}): RenderPlanInput {
     resolution: 1080,
     fps: 30,
     size: 'landscape',
+    format: 'standard',
     ...overrides,
   };
 }
@@ -46,6 +48,7 @@ describe('render vocabulary', () => {
   it('pins the supported resolutions, frame rates, sizes and motions', () => {
     expect(RENDER_RESOLUTIONS).toEqual([1080, 1440, 2160]);
     expect(RENDER_FRAME_RATES).toEqual([30, 60]);
+    expect(RENDER_FORMATS).toEqual(['standard', 'greenscreen']);
     expect(RENDER_SIZES).toEqual(['landscape', 'portrait']);
     expect(RENDER_MOTIONS).toEqual([
       'kenburns-in',
@@ -129,6 +132,56 @@ describe('buildRenderPlan', () => {
     );
   });
 
+  it('builds greenscreen from a frame-exact colour source without reading stills', () => {
+    const plan = buildRenderPlan(
+      input({
+        format: 'greenscreen',
+        scenes: [scene('missing-a.png', 800), scene('missing-b.png', 700)],
+      }),
+    );
+    expect(plan.filterGraph).toBe(
+      'color=c=0x00FF00:s=1920x1080:r=30,trim=end_frame=45,setpts=N/(30*TB)[vout]',
+    );
+    expect(plan.args).not.toContain('missing-a.png');
+    expect(plan.args).not.toContain('missing-b.png');
+    expect(plan.args.slice(0, 6)).toEqual([
+      '-y',
+      '-hide_banner',
+      '-loglevel',
+      'error',
+      '-i',
+      'voice.wav',
+    ]);
+    expect(plan.args).toEqual(expect.arrayContaining(['-map', '0:a:0']));
+  });
+
+  it('retains ASS captions over greenscreen', () => {
+    const plan = buildRenderPlan(
+      input({
+        format: 'greenscreen',
+        captions: { path: 'subs/captions.ass', fontsDir: 'fonts/ttf' },
+      }),
+    );
+    expect(plan.filterGraph).toBe(
+      'color=c=0x00FF00:s=1920x1080:r=30,trim=end_frame=45,setpts=N/(30*TB)[cat];' +
+        "[cat]ass='subs/captions.ass':fontsdir='fonts/ttf'[vout]",
+    );
+  });
+
+  it('builds every fps/resolution profile with exact frame totals', () => {
+    for (const resolution of RENDER_RESOLUTIONS) {
+      for (const fps of RENDER_FRAME_RATES) {
+        const plan = buildRenderPlan(
+          input({ resolution, fps, format: 'greenscreen' }),
+        );
+        expect(plan.totalFrames).toBe(Math.round(1.5 * fps));
+        expect(plan.args).toEqual(
+          expect.arrayContaining(['-r', String(fps), '-fps_mode', 'cfr']),
+        );
+      }
+    }
+  });
+
   it('one input per still, then narration audio; audio never enters the graph', () => {
     const plan = buildRenderPlan(input());
     expect(plan.args.slice(0, 9)).toEqual([
@@ -198,6 +251,9 @@ describe('buildRenderPlan', () => {
     expect(() => buildRenderPlan(input({ fps: 24 as 30 }))).toThrow(/fps/i);
     expect(() => buildRenderPlan(input({ resolution: 720 as 1080 }))).toThrow(/resolution/i);
     expect(() => buildRenderPlan(input({ size: 'square' as 'landscape' }))).toThrow(/size/i);
+    expect(() =>
+      buildRenderPlan(input({ format: 'transparent' as 'standard' })),
+    ).toThrow(/format/i);
     expect(() => buildRenderPlan(input({ crf: 0 }))).toThrow(/crf/i);
   });
 });
