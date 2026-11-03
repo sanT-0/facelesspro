@@ -20,6 +20,7 @@ import { join } from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { afterEach, describe, expect, it } from 'vitest';
 import { buildAss, buildCaptionCues } from '@facelesspro/core';
+import type { CaptionCue } from '@facelesspro/core';
 import {
   BUNDLED_CAPTION_FONT_FILES,
   DEFAULT_CAPTION_FONT_FAMILY,
@@ -45,6 +46,9 @@ describe('bundled Tamil ASS rendering', () => {
     );
     expect(sha256(`${FONT_DIR}/${BUNDLED_CAPTION_FONT_FILES[1]}`)).toBe(
       'bfb7bb691513f12e734dc346c03a03f784912432d7e3fa8e56efcf906fe86b3d',
+    );
+    expect(sha256(`${FONT_DIR}/${BUNDLED_CAPTION_FONT_FILES[2]}`)).toBe(
+      'de6c18832938afc99caf132b39d6a30a19bac7f2e812e28db2535b4608d27551',
     );
   });
 
@@ -121,6 +125,76 @@ describe('bundled Tamil ASS rendering', () => {
     // A missing/tofu-only frame is nearly empty. Keep this as a broad semantic
     // bound, not a renderer-version-sensitive pixel digest.
     expect(nonBlackPixels).toBeGreaterThan(1_000);
+  });
+
+  it('renders distinct emoji glyphs through the bundled Noto Emoji font', () => {
+    mkdirSync(TEMP_ROOT, { recursive: true });
+    const temporaryDirectory = mkdtempSync(join(TEMP_ROOT, 'ass-emoji-'));
+    temporaryDirectories.push(temporaryDirectory);
+
+    const words = [
+      { text: 'இது', startMs: 0, endMs: 200 },
+      { text: 'மிகவும்', startMs: 200, endMs: 500 },
+      { text: 'சிறந்த', startMs: 500, endMs: 800 },
+      { text: 'முடிவு.', startMs: 800, endMs: 1200 },
+    ];
+    const cue = (emoji: string): CaptionCue => ({
+      words,
+      lines: ['இது மிகவும் சிறந்த முடிவு.'],
+      startMs: 0,
+      endMs: 1200,
+      emoji,
+    });
+
+    const render = (emoji: string, name: string) => {
+      const assPath = join(temporaryDirectory, `${name}.ass`).replaceAll('\\', '/');
+      writeFileSync(
+        assPath,
+        buildAss([cue(emoji)], { width: WIDTH, height: HEIGHT }, {
+          fontSize: 42,
+          emoji: true,
+        }),
+        'utf8',
+      );
+      const result = spawnSync(
+        'ffmpeg',
+        [
+          '-hide_banner',
+          '-loglevel',
+          'verbose',
+          '-f',
+          'lavfi',
+          '-i',
+          `color=c=black:s=${WIDTH}x${HEIGHT}:r=1:d=2`,
+          '-vf',
+          `ass='${assPath}':fontsdir='${FONT_DIR}'`,
+          '-frames:v',
+          '1',
+          '-pix_fmt',
+          'rgb24',
+          '-f',
+          'rawvideo',
+          'pipe:1',
+        ],
+        { encoding: null, maxBuffer: 4 * 1024 * 1024 },
+      );
+      if (result.error !== undefined) throw result.error;
+      const stderr = result.stderr.toString('utf8');
+      expect(result.status, stderr).toBe(0);
+      return { frame: result.stdout, stderr };
+    };
+
+    const fire = render('🔥', 'fire');
+    const check = render('✅', 'check');
+    // libass logs the exact fallback face it opened. An inline \fn makes the
+    // choice explicit instead of depending on host fontconfig fallback order.
+    expect(fire.stderr).toMatch(/NotoEmoji-Variable\.ttf/i);
+    expect(check.stderr).toMatch(/NotoEmoji-Variable\.ttf/i);
+
+    // Both frames have the same Tamil text and layout; only the final glyph
+    // differs. If libass rendered .notdef tofu for both, the frames would be
+    // byte-identical. A difference proves two distinct emoji glyphs rasterised.
+    expect(fire.frame.equals(check.frame)).toBe(false);
   });
 });
 

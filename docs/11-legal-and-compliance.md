@@ -70,6 +70,7 @@ Rules I follow:
 |---|---|---|
 | **ffmpeg** | LGPL/GPL depending on build | ship an LGPL build (no `--enable-gpl`), or accept GPL for the media container only |
 | **Noto Sans / Noto Sans Tamil** | SIL OFL 1.1 | include the OFL text in `THIRD_PARTY_NOTICES.md` |
+| **Noto Emoji** | SIL OFL 1.1 | bundled for opt-in caption emoji; include its OFL text in `THIRD_PARTY_NOTICES.md` |
 | **edge-tts** | Python client; talks to Microsoft's consumer Read Aloud endpoint — **not a public API** | ⚠️ **launch blocker.** Personal/dev use only until replaced by a licensed engine for any public deployment |
 | **IndicF5 / AI4Bharat models** | check the model card for the exact revision we pin | record revision + licence text; do not assume |
 | **Piper** | MIT (engine); per-voice licences vary | audit each `ta_IN` voice |

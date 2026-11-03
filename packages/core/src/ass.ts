@@ -8,6 +8,7 @@
  * Pure: no I/O, no clock, no network.
  */
 
+import { clusterCount } from './captions';
 import type { CaptionCue, CaptionWord } from './captions';
 
 export interface AssDimensions {
@@ -20,6 +21,10 @@ export interface AssStyleSpec {
   fontFamily?: string;
   fontSize?: number;
   uppercase?: boolean;
+  /** Opt-in: render `Cue.emoji` at the end of the cue. */
+  emoji?: boolean;
+  /** Family used for emoji glyphs; defaults to the bundled Noto Emoji. */
+  emojiFontFamily?: string;
   position?: 'top' | 'center' | 'bottom';
   highlightColor?: string;
   outlineColor?: string;
@@ -27,6 +32,7 @@ export interface AssStyleSpec {
 }
 
 const DEFAULT_FONT = 'Noto Sans Tamil';
+export const DEFAULT_EMOJI_FONT = 'Noto Emoji';
 const DEFAULT_HIGHLIGHT = '#FFD400';
 const DEFAULT_OUTLINE = '#101010';
 
@@ -121,11 +127,8 @@ function validateDimensions(dimensions: AssDimensions): void {
 }
 
 function validateStyle(spec: AssStyleSpec): void {
-  if (spec.fontFamily !== undefined) {
-    if (spec.fontFamily.trim() === '' || /[,\r\n]/.test(spec.fontFamily)) {
-      throw new Error('ASS fontFamily must be non-empty and contain no comma or newline');
-    }
-  }
+  validateFontName(spec.fontFamily, 'fontFamily');
+  validateFontName(spec.emojiFontFamily, 'emojiFontFamily');
   if (
     spec.fontSize !== undefined &&
     (!Number.isFinite(spec.fontSize) || spec.fontSize <= 0)
@@ -139,6 +142,21 @@ function validateStyle(spec: AssStyleSpec): void {
       spec.outlineWidth > 20)
   ) {
     throw new Error('ASS outlineWidth must be between 0 and 20');
+  }
+}
+
+/** A family name goes inside an ASS override, not just a style CSV field. */
+function validateFontName(value: string | undefined, field: string): void {
+  if (value === undefined) return;
+  if (value.trim() === '' || /[,\r\n{}\\]/.test(value)) {
+    throw new Error(`ASS ${field} must be non-empty and contain no comma, brace, backslash or newline`);
+  }
+}
+
+/** The emoji is a single decorative glyph; never an override or a line break. */
+function validateEmoji(emoji: string): void {
+  if (/[\r\n,{}\\]/.test(emoji) || clusterCount(emoji) !== 1) {
+    throw new Error('ASS emoji must be exactly one grapheme cluster with no ASS syntax');
   }
 }
 
@@ -196,7 +214,11 @@ function lineEndIndexes(cue: CaptionCue): ReadonlySet<number> {
   return ends;
 }
 
-function karaokeText(cue: CaptionCue, uppercase: boolean): string {
+function karaokeText(
+  cue: CaptionCue,
+  uppercase: boolean,
+  emojiFont: string | undefined,
+): string {
   const lineEnds = lineEndIndexes(cue);
   const parts: string[] = [];
   for (let index = 0; index < cue.words.length; index += 1) {
@@ -209,6 +231,10 @@ function karaokeText(cue: CaptionCue, uppercase: boolean): string {
     if (index < cue.words.length - 1) {
       parts.push(lineEnds.has(index) ? '\\N' : ' ');
     }
+  }
+  if (emojiFont !== undefined && cue.emoji !== undefined) {
+    validateEmoji(cue.emoji);
+    parts.push(` {\\fn${emojiFont}}${cue.emoji}`);
   }
   return parts.join('');
 }
@@ -249,7 +275,7 @@ function styleLine(
   return `Style: ${fields.join(',')}`;
 }
 
-function dialogueLine(cue: CaptionCue, uppercase: boolean): string {
+function dialogueLine(cue: CaptionCue, spec: AssStyleSpec): string {
   if (cue.words.length === 0 || cue.lines.length === 0) {
     throw new Error('ASS caption cue must contain words and lines');
   }
@@ -261,6 +287,8 @@ function dialogueLine(cue: CaptionCue, uppercase: boolean): string {
   if (cue.startMs !== first.startMs || cue.endMs !== last.endMs) {
     throw new Error('ASS cue timing must match its first and last word');
   }
+  const emojiFont =
+    spec.emoji === true ? (spec.emojiFontFamily ?? DEFAULT_EMOJI_FONT) : undefined;
   return [
     'Dialogue: 0',
     toAssTimecode(cue.startMs),
@@ -271,7 +299,7 @@ function dialogueLine(cue: CaptionCue, uppercase: boolean): string {
     '',
     '',
     '',
-    karaokeText(cue, uppercase),
+    karaokeText(cue, spec.uppercase ?? false, emojiFont),
   ].join(',');
 }
 
@@ -288,7 +316,7 @@ export function buildAss(
   validateStyle(spec);
   // Validate colours even when no caller later inspects the style line.
   const style = styleLine(dimensions, spec);
-  const dialogue = cues.map((cue) => dialogueLine(cue, spec.uppercase ?? false));
+  const dialogue = cues.map((cue) => dialogueLine(cue, spec));
   return [
     '[Script Info]',
     'ScriptType: v4.00+',

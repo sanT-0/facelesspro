@@ -101,6 +101,7 @@ its visible provider watermark remains even when `nologo=true`.
 | `failed` at `create-vocal`, "no word boundaries" | engine reported no timings | force alignment fallback is enabled? |
 | Captions drift after 2 minutes | audio resampled after timing was computed | re-probe durations *after* stitching, never before |
 | Tamil text renders as boxes | font not found by libass | set `FONTCONFIG_FILE=./packages/art/fonts/fonts.conf` or pass `fontsdir=packages/art/fonts/ttf`; run the real-ffmpeg glyph test |
+| Emoji renders as a box or is missing | `NotoEmoji-Variable.ttf` not in `fontsdir`, or a host font shadowed the inline `\fnNoto Emoji` | keep the bundled font in `packages/art/fonts/ttf/`; the emoji render test compares two glyphs, so identical tofu fails loudly |
 | Seam / click between voices | gap calibration or cross-fade length | re-run `sample:tts` and listen |
 | Webhook never arrives | `webhook_event` table | non-2xx or slow receiver; check `attempts`/`next_at` |
 | `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |

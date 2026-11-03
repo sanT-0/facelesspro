@@ -14,7 +14,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildAss, assColour, toAssTimecode } from './ass';
 import { buildCaptionCues } from './captions';
-import type { CaptionWord } from './captions';
+import type { CaptionCue, CaptionWord } from './captions';
 
 const word = (text: string, startMs: number, endMs: number): CaptionWord => ({
   text,
@@ -24,6 +24,7 @@ const word = (text: string, startMs: number, endMs: number): CaptionWord => ({
 
 interface AssSpec {
   uppercase?: boolean;
+  emoji?: boolean;
   position?: 'top' | 'center' | 'bottom';
   highlightColor?: string;
   outlineColor?: string;
@@ -167,5 +168,63 @@ describe('buildAss', () => {
     expect(() =>
       buildAss([], { width: 1920, height: 1080 }, {}),
     ).toThrow(/no cues/i);
+  });
+});
+
+describe('buildAss emoji', () => {
+  const withEmoji = (emoji?: string): CaptionCue => ({
+    lines: ['fire!'],
+    words: [word('fire!', 0, 800)],
+    startMs: 0,
+    endMs: 800,
+    ...(emoji === undefined ? {} : { emoji }),
+  });
+
+  it('appends the cue emoji only when the template opts in', () => {
+    const ass = buildAss([withEmoji('🔥')], { width: 1920, height: 1080 }, { emoji: true });
+    expect(ass).toContain('{\\k80}fire! {\\fnNoto Emoji}🔥');
+  });
+
+  it('lets a caller override the emoji font family', () => {
+    const ass = buildAss([withEmoji('🔥')], { width: 1920, height: 1080 }, {
+      emoji: true,
+      emojiFontFamily: 'Noto Sans',
+    });
+    expect(ass).toContain('{\\fnNoto Sans}🔥');
+  });
+
+  it('ignores a cue emoji when the template has emoji disabled', () => {
+    const off = buildAss([withEmoji('🔥')], { width: 1920, height: 1080 }, { emoji: false });
+    const absent = buildAss([withEmoji('🔥')], { width: 1920, height: 1080 }, {});
+    expect(off).toContain('{\\k80}fire!');
+    expect(off).not.toContain('🔥');
+    expect(absent).not.toContain('🔥');
+  });
+
+  it('places the emoji after the last word of the last line', () => {
+    const cue: CaptionCue = {
+      lines: ['beginners', 'struggle with'],
+      words: [word('beginners', 0, 300), word('struggle', 300, 700), word('with', 700, 900)],
+      startMs: 0,
+      endMs: 900,
+      emoji: '🔥',
+    };
+    const ass = buildAss([cue], { width: 1080, height: 1920 }, { emoji: true });
+    expect(ass).toContain('{\\k30}beginners\\N{\\k40}struggle {\\k20}with {\\fnNoto Emoji}🔥');
+  });
+
+  it('rejects an emoji that is not exactly one grapheme cluster', () => {
+    expect(() =>
+      buildAss([withEmoji('🔥🔥')], { width: 1920, height: 1080 }, { emoji: true }),
+    ).toThrow(/emoji/i);
+    expect(() =>
+      buildAss([withEmoji('\n')], { width: 1920, height: 1080 }, { emoji: true }),
+    ).toThrow(/emoji/i);
+  });
+
+  it('does not change karaoke spans', () => {
+    const plain = buildAss([withEmoji()], { width: 1920, height: 1080 }, { emoji: true });
+    const sprinkled = buildAss([withEmoji('🔥')], { width: 1920, height: 1080 }, { emoji: true });
+    expect(sprinkled.match(/\\k\d+/g)).toEqual(plain.match(/\\k\d+/g));
   });
 });
