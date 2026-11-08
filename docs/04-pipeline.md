@@ -746,6 +746,15 @@ Because a step commits once, **a crash redoes that step**: artifacts, ledger and
 are rolled back together, so there is no partial scene list to skip and no charge to double.
 Artifacts from *earlier* steps survive, which is what makes "retry after `failed`" cheap.
 
+A hard kill (`SIGKILL`) leaves the job `active` and its `job_lock` row behind, so recovery is
+time-based. The queue's 1 h `expireInSeconds` must stay longer than the 30 min lock TTL: when
+pg-boss expires the job, the old lock has already lapsed and the retry takes it over with
+`attempt + 1`. If the lock were still live the retry would be answered `locked` and dropped,
+stalling the video. The killed attempt never opened its commit transaction, so the rerun is
+the first charge. `steps/pipeline-resume.db.test.ts` proves this by SIGKILLing a real worker
+process inside TTS, fast-forwarding both clocks, restarting the worker and observing one
+artifact set and one debit.
+
 - Re-render → new `render` row, same timeline, only render units charged.
 - Retry after `failed` → `step` names the resume point.
 

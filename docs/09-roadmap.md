@@ -501,13 +501,15 @@ correctly, no audio/video drift at the end.
 **Gate:** a real 3-minute mixed-language video completes; kill-and-resume test passes with no
 double charge; re-render at 60fps works; a `failed` job resumes at the right step.
 
-Gate status: kill-and-resume **proven** (`steps/pipeline-resume.db.test.ts`: redelivered
-committed step is `stale`, one artifact set, one debit); the real 3-minute video **proven**
-(`scripts/e2e-video.ts`: 3:04 Tanglish video, 12 scenes, H.264 1920×1080 30/1 + AAC 48 kHz,
-one ledger row per step, five `committed` events); retry-from-step proven at the API and queue
-layers; the 60 fps re-render **proven** on the same 3-minute video (new 60/1 artifact, old MP4
-byte-identical, second render charge at 20/min, sixth `committed` event). Still open: a resume
-driven by an actual process kill rather than a simulated redelivery.
+Gate status: kill-and-resume **proven** both ways — a simulated redelivery
+(`steps/pipeline-resume.db.test.ts`: committed step is `stale`, one artifact set, one debit)
+and a real `SIGKILL` of a spawned worker process inside `create-vocal` (the retried job takes
+over the expired lock, finishes the pipeline and still leaves one debit per action); the real
+3-minute video **proven** (`scripts/e2e-video.ts`: 3:04 Tanglish video, 12 scenes, H.264
+1920×1080 30/1 + AAC 48 kHz, one ledger row per step, five `committed` events); retry-from-step
+proven at the API and queue layers; the 60 fps re-render **proven** on the same 3-minute video
+(new 60/1 artifact, old MP4 byte-identical, second render charge at 20/min, sixth `committed`
+event). All four gate items are now proven.
 
 **Artifact check:** the 3-minute video, end to end, from a Tanglish script I wrote by hand —
 reproduced by `scripts/e2e-video.ts`, output in `.data/artifacts/p5-gate/`.

@@ -1814,6 +1814,40 @@ file stays the single "what is actually true today" view.
       Vitest's 5 s default only when the 94-file suite ran in parallel. Fixed with a file-level
       30 s timeout (test-only, no behaviour change); the case still takes ~2.9 s alone.
 
+- [x] 2026-11-08 — **P5 gate closed: a resume survives a real `SIGKILL` without a second charge.**
+      The previous resume test called the handler directly, so pg-boss's retry bookkeeping was
+      simulated. `steps/pipeline-resume.db.test.ts` now spawns
+      `steps/process-kill-worker.fixture.ts` as a separate `node --import tsx` process — real
+      pg-boss consumer, real Postgres, `withStep`, production handlers, only the network
+      providers faked (offline planner, real ffmpeg MP3 for TTS, procedural images). The test
+      runs `create-scenes`, waits for the fixture's fake TTS to print `KILL_READY` (the step is
+      claimed: job `active`, `job_lock` attempt 1, no narration/asset/ledger row), then sends
+      `SIGKILL`; the row is left exactly as a crashed consumer leaves it.
+      Recovery is time-based in production: the queue's 1 h job expiry has to outlast the 30 min
+      lock TTL. The test fast-forwards both clocks and calls the real `boss.expire()`, which
+      requeues the job as `retry`; a second fixture process takes the now-expired lock over at
+      `attempt = 2` and finishes the whole pipeline. Asserted afterwards: one `tts`/`image`/
+      `subtitles`/`render` ledger row, workspace 1000 → 943.6, one narration, one frame per
+      scene, four caption assets + track, one render + thumbnail, five `committed` `job_event`
+      rows (create-vocal at attempt 2), and the pg-boss job `completed` with `retry_count=1`.
+      Artifact `.data/artifacts/p5-resume/process-kill-summary.json` + `process-kill.mp4`
+      (this run: 255,694 bytes, SHA-256
+      `4080ddecc5fd6f013e2599ea196edbc1768e453e0398a26b3500837c86107bee`; x264 output is not
+      byte-stable across runs, so the summary records that run's observation) records the
+      killed pid, job id, retry bookkeeping, ledger and spend.
+      Tests: `npm run test:db` **10 files / 33 tests** (the new case takes ~60 s because the
+      production retry delay is 30–60 s); `npm run gate` unchanged (**94 files / 1,215 tests**);
+      `npm run typecheck` clean; docs/04 §7 now states the expiry/TTL ordering as an invariant.
+      **Observed:** a real process kill, pg-boss's own timeout requeue, lock takeover at
+      attempt 2, one artifact set, one debit. **Unproven:** live provider callbacks during the
+      kill (none were open: the fake TTS was blocked before returning) and a kill *inside the
+      commit transaction*, which the design makes atomic by construction but this test does not
+      exercise. **Process note:** green on first execution, no red-run artifact — the crash path
+      already existed and this task adds the real-process proof.
+      **Surprise:** the first draft fast-forwarded only the job clock, which would have produced
+      a `locked` outcome and a dropped retry; the test now has to move both the 1 h expiry and
+      the 30 min lock TTL, which is exactly the ordering docs/04 now records.
+
 ---
 
 ## Decisions log

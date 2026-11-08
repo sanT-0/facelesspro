@@ -13,10 +13,14 @@
  * procedural adapter plus real ffmpeg post-processing.
  */
 
-import { spawnSync } from 'node:child_process';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { createInterface } from 'node:readline';
+import type { Interface as ReadlineInterface } from 'node:readline';
+import { fileURLToPath } from 'node:url';
 
 import {
   createAiVideoV3RequestSchema,
@@ -33,6 +37,7 @@ import {
   creditLedger,
   databaseUrl,
   jobEvent,
+  jobLock,
   narration,
   scene,
   video,
@@ -64,6 +69,10 @@ const ENGLISH = 'Today we plan one useful scene.';
 const SCRIPT = `${TAMIL} ${ENGLISH}`;
 const TEMPLATE_ID = -3;
 const ARTIFACT_DIR = '.data/artifacts/p5-resume';
+const SOURCE_MP3 = join(ARTIFACT_DIR, 'source.mp3');
+const WORKER_FIXTURE = fileURLToPath(
+  new URL('./process-kill-worker.fixture.ts', import.meta.url),
+);
 const START_CREDITS = 1_000;
 const IMAGE_UNIT_COST = 5;
 const TTS_UNIT_COST = 1;
@@ -223,6 +232,161 @@ async function assetSnapshot(): Promise<Array<{ id: string; key: string; bytes: 
     .sort((left, right) => left.key.localeCompare(right.key));
 }
 
+// --- real worker process ----------------------------------------------------
+
+interface WorkerRun {
+  readonly child: ChildProcessWithoutNullStreams;
+  readonly lines: ReadlineInterface;
+  readonly output: () => string;
+  closed: boolean;
+}
+
+/** Every child is killed in `afterEach`, even when an assertion throws. */
+const workers: WorkerRun[] = [];
+
+/**
+ * Start the fixture as a separate OS process, exactly as `apps/worker` runs in
+ * production (`node --import tsx`). The test controls only its providers.
+ */
+function spawnWorker(mode: 'hang' | 'resume'): WorkerRun {
+  const child = spawn(process.execPath, ['--import', 'tsx', WORKER_FIXTURE], {
+    cwd: process.cwd(),
+    env: {
+      ...process.env,
+      KILL_FIXTURE_MODE: mode,
+      KILL_FIXTURE_MP3: SOURCE_MP3,
+      KILL_FIXTURE_DURATION_MS: String(durationMs),
+    },
+    stdio: ['pipe', 'pipe', 'pipe'],
+  });
+  child.stdout.setEncoding('utf8');
+  child.stderr.setEncoding('utf8');
+
+  let output = '';
+  child.stdout.on('data', (chunk: string) => {
+    output += chunk;
+  });
+  child.stderr.on('data', (chunk: string) => {
+    output += chunk;
+  });
+
+  const run: WorkerRun = {
+    child,
+    lines: createInterface({ input: child.stdout }),
+    output: () => output,
+    closed: false,
+  };
+  workers.push(run);
+  return run;
+}
+
+function waitForLine(run: WorkerRun, needle: string, timeoutMs: number): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const finish = (error?: Error): void => {
+      clearTimeout(timer);
+      run.lines.off('line', onLine);
+      run.child.off('exit', onExit);
+      if (error === undefined) resolve();
+      else reject(error);
+    };
+    const onLine = (line: string): void => {
+      if (line.includes(needle)) finish();
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null): void => {
+      finish(
+        new Error(
+          `worker exited before "${needle}" (${String(code)}/${String(signal)})\n${run.output()}`,
+        ),
+      );
+    };
+    const timer = setTimeout(() => {
+      finish(
+        new Error(`worker did not print "${needle}" in ${timeoutMs} ms\n${run.output()}`),
+      );
+    }, timeoutMs);
+
+    run.lines.on('line', onLine);
+    run.child.once('exit', onExit);
+  });
+}
+
+function waitForExit(
+  child: ChildProcessWithoutNullStreams,
+  timeoutMs: number,
+): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+  if (child.exitCode !== null || child.signalCode !== null) {
+    return Promise.resolve({ code: child.exitCode, signal: child.signalCode });
+  }
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`worker did not exit in ${timeoutMs} ms`));
+    }, timeoutMs);
+    child.once('exit', (code, signal) => {
+      clearTimeout(timer);
+      resolve({ code, signal });
+    });
+  });
+}
+
+async function stopWorker(run: WorkerRun): Promise<void> {
+  if (run.child.exitCode === null && run.child.signalCode === null) {
+    run.child.kill('SIGTERM');
+    try {
+      await waitForExit(run.child, 15_000);
+    } catch {
+      run.child.kill('SIGKILL');
+      await waitForExit(run.child, 5_000).catch(() => undefined);
+    }
+  }
+  if (!run.closed) {
+    run.closed = true;
+    run.lines.close();
+  }
+}
+
+/** Quote an identifier for the one raw SQL statement the kill test needs. */
+function quoteIdent(value: string): string {
+  return `"${value.replaceAll('"', '""')}"`;
+}
+
+interface StepJobRow {
+  readonly id: string;
+  readonly state: string;
+  readonly retry_count: number;
+}
+
+/** pg-boss's own bookkeeping for this video's job on one queue. */
+async function stepJobRow(step: ConsumedJob['step']): Promise<StepJobRow> {
+  const schema = quoteIdent(process.env.PGBOSS_SCHEMA || 'pgboss');
+  const result = await pool.query<StepJobRow>(
+    `SELECT id, state, retry_count FROM ${schema}.job
+      WHERE name = $1 AND data->>'videoId' = $2
+      ORDER BY created_on DESC LIMIT 1`,
+    [queueFor(step), videoId],
+  );
+  const row = result.rows[0];
+  if (row === undefined) throw new Error(`no ${step} job for ${videoId}`);
+  return row;
+}
+
+async function waitForCompletion(run: WorkerRun, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const row = (await db.select().from(video).where(eq(video.id, videoId)))[0];
+    if (row !== undefined) {
+      if (row.status === 'completed') return;
+      if (row.status === 'failed') {
+        throw new Error(`video failed: ${JSON.stringify(row.error)}\n${run.output()}`);
+      }
+    }
+    if (run.child.exitCode !== null || run.child.signalCode !== null) {
+      throw new Error(`worker exited before the video completed\n${run.output()}`);
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+  throw new Error(`video did not complete in ${timeoutMs} ms\n${run.output()}`);
+}
+
 describe('kill-and-resume across a committed step (Postgres)', () => {
   beforeAll(async () => {
     const created = createDb();
@@ -235,7 +399,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     });
 
     await mkdir(ARTIFACT_DIR, { recursive: true });
-    const source = join(ARTIFACT_DIR, 'source.mp3');
+    const source = SOURCE_MP3;
     const encode = spawnSync(
       'ffmpeg',
       [
@@ -276,7 +440,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
   afterAll(async () => {
     await stopBoss(boss);
     await pool.end();
-    await rm(join(ARTIFACT_DIR, 'source.mp3'), { force: true });
+    await rm(SOURCE_MP3, { force: true });
   });
 
   beforeEach(async () => {
@@ -321,6 +485,9 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
   });
 
   afterEach(async () => {
+    for (const run of workers.splice(0)) {
+      await stopWorker(run);
+    }
     await deleteVideoRows();
     await purgeStepQueues();
   });
@@ -495,4 +662,200 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     expect(await boss.getQueueSize(queueFor('create-vocal'))).toBe(1);
     expect(await ledgerRows()).toHaveLength(0);
   });
+
+  it('resumes after a real SIGKILL mid-claim with one artifact set and one debit', async () => {
+    await createCreateScenesHandler({ db, pool, boss, planner: createHeuristicPlanner() })(
+      job('create-scenes', 'scenes-before-kill'),
+    );
+
+    const sceneRows = (
+      await db.select().from(scene).where(eq(scene.video_id, videoId)).orderBy(asc(scene.idx))
+    ).map((row) => sceneRowSchema.parse(row));
+    expect(sceneRows.length).toBeGreaterThan(0);
+    const beforeKill = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    expect(beforeKill.step).toBe('create-vocal');
+    expect(beforeKill.status).toBe('processing');
+    expect(await ledgerRows()).toHaveLength(0);
+
+    // 1. A real worker process claims create-vocal and blocks inside TTS.
+    const hanging = spawnWorker('hang');
+    await waitForLine(hanging, 'KILL_READY', 60_000);
+
+    const claimed = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    expect(claimed.step).toBe('create-vocal');
+    const locksAtKill = await db
+      .select({ step: jobLock.step, attempt: jobLock.attempt })
+      .from(jobLock)
+      .where(eq(jobLock.video_id, videoId));
+    expect(locksAtKill).toEqual([{ step: 'create-vocal', attempt: 1 }]);
+    const active = await stepJobRow('create-vocal');
+    expect(active.state).toBe('active');
+    expect(await db.select().from(narration).where(eq(narration.video_id, videoId))).toHaveLength(0);
+    expect(await db.select().from(asset).where(eq(asset.workspace_id, workspaceId))).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(0);
+
+    // 2. SIGKILL: no unwind, no lock release, no job ack. The row a crashed
+    // consumer leaves behind is an active job plus a live `job_lock`.
+    hanging.child.kill('SIGKILL');
+    const killed = await waitForExit(hanging.child, 10_000);
+    expect(killed.signal).toBe('SIGKILL');
+    expect((await stepJobRow('create-vocal')).state).toBe('active');
+    const locksAfterKill = await db
+      .select({ attempt: jobLock.attempt })
+      .from(jobLock)
+      .where(eq(jobLock.video_id, videoId));
+    expect(locksAfterKill).toEqual([{ attempt: 1 }]);
+
+    // 3. Fast-forward the two production recovery clocks, then let pg-boss's
+    // own timeout SQL expire the job. Job expiry (1 h) must outlast the step
+    // lock (30 min), otherwise the retry bounces off a live lock and is dropped.
+    const bossSchema = quoteIdent(process.env.PGBOSS_SCHEMA || 'pgboss');
+    await pool.query(
+      `UPDATE ${bossSchema}.job SET started_on = now() - interval '2 hours' WHERE id = $1`,
+      [active.id],
+    );
+    await pool.query(
+      `UPDATE job_lock SET started_at = now() - interval '31 minutes'
+        WHERE video_id = $1 AND step = 'create-vocal'`,
+      [videoId],
+    );
+    await boss.expire();
+
+    const retried = await stepJobRow('create-vocal');
+    expect(retried.state).toBe('retry');
+    expect(retried.retry_count).toBe(0);
+    expect(await ledgerRows()).toHaveLength(0);
+    const stillClaimed = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    expect(stillClaimed.step).toBe('create-vocal');
+
+    // 4. Restart the worker. A fresh process fetches the retried job, takes the
+    // expired lock over (`attempt = 2`) and finishes the pipeline.
+    const resume = spawnWorker('resume');
+    await waitForCompletion(resume, 180_000);
+    const resumeJob = await stepJobRow('create-vocal');
+    expect(resumeJob.state).toBe('completed');
+    expect(resumeJob.retry_count).toBe(1);
+    await stopWorker(resume);
+
+    const finished = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    expect(finished.status).toBe('completed');
+    expect(finished.step).toBeNull();
+    expect(finished.duration_ms).toBe(durationMs);
+    expect(finished.video_url).toContain('render-1080p-30-standard.mp4');
+
+    const narrations = await db
+      .select()
+      .from(narration)
+      .where(eq(narration.video_id, videoId));
+    expect(narrations).toHaveLength(1);
+    expect(narrations[0]?.duration_ms).toBe(durationMs);
+    expect(
+      await db.select().from(captionTrack).where(eq(captionTrack.video_id, videoId)),
+    ).toHaveLength(1);
+
+    const assets = await db.select().from(asset).where(eq(asset.workspace_id, workspaceId));
+    const countKind = (kind: string): number => assets.filter((row) => row.kind === kind).length;
+    expect(countKind('audio')).toBe(1);
+    expect(countKind('image')).toBe(sceneRows.length);
+    expect(countKind('caption')).toBe(4);
+    expect(countKind('render')).toBe(1);
+    expect(countKind('thumbnail')).toBe(1);
+
+    // One debit per action: the killed attempt committed nothing, so a second
+    // tts row would mean the rerun charged for work that was already paid for.
+    const ledger = await ledgerRows();
+    expect(ledger.map((row) => row.action).sort()).toEqual([
+      'image',
+      'render',
+      'subtitles',
+      'tts',
+    ]);
+    const spent = ledger.reduce((total, row) => total + Math.abs(row.delta), 0);
+    const expectedSpend =
+      ledger.find((row) => row.action === 'tts')!.units * TTS_UNIT_COST +
+      ledger.find((row) => row.action === 'image')!.units * IMAGE_UNIT_COST +
+      SUBTITLE_UNIT_COST +
+      ledger.find((row) => row.action === 'render')!.units * 10;
+    expect(spent).toBeCloseTo(expectedSpend, 2);
+
+    const [balance] = await db
+      .select({ credits: workspace.credits })
+      .from(workspace)
+      .where(eq(workspace.id, workspaceId));
+    expect(Number(balance?.credits)).toBeCloseTo(START_CREDITS - expectedSpend, 2);
+
+    const events = (
+      await db
+        .select({
+          step: jobEvent.step,
+          outcome: jobEvent.outcome,
+          attempt: jobEvent.attempt,
+        })
+        .from(jobEvent)
+        .where(eq(jobEvent.video_id, videoId))
+    ).map((row) => ({ step: row.step, outcome: row.outcome, attempt: row.attempt }));
+    const vocalEvents = events.filter((event) => event.step === 'create-vocal');
+    expect(vocalEvents).toEqual([{ step: 'create-vocal', outcome: 'committed', attempt: 2 }]);
+    expect(events.filter((event) => event.outcome === 'committed')).toHaveLength(5);
+    expect(
+      events.filter((event) => event.outcome === 'failed' || event.outcome === 'retryable'),
+    ).toHaveLength(0);
+
+    const renderAsset = assets.find((row) => row.kind === 'render');
+    if (renderAsset === undefined) throw new Error('no render asset after resume');
+    const renderPath = resolveStorageKey(dataDir(), renderAsset.key);
+    const renderBytes = new Uint8Array(await readFile(renderPath));
+    await mkdir(ARTIFACT_DIR, { recursive: true });
+    await writeFile(join(ARTIFACT_DIR, 'process-kill.mp4'), renderBytes);
+    await writeFile(
+      join(ARTIFACT_DIR, 'process-kill-summary.json'),
+      `${JSON.stringify(
+        {
+          kill: {
+            pid: hanging.child.pid ?? -1,
+            signal: 'SIGKILL',
+            jobId: active.id,
+            stateAtKill: active.state,
+            lockAttempt: 1,
+          },
+          recovery: {
+            jobExpireFastForwarded: '2 hours',
+            lockTtlFastForwarded: '31 minutes',
+            stateAfterExpire: retried.state,
+            retryCountAfterFetch: resumeJob.retry_count,
+            stateAfterResume: resumeJob.state,
+          },
+          video: {
+            status: finished.status,
+            step: finished.step,
+            durationMs: finished.duration_ms,
+            url: finished.video_url,
+          },
+          assets: {
+            audio: countKind('audio'),
+            frames: countKind('image'),
+            captions: countKind('caption'),
+            render: countKind('render'),
+            thumbnail: countKind('thumbnail'),
+          },
+          ledger: ledger.map((row) => ({ ...row, delta: Math.abs(row.delta) })),
+          spent,
+          creditsAfter: Number(balance?.credits),
+          outcomes: events,
+          mp4: { bytes: renderBytes.byteLength, sha256: sha256(renderBytes) },
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    );
+  }, 240_000);
 });
