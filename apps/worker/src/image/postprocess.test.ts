@@ -99,7 +99,10 @@ function drawOf(colour: readonly [number, number, number]) {
   return { draw: vi.fn(async (_request: ImageGenerationRequest) => imageOf(colour)) };
 }
 
-describe('postprocessScene', () => {
+// Every case walks ~590k pixels through sRGB→LAB, so under a full parallel
+// suite this file's CPU time can exceed the 5 s default even though no case
+// touches I/O. The work itself is deterministic; only the wall clock varies.
+describe('postprocessScene', { timeout: 30_000 }, () => {
   it('corrects the image toward the style palette and reports no reference distance', async () => {
     const source = imageOf([128, 128, 128]);
     const frame = await postprocessScene(request, source, {

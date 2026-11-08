@@ -491,16 +491,23 @@ correctly, no audio/video drift at the end.
 - [x] Real 3-minute mixed-language artifact: `scripts/e2e-video.ts` drives all five production
       handlers against real Postgres, edge-tts and ffmpeg (no fakes, no API process) and writes
       the MP4, thumbnail, ASS and observed `summary.json` to `.data/artifacts/p5-gate/`.
+- [x] Real 60 fps re-render: `scripts/e2e-video.ts --rerender` runs the production transition
+      (`beginRender` + enqueue in one transaction) and the real `render` handler again on the
+      finished 3-minute video. The 30 fps MP4 stays byte-identical, the new artifact is
+      1920×1080 H.264 60/1 + AAC 48 kHz stereo under `render-1080p-60-standard.mp4`, and the
+      second `action=render` ledger row bills the doubled unit cost (20). Supported by a
+      real-Postgres/ffmpeg case in `steps/render.db.test.ts`.
 
 **Gate:** a real 3-minute mixed-language video completes; kill-and-resume test passes with no
 double charge; re-render at 60fps works; a `failed` job resumes at the right step.
 
 Gate status: kill-and-resume **proven** (`steps/pipeline-resume.db.test.ts`: redelivered
 committed step is `stale`, one artifact set, one debit); the real 3-minute video **proven**
-(`scripts/e2e-video.ts`: 2:56 Tanglish video, 12 scenes, H.264 1920×1080 30/1 + AAC 48 kHz,
+(`scripts/e2e-video.ts`: 3:04 Tanglish video, 12 scenes, H.264 1920×1080 30/1 + AAC 48 kHz,
 one ledger row per step, five `committed` events); retry-from-step proven at the API and queue
-layers. Still open: a real 60 fps re-render artifact, and a resume driven by an actual process
-kill rather than a simulated redelivery.
+layers; the 60 fps re-render **proven** on the same 3-minute video (new 60/1 artifact, old MP4
+byte-identical, second render charge at 20/min, sixth `committed` event). Still open: a resume
+driven by an actual process kill rather than a simulated redelivery.
 
 **Artifact check:** the 3-minute video, end to end, from a Tanglish script I wrote by hand —
 reproduced by `scripts/e2e-video.ts`, output in `.data/artifacts/p5-gate/`.

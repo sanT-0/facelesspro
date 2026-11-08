@@ -70,12 +70,16 @@ Sub-steps:
    (153–202 wpm, +20.5% mean error), so an English-only script is estimated ~15% long; the
    planner may pass per-pair `rates` once it knows the voice. Commas and clause pauses are
    deliberately not modelled, which is why a comma-dense 7 s clip can read −20%.
-   **Counter-evidence (2026-11-08):** two real gate runs mastered 26.5% and 27.0% *longer* than
-   this model on multi-paragraph Tanglish narration from edge-tts `valluvar` (140.3 s estimated →
-   177.5 s mastered; 182.2 s → 231.3 s) — a stable ~1.27×, not noise. The cause is **not**
-   isolated; the leading guess is sentence-final silence in a long master versus the per-sentence
-   clips the calibration used. Until the rate is re-anchored, treat the estimate as a **floor**
-   for scene packing, and check a long script's real duration before promising a length.
+   **Counter-evidence (2026-11-08):** two real gate runs *before* the sentence-pause fix
+   mastered 26.5% and 27.0% longer than this model on multi-paragraph Tanglish narration from
+   edge-tts `valluvar` (140.3 s estimated → 177.5 s mastered; 182.2 s → 231.3 s). That gap was
+   mostly the provider's ~950 ms sentence-final silence *inside* each run, not the wpm rates:
+   once `compress_pauses` gained its 250–1200 ms → 320 ms band, the same 12-scene gate script
+   estimates 169.2 s and mastered at **176.0 s** and **184.3 s** in two runs (+4.0% / +8.9%;
+   the spread between them is provider delivery variance, not silence). So on post-fix
+   Tanglish the estimate is close, but it is still treated as a **floor** until the rates are
+   re-calibrated on compressed output — check a long script's real duration before promising a
+   length.
 4. **Beat splitting** — LLM returns JSON only, and never timings:
    ```jsonc
    { "scenes": [

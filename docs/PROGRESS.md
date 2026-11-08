@@ -1777,6 +1777,43 @@ file stays the single "what is actually true today" view.
       **Unproven:** the user's ear on `stretch.mp3` and the new `p5-gate/video.mp4`; `sample-tts`
       labels provider calls as "runs", so regenerated sample tables would read lower.
 
+- [x] 2026-11-08 — **P5 gate: the 3-minute video re-renders at 1080p/60 without losing its
+      30 fps copy.** `scripts/e2e-video.ts --rerender` now runs the five production handlers,
+      then the production transition (`createQueueRender` → `beginRender` + enqueue on one
+      Postgres transaction) and the real `render` handler again. While the cursor is
+      `rendering`/`render` the old `videoUrl` is unchanged; the second run writes new
+      `render-1080p-60-standard.mp4` and `thumbnail-1080p-60-standard.png` keys, appends a
+      second `render` row, adds one `action=render` ledger row at the doubled `unit_cost=20`,
+      writes a sixth `committed` `job_event`, and returns `status=completed`/`step=null`.
+      Test: `steps/render.db.test.ts` gained a real Postgres + ffmpeg case on the 2 s seed —
+      two render rows (30/60), the 30 fps file byte-identical, the 60 fps probe `60/1`, and
+      charges of 10 and 20 credits. `npm run test:db` **10 files / 32 tests**; `npm run gate`
+      **94 files / 1,215 tests**; `pytest services/media` **124 passed, 3 LIVE skipped**; ruff
+      clean.
+      Artifact `.data/artifacts/p5-gate/`: 30 fps `video.mp4` 12,796,401 bytes SHA-256
+      `714a2bd9e5966f055b62ba985afc34790e239ac48de567382c2cb27517cb0042` (3:04.27, 12 scenes,
+      334 word timings); 60 fps `video-60fps.mp4` 14,565,011 bytes SHA-256
+      `75f3736620b96c40b9c10f2aa32478659e16e4e52b1dc7ebef808834e2e2376c`, H.264 1920×1080
+      yuv420p **60/1** (11,056 frames) + AAC 48 kHz stereo, same 184,263 ms;
+      `thumbnail-60fps.png` 46,214 bytes SHA-256
+      `e1db07af7ce8c83606ab11608c3ab659662c6cb3f6e1cb8069590c8332cc3d5d`. Ledger: `tts`
+      2,739 @ 0, `image` 1 @ 0, `subtitles` 1 @ 1, `render` 3.07 @ 10, `render` 3.07 @ 20; six
+      `committed` events; step seconds 0.1 / 55.0 / 22.3 / 0.1 / 128.8 / 207.3. Frames at
+      0.4 s / 92 s / 120 s were opened: Tamil clusters are intact and the karaoke colour is on
+      the spoken word.
+      **Observed:** the real transition, the second MP4/thumbnail, the unchanged 30 fps bytes,
+      the doubled charge and the terminal cursor. **Unproven:** a resume under a real process
+      kill is now the only open P5 gate item.
+      **Surprise:** the same 12-scene script estimated 169.2 s and mastered at 184.3 s (+8.9%),
+      not the ~27% overshoot docs/04 recorded; those +27% runs predate the 320 ms sentence-pause
+      band. docs/04 §1 was corrected here without changing the rate model (the 176.0 s run from
+      the previous entry is the +4.0% end of the same spread).
+      **Process note:** the new DB test was green on first execution because the re-render path
+      already existed; no red-run artifact. Running the full gate on this loaded desktop exposed
+      a pre-existing flake: `image/postprocess.test.ts` walks ~590k pixels per case and exceeded
+      Vitest's 5 s default only when the 94-file suite ran in parallel. Fixed with a file-level
+      30 s timeout (test-only, no behaviour change); the case still takes ~2.9 s alone.
+
 ---
 
 ## Decisions log

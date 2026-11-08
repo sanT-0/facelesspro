@@ -32,6 +32,7 @@ curl localhost:8000/health          # media service + active engine
 npm run ping                        # enqueue a job; exit 0 = the worker completed it
 npm run gate
 npx tsx scripts/e2e-video.ts        # P5 gate: real video through all five steps, no keys
+npx tsx scripts/e2e-video.ts --rerender  # + 1080p/60 re-render, old mp4 kept, doubled render charge
 npx tsx scripts/e2e-video.ts --dry-run   # estimate scenes/duration only, no services
 ```
 

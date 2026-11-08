@@ -9,7 +9,13 @@
  *
  *   npx tsx scripts/e2e-video.ts --dry-run     # estimate only, no services
  *   npx tsx scripts/e2e-video.ts               # full 3-minute landscape gate (~5–10 min)
+ *   npx tsx scripts/e2e-video.ts --rerender    # + a 1080p/60 re-render of the finished video
  *   npx tsx scripts/e2e-video.ts --portrait    # 1080×1920 ~40 s Short, same steps
+ *
+ * `--rerender` drives the production transition (`beginRender` + enqueue in one
+ * transaction) and the real `render` handler a second time, proving the 60 fps
+ * gate item: a new MP4/thumbnail, the old artifact still on disk, one extra
+ * ledger row at the doubled unit cost, and the cursor completed again.
  *
  * Requires: `docker compose up -d postgres`, a media service on
  * `MEDIA_SERVICE_URL` (default http://127.0.0.1:8000), and ffmpeg/ffprobe.
@@ -42,6 +48,7 @@ import {
   jobEvent,
   loadEnv,
   narration,
+  render as renderTable,
   scene,
   video,
   workspace,
@@ -61,9 +68,11 @@ import { createCreateCaptionsHandler } from '../apps/worker/src/steps/create-cap
 import { createCreateImagesHandler } from '../apps/worker/src/steps/create-images';
 import { createCreateScenesHandler } from '../apps/worker/src/steps/create-scenes';
 import { createCreateVocalHandler } from '../apps/worker/src/steps/create-vocal';
-import { createCreateRenderHandler } from '../apps/worker/src/steps/render';
+import { createCreateRenderHandler, renderKey } from '../apps/worker/src/steps/render';
+import { createQueueRender } from '../apps/api/src/video-queues';
 
 const PORTRAIT = process.argv.includes('--portrait');
+const RERENDER = process.argv.includes('--rerender');
 const SIZE = PORTRAIT ? ('portrait' as const) : ('landscape' as const);
 const ARTIFACT_DIR = PORTRAIT ? '.data/artifacts/p5-portrait' : '.data/artifacts/p5-gate';
 /** Seconds of finished video the gate accepts, per orientation. */
@@ -318,8 +327,6 @@ async function main(): Promise<void> {
     log(`${step} done in ${(elapsed / 1000).toFixed(1)} s → status=${row.status} step=${row.step}`);
   }
 
-  await stopBoss(boss);
-
   const stored = videoRowSchema.parse(
     (await db.select().from(video).where(eq(video.id, videoId)))[0],
   );
@@ -333,9 +340,9 @@ async function main(): Promise<void> {
   const narrationRow = narrationRowSchema.parse(
     (await db.select().from(narration).where(eq(narration.video_id, videoId)))[0],
   );
-  const assets = await db.select().from(asset).where(eq(asset.workspace_id, workspaceId));
-  const ledger = await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId));
-  const events = await db.select().from(jobEvent).where(eq(jobEvent.video_id, videoId));
+  let assets = await db.select().from(asset).where(eq(asset.workspace_id, workspaceId));
+  let ledger = await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId));
+  let events = await db.select().from(jobEvent).where(eq(jobEvent.video_id, videoId));
 
   const renderAsset = assets.find((row) => row.kind === 'render');
   if (renderAsset === undefined) fatal('no render asset recorded');
@@ -399,6 +406,193 @@ async function main(): Promise<void> {
   }
   await copyFile(resolveStorageKey(dataDir(), assAsset.key), join(ARTIFACT_DIR, 'captions.ass'));
 
+  /**
+   * The 60 fps gate item: the production transition, then the real render step
+   * again. The first MP4 must stay byte-identical on disk, the new artifact must
+   * be 60/1, and the second charge must be at the doubled unit cost.
+   */
+  let rerender:
+    | {
+        key: string;
+        seconds: number;
+        mp4: { bytes: number; sha256: string };
+        previousMp4Sha256: string;
+        thumbnail: { bytes: number; sha256: string };
+        streams: Array<Record<string, unknown>>;
+        ledger: Array<{ action: string; units: number; unitCost: number; delta: number }>;
+        jobEvents: Array<{ step: string | null; outcome: string }>;
+      }
+    | null = null;
+
+  if (RERENDER) {
+    const previousKey = stored.video_url;
+    const previousBytes = new Uint8Array(await readFile(mp4Path));
+    const previousHash = createHash('sha256').update(previousBytes).digest('hex');
+
+    const queueRender = createQueueRender(pool, async () => boss);
+    const begun = await queueRender({
+      videoId,
+      render: { resolution: 1080, frameRate: 60, format: 'standard' },
+    });
+    if (begun.kind !== 'queued') fatal(`re-render transition was ${begun.kind}`);
+    if (begun.video.status !== 'rendering' || begun.video.step !== 'render') {
+      fatal(`re-render cursor is ${begun.video.status}/${begun.video.step}`);
+    }
+    if (begun.video.video_url !== previousKey) {
+      fatal('re-render replaced the playable mp4 before the step ran');
+    }
+
+    log('re-render 1080p/60 …');
+    const started = Date.now();
+    await handlers.render({ jobId: 'e2e-rerender', videoId, step: 'render' });
+    const seconds = (Date.now() - started) / 1000;
+    timings.push({ step: 'render-60fps', ms: seconds * 1_000 });
+
+    const rerendered = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    const expectedKey = renderKey(workspaceId, videoId, 1_080, 60, 'standard');
+    const rerenderPath = resolveStorageKey(dataDir(), expectedKey);
+    const rerenderProbe = ffprobe(rerenderPath);
+    const rerenderFormat = rerenderProbe.format as { duration?: string } | undefined;
+    const rerenderDurationS = Number(rerenderFormat?.duration ?? '0');
+    const rerenderStreams = streamsOf(rerenderProbe);
+    const rerenderVideo = rerenderStreams.find((stream) => stream.codec_type === 'video');
+    const rerenderAudio = rerenderStreams.find((stream) => stream.codec_type === 'audio');
+    if (rerenderVideo === undefined || rerenderAudio === undefined) {
+      fatal('60 fps render has no video or audio stream');
+    }
+
+    const rerenderFailures: string[] = [];
+    if (rerendered.status !== 'completed' || rerendered.step !== null) {
+      rerenderFailures.push(`cursor is ${rerendered.status}/${rerendered.step}`);
+    }
+    if (rerendered.video_url !== expectedKey) {
+      rerenderFailures.push(`video_url is ${rerendered.video_url}`);
+    }
+    if (rerenderVideo.r_frame_rate !== '60/1') {
+      rerenderFailures.push(`fps ${rerenderVideo.r_frame_rate}`);
+    }
+    if (rerenderVideo.codec_name !== 'h264') {
+      rerenderFailures.push(`codec ${rerenderVideo.codec_name}`);
+    }
+    if (rerenderVideo.width !== expected.width || rerenderVideo.height !== expected.height) {
+      rerenderFailures.push(`geometry ${String(rerenderVideo.width)}x${String(rerenderVideo.height)}`);
+    }
+    if (rerenderAudio.codec_name !== 'aac') {
+      rerenderFailures.push(`audio ${rerenderAudio.codec_name}`);
+    }
+    if (Math.abs(rerenderDurationS * 1_000 - (stored.duration_ms ?? 0)) > 100) {
+      rerenderFailures.push(
+        `60 fps duration ${rerenderDurationS}s vs master ${String(stored.duration_ms)}ms`,
+      );
+    }
+    const previousAfter = new Uint8Array(await readFile(mp4Path));
+    if (createHash('sha256').update(previousAfter).digest('hex') !== previousHash) {
+      rerenderFailures.push('the 30 fps artifact changed on disk');
+    }
+
+    const renderRows = await db
+      .select()
+      .from(renderTable)
+      .where(eq(renderTable.video_id, videoId));
+    const renderFps = renderRows.map((row) => row.fps).sort((a, b) => a - b);
+    if (renderFps.length !== 2 || renderFps[0] !== 30 || renderFps[1] !== 60) {
+      rerenderFailures.push(`render rows ${renderFps.join(',')}`);
+    }
+
+    assets = await db.select().from(asset).where(eq(asset.workspace_id, workspaceId));
+    ledger = await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId));
+    events = await db.select().from(jobEvent).where(eq(jobEvent.video_id, videoId));
+
+    const renderCharges = ledger
+      .filter((row) => row.action === 'render')
+      .sort((a, b) => Number(a.unit_cost) - Number(b.unit_cost));
+    if (
+      renderCharges.length !== 2 ||
+      Number(renderCharges[0]?.unit_cost) !== 10 ||
+      Number(renderCharges[1]?.unit_cost) !== 20
+    ) {
+      rerenderFailures.push(
+        `render charges ${renderCharges.map((row) => String(row.unit_cost)).join(',')}`,
+      );
+    }
+    const otherActions = ledger.filter((row) => row.action !== 'render').map((row) => row.action);
+    for (const action of ['tts', 'image', 'subtitles'] as const) {
+      if (otherActions.filter((value) => value === action).length !== 1) {
+        rerenderFailures.push(`ledger action ${action} changed on re-render`);
+      }
+    }
+
+    const rerenderAsset = assets.find((row) => row.key === expectedKey);
+    if (rerenderAsset === undefined) rerenderFailures.push('no 60 fps render asset row');
+    const rerenderThumbnail = assets.find(
+      (row) => row.kind === 'thumbnail' && row.key.endsWith('-60-standard.png'),
+    );
+    if (rerenderThumbnail === undefined) rerenderFailures.push('no 60 fps thumbnail asset row');
+    if (assets.filter((row) => row.kind === 'render').length !== 2) {
+      rerenderFailures.push('the 30 fps render asset row disappeared');
+    }
+
+    if (rerenderFailures.length > 0) {
+      fatal(`60 fps re-render checks failed:\n- ${rerenderFailures.join('\n- ')}`);
+    }
+
+    const rerenderBytes = new Uint8Array(await readFile(rerenderPath));
+    const thumbnailPath =
+      rerenderThumbnail === undefined
+        ? undefined
+        : resolveStorageKey(dataDir(), rerenderThumbnail.key);
+    const thumbnailBytes =
+      thumbnailPath === undefined ? undefined : new Uint8Array(await readFile(thumbnailPath));
+    await copyFile(rerenderPath, join(ARTIFACT_DIR, 'video-60fps.mp4'));
+    if (thumbnailPath !== undefined) {
+      await copyFile(thumbnailPath, join(ARTIFACT_DIR, 'thumbnail-60fps.png'));
+    }
+
+    rerender = {
+      key: expectedKey,
+      seconds: Number(seconds.toFixed(1)),
+      mp4: {
+        bytes: rerenderBytes.byteLength,
+        sha256: createHash('sha256').update(rerenderBytes).digest('hex'),
+      },
+      previousMp4Sha256: previousHash,
+      thumbnail:
+        thumbnailBytes === undefined
+          ? { bytes: 0, sha256: '' }
+          : {
+              bytes: thumbnailBytes.byteLength,
+              sha256: createHash('sha256').update(thumbnailBytes).digest('hex'),
+            },
+      streams: rerenderStreams.map((stream) => ({
+        type: stream.codec_type,
+        codec: stream.codec_name,
+        width: stream.width,
+        height: stream.height,
+        fps: stream.r_frame_rate,
+        sampleRate: stream.sample_rate,
+        channels: stream.channels,
+      })),
+      ledger: renderCharges.map((row) => ({
+        action: row.action,
+        units: Number(row.units),
+        unitCost: Number(row.unit_cost),
+        delta: Number(row.delta),
+      })),
+      jobEvents: events
+        .filter((row) => row.step === 'render')
+        .map((row) => ({ step: row.step, outcome: row.outcome })),
+    };
+    log(
+      `re-render done in ${seconds.toFixed(1)} s → ${String(rerenderVideo.width)}x${String(
+        rerenderVideo.height,
+      )}@${String(rerenderVideo.r_frame_rate)}`,
+    );
+  }
+
+  await stopBoss(boss);
+
   const mp4Bytes = await readFile(mp4Path);
   const summary = {
     videoId,
@@ -436,6 +630,7 @@ async function main(): Promise<void> {
       seconds: Number((timing.ms / 1000).toFixed(1)),
     })),
     mediaServiceUrl: mediaUrl,
+    rerender,
     observedAt: new Date().toISOString(),
   };
   await writeFile(
