@@ -137,6 +137,38 @@ serialized from one persisted cue track; JSON is the strict v1 document from
 `captionJsonExportSchema`, while the database-only cue shape is the same document without each
 cue's one-based export index. Paths, asset rows and storage keys never appear in JSON.
 
+### 2.5 API keys
+
+| Method | Path | Body / returns |
+|---|---|---|
+| POST | `/v1/keys` | `{name}` → `201 {key, apiKey}` — the **only** response that contains the secret |
+| GET | `/v1/keys` | `{keys: apiKey[]}` — active and revoked rows for the caller's workspace |
+| DELETE | `/v1/keys/:id` | revoke → `200 {apiKey}`; idempotent |
+
+`apiKey` is exactly `{id, name, prefix, lastUsedAt, revokedAt}`. `prefix` is the first 11
+characters (`vp_` + 8 hex) so Settings can identify a key without the secret; `lastUsedAt` and
+`revokedAt` are ISO timestamps or `null`. Neither `hash` nor `workspace_id` is ever on the wire.
+
+Every `/v1/keys` route requires `Authorization: Bearer vp_<40 hex>`. A missing, malformed,
+unknown or revoked key is `401 unauthorized` with `WWW-Authenticate: Bearer`; the response does
+not distinguish the cases. Scoping comes only from `withWorkspace()`: create/list/revoke never
+accept a workspace id from the request, and another workspace's id is `404 not_found`.
+`POST` accepts a non-blank `name` (trimmed, ≤100 chars); anything else is `400 invalid_request`
+with `field: "name"`. `DELETE` requires a UUID (`400`, `field: "id"`), and a repeat `DELETE`
+returns the original `revokedAt` rather than inventing a conflict. `lastUsedAt` is refreshed at
+most once per 60 seconds so authentication stays read-mostly.
+
+Because `POST /v1/keys` already needs a key, the first key is minted on the host:
+
+```bash
+npm run key:create -- --name "CI renderer" [--workspace <uuid>]
+```
+
+It prints the key once. Only `sha256(key)` is stored; there is no recovery path, only rotation
+by issuing a new key and revoking the old one. Create the replacement **before** revoking the
+last active key: `/v1/keys` needs a key, so revoking the only one locks the workspace out of key
+management until `npm run key:create` is run on the host again.
+
 ---
 
 ## 3. Webhooks `[P]` `[+]`

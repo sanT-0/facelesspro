@@ -28,9 +28,11 @@
     "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:seed": "tsx packages/db/src/seed.ts",
+    "key:create": "tsx packages/db/src/create-api-key.ts",
     "dev:api": "npm run dev --workspace @facelesspro/api",
     "dev:worker": "npm run dev --workspace @facelesspro/worker",
-    "ping": "tsx scripts/ping.ts"
+    "ping": "tsx scripts/ping.ts",
+    "e2e:keys": "tsx scripts/e2e-api-keys.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

@@ -4,6 +4,20 @@ export {
   findCaptionTemplate,
   listBuiltInCaptionTemplates,
 } from './caption-templates';
+export {
+  LAST_USED_THROTTLE_SECONDS,
+  authenticateApiKey,
+  createApiKey,
+  generateApiKey,
+  hashApiKey,
+  listApiKeys,
+  revokeApiKey,
+} from './api-keys';
+export type {
+  CreateApiKeyInput,
+  CreatedApiKey,
+  GeneratedApiKey,
+} from './api-keys';
 export { beginRender, beginRetry, findVideo } from './videos';
 export type {
   BeginRenderInput,

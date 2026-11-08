@@ -64,6 +64,12 @@ function app() {
     readVideo: (id) => findVideo(db, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: createQueueRetry(pool, async () => boss),
+    authenticateApiKey: async () => null,
+    createApiKey: async () => {
+      throw new Error('api keys are not used in this suite');
+    },
+    listApiKeys: async () => [],
+    revokeApiKey: async () => null,
     publicBaseUrl: BASE,
   });
 }

@@ -518,8 +518,16 @@ reproduced by `scripts/e2e-video.ts`, output in `.data/artifacts/p5-gate/`.
 
 ## P6 — API v1, keys, credits, webhooks
 
-- [ ] API key create/list/revoke (hash at rest, show once).
-- [ ] `withWorkspace()` middleware + rate limits.
+- [x] API key create/list/revoke (hash at rest, show once).
+      `packages/contracts/src/api-keys.ts` (`apiKeyTokenSchema`, key/list/create/revoke shapes),
+      `packages/db/src/api-keys.ts` (`vp_` + 20 random bytes, `sha256` at rest, 60 s
+      `last_used_at` throttle, workspace-scoped revoke), Bearer `withWorkspace()` in
+      `apps/api/src/auth.ts`, and `/v1/keys` in `apps/api/src/api-keys.ts`. `POST` is the only
+      response with the secret; `DELETE` is idempotent and keeps the first `revokedAt`; a
+      revoked/unknown key is `401` with `WWW-Authenticate: Bearer`. The first key comes from
+      `npm run key:create`; `npm run e2e:keys` is the live artifact check.
+- [ ] Rate limits on `withWorkspace()`. The workspace resolver itself landed with API keys;
+      per-key/workspace limits and `429 Retry-After` remain.
 - [ ] All `/v1/*` routes from [07](./07-api-and-mcp.md) §2 with the documented defaults.
 - [ ] Credits: plans, ledger, `402` in paid mode, `selfhost` unlimited mode.
 - [ ] Webhook delivery queue, retry schedule, HMAC signing, dedupe header, SSRF guard.

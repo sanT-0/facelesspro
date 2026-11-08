@@ -115,7 +115,8 @@ and mcp at once — that is the point.
 | Test | Asserts |
 |---|---|
 | `health` | `200` when both probes resolve, `503` when either throws or hangs; a hung probe is cut at the deadline, not waited on; `status` is derived from the components; the body parses through `healthSchema` and never contains the probe's error text |
-| `auth` | missing / malformed / revoked / other-workspace key → 401 |
+| `auth` | missing / malformed / unknown / revoked key → `401 unauthorized` with `WWW-Authenticate: Bearer`; the same body for every case; a rejected request never reaches a mutating dependency |
+| `api-keys` | `POST /v1/keys`: `201` parses through `createApiKeyResponseSchema`, trims `name`, calls create with the authenticated `workspaceId`, returns the secret once and never the hash or `workspace_id`; blank/missing/wrong-type/unknown name field → `400` + `field`; malformed JSON → `400 request body must be JSON`. `GET` lists active and revoked rows in camelCase with no hash. `DELETE`: `200 {apiKey}` with `revokedAt`, repeat revoke returns the same timestamp, non-UUID → `400` + `field: "id"`, unknown/other-workspace id → `404`; the revoke dependency is not called on a rejected id |
 | `create.ai-videos-v3` | required fields, both script+voiceover → 400, neither → 400, bad size for style → 400 |
 | `create.defaults` | every documented default is applied exactly |
 | `status` | status/step transitions; `render` while processing → 409 |
@@ -125,6 +126,7 @@ and mcp at once — that is the point.
 | `videos` | `GET /v1/videos/:id`: a completed row serialises through `videoResponseSchema` with `error: null`, `durationMs`, and the stored render key rewritten to an absolute `<base>/files/…` URL; a failed row keeps `step` (the resume point) and its `{code, message}`; `render` reflects whether the stored create request asked for an mp4; an absolute stored URL and a trailing base slash pass through; `scenes`/`thumbnailUrl` are absent; unknown id → `404`, non-UUID → `400` + `field: "id"`, completed without a render key or a malformed stored error → fixed `500 internal` |
 | `video-render` | `POST /v1/videos/:id/render`: a 60 fps greenscreen body reaches `queueRender` as `{videoId, render}` and returns `202` + `videoResponseSchema` (`status: "rendering"`, `step: "render"`, previous `videoUrl` still present); no body means the 1080/30/standard defaults; `webhookUrl` is passed separately and replaces the stored callback; `processing`/`rendering`/`failed` → `409 conflict` with that status; unknown id → `404`; non-UUID → `400` + `field: "id"`; malformed JSON → `400 request body must be JSON`; bad `resolution`/`frameRate`/`format`/webhook URL/unknown key → `400` naming the field; the queue dependency is never called on a rejected request |
 | `videos.db.test.ts` (`test:db`) | real Postgres: `findVideo` serves an inserted completed row through the same route, with zod-parsed timestamps normalised to UTC `Z` and an unknown UUID → `404` |
+| `api-keys.db.test.ts` (`test:db`) | real Postgres: `POST /v1/keys` stores exactly `sha256(token)` (not the token), keeps the visible prefix, and returns the secret once; the new key authenticates, sets `last_used_at`, and a second auth inside the throttle window keeps the same timestamp; list contains only the caller's workspace, active and revoked, with no hash; `DELETE` makes the token `401` immediately, a repeat revoke keeps the first `revokedAt`, and another workspace's key is `404` and stays active |
 | `video-render.db.test.ts` (`test:db`) | real Postgres + pg-boss: `202` moves `completed` → `rendering`/`render`, rewrites only `request.body.render` (script and art style survive), persists the render-call webhook, and leaves exactly one `render` job carrying `{videoId}`; a second call while rendering is `409` and changes neither profile nor queue; a `failed` video is `409` with `step` still `create-images` and nothing queued; unknown UUID → `404` and nothing queued |
 | `video-retry` | `POST /v1/videos/:id/retry`: a failed generation step returns `202` + `videoResponseSchema` (`processing`, `step` unchanged, `error: null`); a failed `render` returns `rendering` and keeps the previous public `videoUrl`; `processing`/`rendering`/`completed` → `409 conflict` naming the status; unknown id → `404`; non-UUID → `400` + `field: "id"`; a malformed returned row → fixed `500 internal` |
 | `video-retry.db.test.ts` (`test:db`) | real Postgres + pg-boss: a failed video at `create-images` is re-queued exactly once on that queue with `{videoId}`, its `error` is cleared, the stored request is untouched and no ledger row is written by the retry; a failed `render` goes back to `rendering` with the old mp4 still served; a second retry while `processing` is `409` with one job still queued; `completed` is `409`; unknown UUID → `404` |
@@ -133,13 +135,14 @@ and mcp at once — that is the point.
 | `app` | an unexpected throw from any dependency returns `500 application/json` with `error.code: "internal"`, a fixed message and no path/stack leak; the real error is logged |
 | `mcp.tools` | tool list matches the endpoint list 1:1 (a test, not a convention) |
 
-### 3.5 `packages/db` (schema only, no network)
+### 3.5 `packages/db` (hermetic; no database connection)
 
 | Test | Asserts |
 |---|---|
 | `schema.test.ts` | the 18 tables are exactly `DB_TABLES`; every column name matches its contract row schema; the three public enums are built from the contract tuples; `workspace.credits` is nullable; `caption_tpl.id` is an integer primary key; built-ins are exactly IDs -1…-6 with six unique names and valid row specs; the dev workspace is `selfhost` with `credits = null`; compile-time `$inferSelect` ⊇ contract row for five tables |
 | `timestamp.test.ts` | Postgres text (`2026-10-26 18:12:34.567+00`) → ISO UTC; real offsets (+05:30, −04:00, +05:45) converted, not stripped; already-ISO input stable; missing fraction filled; output passes `isoDateTimeSchema`; microseconds truncated (documented); unparseable passthrough; `infinity` preserved; `created_at.mapFromDriverValue` normalises the exact string drizzle hands back |
 | `client.test.ts` | the default connection string agrees with `.env.example`; an empty `DATABASE_URL` falls back; `loadEnv` is silent with no `.env` |
+| `create-api-key.test.ts` | `key:create` defaults to `DEV_WORKSPACE_ID`, trims the label, accepts `--name=value` and `--workspace=<uuid>`, rejects missing/blank/over-long names and non-UUID workspaces, and does not read a following flag as a value |
 
 The migration itself is verified by running it (docs/09 P0), not by a unit test: from a clean
 database, `npm run db:migrate` must report the caption-template seed and land on the same table

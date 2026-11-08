@@ -4,6 +4,8 @@ import { apiError } from '@facelesspro/contracts';
 import { readHealth } from './health';
 import type { HealthDeps } from './health';
 import { planVideo } from './plan';
+import { createApiKeyRoutes } from './api-keys';
+import type { ApiKeyRouteDeps } from './api-keys';
 import { createArtStyleRoutes } from './art-styles';
 import type { ArtStyleDeps } from './art-styles';
 import { createCaptionTemplateRoutes } from './caption-templates';
@@ -22,7 +24,8 @@ export interface ApiDeps
   extends HealthDeps,
     ArtStyleDeps,
     CaptionTemplateDeps,
-    VideoRouteDeps {}
+    VideoRouteDeps,
+    ApiKeyRouteDeps {}
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
@@ -82,6 +85,12 @@ export function createApp(deps: ApiDeps): Hono {
 
   /** Slow-changing built-ins; auth-scoped custom templates land with P6. */
   app.route('/v1/caption-templates', createCaptionTemplateRoutes(deps));
+
+  /**
+   * `POST/GET/DELETE /v1/keys` — the first authenticated surface. The secret is
+   * shown once; revocation is immediate and final.
+   */
+  app.route('/v1/keys', createApiKeyRoutes(deps));
 
   /**
    * `GET /v1/videos/:id` — the client's view of the pipeline. The stored render

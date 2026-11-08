@@ -1848,6 +1848,37 @@ file stays the single "what is actually true today" view.
       a `locked` outcome and a dropped retry; the test now has to move both the 1 h expiry and
       the 30 min lock TTL, which is exactly the ordering docs/04 now records.
 
+- [x] 2026-11-08 — **P6 step 1: API keys create/list/revoke, hashed at rest and shown once.**
+      Added `packages/contracts/src/api-keys.ts` (`apiKeyTokenSchema` = `^vp_[0-9a-f]{40}$`,
+      `apiKeySchema` with camelCase timestamps and no hash field, create/list/revoke response
+      shapes), `packages/db/src/api-keys.ts` (`generateApiKey` = `vp_` + 20 CSPRNG bytes,
+      `hashApiKey`, workspace-scoped `create`/`list`/`revoke`, and `authenticateApiKey` with a 60 s
+      `last_used_at` throttle), `apps/api/src/auth.ts` (`withWorkspace()` bearer resolver,
+      generic `401` + `WWW-Authenticate: Bearer`), `apps/api/src/api-keys.ts`
+      (`POST` → `201 {key, apiKey}`, `GET`, idempotent `DELETE`), the host bootstrap CLI
+      `packages/db/src/create-api-key.ts` (`npm run key:create`), and `scripts/e2e-api-keys.ts`
+      (`npm run e2e:keys`). The existing `api_key` table already had `hash`/`prefix`/
+      `revoked_at`, so no migration was needed.
+      Tests: contract 13, hermetic API 20, CLI parsing 6, real-Postgres API 5. `npm run gate`
+      **97 files / 1,254 tests**; `npm run test:db` **11 files / 38 tests**; typecheck and lint
+      clean; ruff/pytest not run because no Python changed.
+      Artifact `.data/artifacts/p6-keys/summary.json`, produced by `npm run e2e:keys` against a
+      real Hono server on `:3212`: created key prefix `vp_a2d87e95`, stored row hashed to
+      `sha256(token)` (equal to an independent `node:crypto` digest), raw token absent, same
+      workspace as the bootstrap key, repeat `DELETE` kept `2026-11-08T17:45:29.864Z`, and the
+      revoked token got `401` with `WWW-Authenticate: Bearer`. A separate CLI smoke created
+      `vp_66f6ead9…`, listed it over HTTP, created another key (`201`, hash absent from the
+      body), revoked it twice with the same timestamp, and got `401` afterwards. The smoke rows
+      were removed from the local dev database; the artifact records the run.
+      **Observed:** the secret is returned exactly once; the DB stores only `sha256`; revocation
+      invalidates a key on the very next request and is idempotent; another workspace's key is
+      `404` and stays active. **Assumed:** a 60 s `last_used_at` throttle is fresh enough for
+      Settings; no client depends on second-by-second usage. **Out of scope:** rate limits,
+      credits and the rest of P6 remain on their own roadmap lines.
+      **Surprise:** `POST /v1/keys` needs a key, so the CLI is not a convenience but the only
+      bootstrap path; the artefact script also caught an eager `response.text()` in its own
+      failure message that consumed the body before `json()` could parse it.
+
 ---
 
 ## Decisions log
@@ -1905,3 +1936,6 @@ file stays the single "what is actually true today" view.
 | 2026-10-31 | `app.onError` returns the error envelope, not Hono's plain text | the rule is that every user-facing failure has a `code`; a fixed `internal` message keeps SQL/paths/stacks out of the response while the real error is logged |
 | 2026-11-01 | AGPL-3.0 for our code, DCO for contributions, squash-merge by the maintainer | copyleft is the only licence that stops a hosted fork becoming a closed competitor; DCO keeps contribution friction near zero at the cost of not being able to relicense later; squash keeps `development` one commit per roadmap task, which is what the gate and `PROGRESS` are written against |
 | 2026-11-02 | Relicensed AGPL-3.0 → MIT | sole-maintainer relicence; concrete trigger: an open code-reuse index asked for a permissive reuse of one commit; trade-off accepted: a fork may be hosted closed-source, recorded in docs/11 §0; DCO unchanged |
+| 2026-11-08 | API-key revoke is idempotent `200` with the first `revokedAt`, not `409` | revocation is a desired end state; a retried `DELETE` after a timeout should confirm it, not fail, and the first timestamp is evidence of when the key died |
+| 2026-11-08 | The first key is minted by `npm run key:create`, not an unauthenticated route | `/v1/keys` must require a key; an anonymous bootstrap would be a second auth surface with different scoping rules |
+| 2026-11-08 | `last_used_at` is written at most once per 60 s | auth runs on every request; an unconditional update turns every read into a write on one row without making Settings more accurate |

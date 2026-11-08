@@ -9,14 +9,18 @@ import { resolve } from 'node:path';
 
 import {
   artStyle,
+  authenticateApiKey,
+  createApiKey,
   createDb,
   databaseFor,
   databaseUrl,
   findArtStyle,
   findVideo,
+  listApiKeys,
   listBuiltInCaptionTemplates,
   listReadyArtStyles,
   loadEnv,
+  revokeApiKey,
 } from '@facelesspro/db';
 import {
   checkQueues,
@@ -101,6 +105,10 @@ async function main(): Promise<void> {
     readVideo: (id) => findVideo(db, id),
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
+    authenticateApiKey: (token) => authenticateApiKey(db, token),
+    createApiKey: (input) => createApiKey(db, input),
+    listApiKeys: (workspaceId) => listApiKeys(db, workspaceId),
+    revokeApiKey: (workspaceId, id) => revokeApiKey(db, workspaceId, id),
     // `editorUrl`/`videoUrl` are absolute on the wire. Operators behind a proxy
     // set PUBLIC_BASE_URL; the listen address is only a local-dev fallback.
     publicBaseUrl:

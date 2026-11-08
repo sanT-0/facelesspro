@@ -56,6 +56,12 @@ function appWith(listCaptionTemplates: () => Promise<readonly CaptionTemplateRow
     readVideo: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
+    authenticateApiKey: async () => null,
+    createApiKey: async () => {
+      throw new Error('api keys are not used in this suite');
+    },
+    listApiKeys: async () => [],
+    revokeApiKey: async () => null,
     publicBaseUrl: 'http://api.test',
   });
 }
