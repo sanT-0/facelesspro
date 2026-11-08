@@ -180,6 +180,10 @@ Implemented in `services/media/app/stitch.py` + `app/audio.py`; gaps in
 `app/boundaries.py`. All boundaries are millisecond-quantised, so the timeline and the
 audio are built from the same frame counters and cannot drift.
 
+The runs reaching this stage are already merged by `planToSegments()` when they share a voice
+and do not end at a full stop (docs/04 §1). A run boundary inside a sentence therefore only
+survives when the pair really is two voices; for one speaker, a sentence is one provider call.
+
 Per run, after synthesis:
 
 1. **Trim** leading/trailing silence at −45 dB, keeping 20 ms of headroom. The removed
@@ -193,12 +197,18 @@ Per run, after synthesis:
    listening-gate clips, every run landed at exactly −1.50 dBTP and the 1.6 s runs came out
    at −18.9 LUFS. That is why step 6 exists.
 3. **Compress provider-internal pauses** (`audio.compress_pauses`, `TTS_PAUSE_COMPRESSION=0`
-   to disable). Every silence between 60 and 250 ms *inside* a run is shortened to 50 ms,
-   keeping 25 ms at each side so a consonant onset is never clipped; anything longer is a
-   sentence break and stays. This is the fix for "Tamil words sound separated": edge-tts's
-   Tamil voice leaves 65–175 ms between words, which no run-level gap setting can reach.
+   to disable both bands). Two silences arrive *inside* a run and they are not the same thing:
+   - **word gap**, 60–250 ms: cut to 50 ms, keeping 25 ms at each side so a consonant onset is
+     never clipped. This is the fix for "Tamil words sound separated": edge-tts's Tamil voice
+     leaves 65–175 ms between words, which no run-level gap setting can reach.
+   - **full stop**, 250–1200 ms: cut to 320 ms (`TTS_SENTENCE_PAUSE_MS`, `0` keeps the
+     provider's own break). edge-tts leaves ~950 ms at a sentence end, and leaving that alone
+     made a real 3-minute Tanglish master 24.9% silence with 34 pauses of ~0.94 s — measured,
+     not guessed (docs/PROGRESS.md, 2026-11-08). Past 1200 ms the pause is a paragraph break
+     and stays: that one belongs to the writer.
+
    The removed intervals are returned in pre-cut coordinates and subtracted from the words,
-   so `global = run.start_ms + word.local_ms` still holds to the frame.
+   so `global = run.start_ms + word.local_ms` still holds to the frame, for both bands.
 4. **Gap** between runs, decided by the *text between them*:
 
    | Boundary | Gap used |
@@ -244,8 +254,20 @@ put 65–175 ms of silence *between words inside a sentence* — 14 silences ≥
 pauses arrive inside a single run, and the word-boundary offsets absorb them into the word's
 duration, so the timing checks (median inter-word gap 13 ms) never saw them while a listener
 heard word-by-word delivery. Step 3 removes them: the same clip is now 9.99 s with 11 remaining
-50 ms word gaps and the sentence breaks intact (silence share 21.3% → 18.5%; the rest is the
-949 ms sentence pause and a 345 ms clause pause, both deliberate).
+50 ms word gaps (silence share 21.3% → 18.5%). The 0.96 s sentence break was intact at that
+point, and that was the mistake the next paragraph corrects.
+
+**Sentence pauses, 2026-11-08.** On a real 3-minute Tanglish master (`scripts/e2e-video.ts`,
+`valluvar`) the intact sentence breaks were 34 of the 66 pauses and 24.9% of the runtime, so the
+video stopped for ~1 s at almost every full stop. Step 3 now compresses the 250–1200 ms band to
+320 ms as well. Measured on the first nine runs of that master (identical text, only the pause
+policy changed): **54.59 s / 20.3% silence / 9 pauses ≥ 600 ms** → **48.68 s / 10.6% / none**,
+with speech time unchanged at 43.5 s, so only silence moved. The same opening sent as **three
+merged calls** instead of nine (`planToSegments`, docs/04 §1) is `stretch.mp3`: 48.19 s, the same
+10.7% silence, but no fade or pitch reset in the middle of a sentence. On the 12-scene gate script
+the merge is 28 runs → 13 calls; the delivered artifact is 2:56 with silence down to 15.0% and no
+pause ≥ 600 ms. Retained A/B: `.data/artifacts/p5-pacing/{old,new,stretch}.mp3`. Not yet a
+listening verdict, and "natural" is an ear judgement, not a measurement.
 
 ### 3.5 Voice pairing
 
@@ -267,6 +289,12 @@ voice id:
 
 Pair selection is explicit (`voiceId` can be a pair id) **or** explicit per language
 (`voiceId: { ta, en }`).
+
+For the V3 pipeline, `create-vocal` resolves a request `voiceId` through
+`GET /voices/:pairId` and falls back to `TTS_PAIR` (default `valluvar`) when it is absent. That
+endpoint rejects a bare engine voice id: a string like `ta-IN-PallaviNeural` names a voice but not
+the speaker who reads both languages, so it cannot be a pipeline selector (the public
+`/v1/text-to-speech` selector is a separate, smaller surface).
 
 **Both genders ship.** The female line is a requirement, not an alternative: a channel may want a
 woman narrating, and the pair rule above already guarantees she is one person in both languages.
@@ -672,6 +700,7 @@ Response (also written to `timeline.json` in the request directory):
 {
   "request_id": "…",
   "master_path": "…/master.wav",
+  "master_mp3_path": "…/master.mp3",
   "total_duration_ms": 16280,
   "segments": [
     {
@@ -685,7 +714,8 @@ Response (also written to `timeline.json` in the request directory):
 ```
 
 `start_ms` and `words` are the caption contract: a word's global start is always
-`segment.start_ms + its local start`. `master.mp3` sits next to `master.wav` for listening.
+`segment.start_ms + its local start`. `master.mp3` sits next to `master.wav` for listening and
+is the encoded artifact the pipeline stores; `master.wav` stays the frame-exact timing source.
 
 The public API contract (`/v1/text-to-speech`) stays intentionally small: `{text, voiceId,
 voiceStyle}` → `{id, url, characters, expiresAt}`. The mixed machinery is automatic:

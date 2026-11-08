@@ -206,7 +206,11 @@ export function correctTowardPalette(
     corrected[offset + 2] = rgb.b;
   }
 
-  return { pixels: corrected, deltaE: magnitude * scale };
+  // `magnitude * scale` can round one ULP above the cap when the vector is
+  // clamped (`magnitude * (cap / magnitude)`). The reported number is contract
+  // data — the manifest schema rejects `deltaE > maxDeltaE` — so return the cap
+  // itself rather than an approximation of it.
+  return { pixels: corrected, deltaE: Math.min(magnitude * scale, maxDeltaE) };
 }
 
 function assertBins(bins: number): void {

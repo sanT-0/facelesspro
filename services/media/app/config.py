@@ -39,7 +39,21 @@ TTS_PAUSE_COMPRESSION = os.environ.get("TTS_PAUSE_COMPRESSION", "1").strip().low
     "off",
 }
 
+# Full stops *inside* a run arrive with ~950 ms of provider silence (edge-tts,
+# Tamil). 320 ms is a sentence beat a listener accepts mid-paragraph; 0 keeps
+# the provider's own break, which is what made continuous narration read as a
+# lecture. Leading/trailing whitespace is tolerated; a non-numeric value is a
+# startup error rather than a silent default.
+TTS_SENTENCE_PAUSE_MS = int(os.environ.get("TTS_SENTENCE_PAUSE_MS", "320"))
+
 # Milliseconds of silence inserted between synthesized runs so that a voice
 # change does not sound clipped.
 DEFAULT_GAP_MS = 150
 MAX_GAP_MS = 2_000
+
+# Voiceover intake (docs/04 §1b): the local whisper model and the request-size
+# ceiling. `large-v3-turbo` is the documented rank-1 pick (docs/06 §1.4); the
+# 200 MB cap matches the worker's download cap, so the service can never
+# receive something the pipeline was allowed to fetch.
+ASR_MODEL = os.environ.get("ASR_MODEL", "large-v3-turbo")
+ASR_MAX_MB = int(os.environ.get("ASR_MAX_MB", "200"))

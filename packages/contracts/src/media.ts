@@ -72,10 +72,59 @@ export type SegmentResult = z.infer<typeof segmentResultSchema>;
 export const synthesizeResponseSchema = z.strictObject({
   request_id: z.string().min(1),
   segments: z.array(segmentResultSchema),
+  /** Master WAV: the frame-exact source of truth for timing. */
   master_path: z.string().min(1),
+  /** Encoded master the pipeline stores as the narration asset. */
+  master_mp3_path: z.string().min(1),
   total_duration_ms: z.int().min(0),
 });
 export type SynthesizeResponse = z.infer<typeof synthesizeResponseSchema>;
+
+/**
+ * `POST /transcribe` — the voiceover-intake boundary (docs/04 §1b). Audio bytes
+ * go up raw (no multipart; the worker owns the download), and the answer is
+ * what the pipeline needs to treat the transcript as the script: sentence-level
+ * segments to cut scenes on, and global word timings for captions.
+ *
+ * Segment `words` are absolute (global) milliseconds, like the synthesize
+ * response's rebased words — the pipeline never adds offsets to them.
+ */
+export const asrSegmentSchema = z
+  .strictObject({
+    text: z.string().min(1),
+    start_ms: z.int().min(0),
+    end_ms: z.int().min(0),
+    /** A segment without usable word timings is dropped, not shipped. */
+    words: z.array(wordTimingSchema).min(1),
+  })
+  .refine((segment) => segment.end_ms > segment.start_ms, {
+    message: 'an ASR segment must have a positive duration',
+    path: ['end_ms'],
+  });
+export type AsrSegment = z.infer<typeof asrSegmentSchema>;
+
+export const transcribeResponseSchema = z.strictObject({
+  request_id: z.string().min(1),
+  /** ISO 639-1 code from the model (`info.language`). */
+  language: z.string().min(1).max(8),
+  duration_ms: z.int().min(0),
+  text: z.string().min(1),
+  /** Silence-only audio is a 502 at the service, never an empty success. */
+  segments: z.array(asrSegmentSchema).min(1),
+});
+export type TranscribeResponse = z.infer<typeof transcribeResponseSchema>;
+
+/**
+ * `GET /voices/:pairId`. A pair is one speaker reading both languages, so a
+ * bare engine voice id is deliberately not a valid selector (docs/05 §3.5).
+ */
+export const mediaVoicePairSchema = z.strictObject({
+  id: z.string().min(1).max(120),
+  ta: z.string().min(1).max(120),
+  en: z.string().min(1).max(120),
+  notes: z.string(),
+});
+export type MediaVoicePair = z.infer<typeof mediaVoicePairSchema>;
 
 export const mediaHealthSchema = z.strictObject({
   status: z.literal('ok'),

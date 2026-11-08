@@ -1,4 +1,4 @@
-import { ART_STYLE_QUEUE, InvalidJobError, PING_QUEUE } from '@facelesspro/queue';
+import { ART_STYLE_QUEUE, InvalidJobError, PING_QUEUE, queueFor } from '@facelesspro/queue';
 import type { JobConsumer } from '@facelesspro/queue';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -127,5 +127,47 @@ describe('startWorker', () => {
       artStyle?.handler([{ id: 'job-b', data: { styleId: 'nope' } }]),
     ).rejects.toThrow(InvalidJobError);
     expect(handler).not.toHaveBeenCalled();
+  });
+
+  it('registers only supplied video-step handlers and parses their jobs', async () => {
+    const { boss, subscriptions } = fakeBoss();
+    const createScenes = vi.fn(async () => {});
+    const worker = await startWorker({
+      boss,
+      log: () => {},
+      steps: { 'create-scenes': createScenes },
+    });
+
+    expect(subscriptions.map((subscription) => subscription.queue)).toEqual([
+      PING_QUEUE,
+      queueFor('create-scenes'),
+    ]);
+    expect(worker.queues).toEqual([PING_QUEUE, queueFor('create-scenes')]);
+
+    const subscription = subscriptions.find(
+      (candidate) => candidate.queue === queueFor('create-scenes'),
+    );
+    const videoId = '11111111-1111-4111-8111-111111111111';
+    await subscription?.handler([{ id: 'job-scenes', data: { videoId } }]);
+
+    expect(createScenes).toHaveBeenCalledWith({
+      jobId: 'job-scenes',
+      videoId,
+      step: 'create-scenes',
+    });
+  });
+
+  it('rejects a malformed video-step job before calling its handler', async () => {
+    const { boss, subscriptions } = fakeBoss();
+    const createScenes = vi.fn(async () => {});
+    await startWorker({ boss, log: () => {}, steps: { 'create-scenes': createScenes } });
+
+    const subscription = subscriptions.find(
+      (candidate) => candidate.queue === queueFor('create-scenes'),
+    );
+    await expect(
+      subscription?.handler([{ id: 'job-scenes', data: { videoId: 'not-a-uuid' } }]),
+    ).rejects.toThrow(InvalidJobError);
+    expect(createScenes).not.toHaveBeenCalled();
   });
 });

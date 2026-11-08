@@ -1,6 +1,15 @@
 export * from './schema';
 export { findArtStyle, listReadyArtStyles } from './art-styles';
-export { listBuiltInCaptionTemplates } from './caption-templates';
+export {
+  findCaptionTemplate,
+  listBuiltInCaptionTemplates,
+} from './caption-templates';
+export { beginRender, beginRetry, findVideo } from './videos';
+export type {
+  BeginRenderInput,
+  BeginRenderResult,
+  BeginRetryResult,
+} from './videos';
 export {
   DEFAULT_DATABASE_URL,
   createDb,

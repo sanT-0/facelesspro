@@ -42,6 +42,43 @@ export function createHeuristicPlanner(): PlannerPort {
   };
 }
 
+/** One span whose cut is already decided (an ASR sentence boundary). */
+export interface FixedSceneSpan {
+  text: string;
+  startMs: number;
+  endMs: number;
+}
+
+/**
+ * Build a plan on boundaries that are already known, instead of packing a
+ * script: voiceover intake gets its cuts from speech, so asking the planner to
+ * re-segment would move them off the speaker's breath.
+ *
+ * Since no model is asked for imagery here, the prompt is the deterministic
+ * `imagePromptFor()` description and the adapter is recorded as `heuristic`
+ * (a model-authored description is a later upgrade, not a silent lie).
+ */
+export function buildFixedPlan(
+  spans: readonly FixedSceneSpan[],
+  style: PlanStyle = {},
+): ScenePlan {
+  const scenes: PlannedScene[] = spans.map((span, index) => ({
+    text: span.text,
+    imagePrompt: imagePromptFor(span.text, style),
+    motion: MOTION_CYCLE[index % MOTION_CYCLE.length]!,
+    emphasis: [],
+    startMs: span.startMs,
+    endMs: span.endMs,
+  }));
+
+  return scenePlanSchema.parse({
+    scenes,
+    adapter: 'heuristic',
+    degradedFrom: [],
+    totalMs: scenes.at(-1)?.endMs,
+  });
+}
+
 function buildPlan(request: PlanRequest): ScenePlan {
   const script = normalizeScript(request.script);
   if (script.length === 0) {

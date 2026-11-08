@@ -48,9 +48,12 @@ Rules:
 
 1. Creation returns **immediately**; the caller polls or waits for a webhook.
 2. `failed` is terminal for that attempt but **retry resumes at `step`**; completed steps keep
-   their artifacts and are **not charged twice**.
+   their artifacts and are **not charged twice**. The resume is
+   `POST /v1/videos/:id/retry` (`409` unless `failed`).
 3. `render` is optional at create time. Omitted → editable project.
-4. Rendering is only allowed from a terminal-generation state (`processing`/`rendering` → 400).
+4. Rendering is only allowed from `completed`; `processing`/`rendering`/`failed` → `409 conflict`.
+   A failed generation resumes via retry from `step`, not by starting a render over a half-built
+   project.
 5. Re-rendering replaces the mp4 (that is how you switch fps/format).
 6. `videoUrl` is public, unauthenticated, and stable once completed.
 7. Every state transition and credit movement is recorded, so the ledger can always explain
@@ -77,7 +80,7 @@ Script (or voiceover) → scenes → narration → images drawn in a **cloned ar
 | `voiceId` | string | workspace default | ignored when `voiceoverUrl` |
 | `voiceStyle` | object | see below | stability/similarityBoost/style/speed, each 0–100; speed is a percentage of normal rate, 50–200 |
 | `captions` | boolean | `false` | V3 is artwork-first, captions off by default |
-| `captionTemplateId` | number | last used | negative = built-in |
+| `captionTemplateId` | number | last used | negative = built-in; until workspace preferences land, an omitted id uses built-in `-1` |
 | `render` | object | omitted | `{}` accepts defaults |
 | `webhookUrl` | https url | — | terminal-status callback |
 
@@ -237,6 +240,8 @@ from `Cue.words`/`Cue.lines`, so caption text still reconstructs the narration e
 `[+]` Every caption track exports from those same cues as SRT, WebVTT, karaoke ASS and strict
 JSON v1. SRT/VTT preserve authored lines and millisecond timing; JSON retains raw lines, words,
 global timings and optional separate emoji. Exports never expose a storage path or database row.
+The persisted `caption_track.cues` document keeps those same raw `lines`, timed `words`, cue
+times and optional separate `emoji`; it is not a lossy `{text,start,end}` summary.
 
 `[+]` Two caption sources, in priority order:
 

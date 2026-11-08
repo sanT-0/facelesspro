@@ -8,6 +8,8 @@ import { createArtStyleRoutes } from './art-styles';
 import type { ArtStyleDeps } from './art-styles';
 import { createCaptionTemplateRoutes } from './caption-templates';
 import type { CaptionTemplateDeps } from './caption-templates';
+import { createVideoRoutes } from './videos';
+import type { VideoRouteDeps } from './videos';
 
 /**
  * The api as a set of routes over injected dependencies.
@@ -16,7 +18,11 @@ import type { CaptionTemplateDeps } from './caption-templates';
  * and a top-level export would make every test that imports the app a silent
  * integration test. `server.ts` builds the real deps; tests build fakes.
  */
-export interface ApiDeps extends HealthDeps, ArtStyleDeps, CaptionTemplateDeps {}
+export interface ApiDeps
+  extends HealthDeps,
+    ArtStyleDeps,
+    CaptionTemplateDeps,
+    VideoRouteDeps {}
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
@@ -76,6 +82,13 @@ export function createApp(deps: ApiDeps): Hono {
 
   /** Slow-changing built-ins; auth-scoped custom templates land with P6. */
   app.route('/v1/caption-templates', createCaptionTemplateRoutes(deps));
+
+  /**
+   * `GET /v1/videos/:id` — the client's view of the pipeline. The stored render
+   * key becomes an absolute `/files/*` URL; a failed video keeps `step` as the
+   * retry resume point. No auth yet (API keys are P6).
+   */
+  app.route('/v1/videos', createVideoRoutes(deps));
 
   return app;
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { lineColorFor, seedBaseFor } from './profile';
+import { lineColorFor, sceneSeedFor, seedBaseFor } from './profile';
 import type { StyleSeedInput } from './profile';
 
 const seedInput = (overrides: Partial<StyleSeedInput> = {}): StyleSeedInput => ({
@@ -71,5 +71,28 @@ describe('seedBaseFor', () => {
       seedInput({ typography: { present: true, style: 'bold sans' } }),
     );
     expect(withType).not.toBe(seedBaseFor(seedInput()));
+  });
+});
+
+describe('sceneSeedFor', () => {
+  it('is deterministic, positive and inside the image-seed range', () => {
+    const first = sceneSeedFor('11111111-1111-4111-8111-111111111111', 0);
+    const second = sceneSeedFor('11111111-1111-4111-8111-111111111111', 0);
+
+    expect(second).toBe(first);
+    expect(Number.isInteger(first)).toBe(true);
+    expect(first).toBeGreaterThanOrEqual(1);
+    expect(first).toBeLessThanOrEqual(2_147_483_647);
+  });
+
+  it('changes with the video id and the scene index', () => {
+    expect(sceneSeedFor('video-a', 0)).not.toBe(sceneSeedFor('video-b', 0));
+    expect(sceneSeedFor('video-a', 0)).not.toBe(sceneSeedFor('video-a', 1));
+  });
+
+  it('rejects an empty id and an invalid index', () => {
+    expect(() => sceneSeedFor('', 0)).toThrow(/non-empty video id/);
+    expect(() => sceneSeedFor('video-a', -1)).toThrow(/non-negative integer/);
+    expect(() => sceneSeedFor('video-a', 1.5)).toThrow(/non-negative integer/);
   });
 });

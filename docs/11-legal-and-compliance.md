@@ -46,6 +46,7 @@ Copying **behaviour** is normal competition. Copying **expression** is infringem
 | The idea "script → scenes → images → captions" | Their logo, wordmark, colour system, illustration style for branding |
 | Our own fonts (Noto, OFL) | Their fonts or licensed typefaces |
 | Interoperability testing against public docs | Scraping behind auth, or using their API as our backend |
+| Comparing public behaviour, standards, and docs across products | Treating one product as a blueprint or reproducing its distinctive expression |
 
 Rules I follow:
 
@@ -61,6 +62,27 @@ Rules I follow:
    or metadata, and don't build the brand on comparisons with other products.
 6. **No implied affiliation.** No "official", no "powered by", no compatibility badge on the
    landing page without a clear disclaimer that this is an independent implementation.
+
+### Reference-research protocol
+
+1. Start with a FacelessPro requirement or a clearly stated open question. Another product's
+   feature list does not create scope by itself.
+2. Before opening any product reference, always read the local, gitignored
+   `docs/reference-products.local.md` index. Recreate it locally first if missing, and update it
+   whenever a named source or starting URL changes. The index is navigation, not evidence.
+3. Prefer public standards and official documentation. When product behaviour matters, compare
+   multiple relevant products where practical instead of assuming one product defines the right
+   answer.
+4. Record the source type, date, and confidence in
+   [docs/02-reverse-engineering.md](./02-reverse-engineering.md). Keep observations, inferences,
+   and unknowns separate, including when sources disagree.
+5. Extract functional needs and constraints, then design and implement independently for
+   FacelessPro. Never reproduce distinctive wording, screen composition, visual identity,
+   templates, examples, or implementation details.
+6. Use only lawfully accessible public material. Do not bypass authentication, paywalls, rate
+   limits, technical controls, or terms-enforced access boundaries; do not call private APIs.
+7. If exact compatibility is genuinely required, document the interoperability reason and the
+   smallest required surface in the relevant spec. Otherwise FacelessPro's existing contract wins.
 
 ---
 

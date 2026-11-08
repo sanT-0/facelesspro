@@ -4,7 +4,7 @@ import { scenePlanSchema } from '@facelesspro/contracts';
 import { normalizeScript } from '@facelesspro/core';
 import { describe, expect, it } from 'vitest';
 
-import { createHeuristicPlanner, imagePromptFor } from './heuristic';
+import { buildFixedPlan, createHeuristicPlanner, imagePromptFor } from './heuristic';
 
 const SCRIPT = normalizeScript(readFileSync('fixtures/scripts/tamil-mixed.txt', 'utf8'));
 const planner = createHeuristicPlanner();
@@ -113,5 +113,33 @@ describe('heuristic planner', () => {
 
   it('names itself as the heuristic adapter', () => {
     expect(planner.name).toBe('heuristic');
+  });
+});
+
+describe('buildFixedPlan', () => {
+  it('keeps boundaries the caller already decided and describes each span', () => {
+    const plan = buildFixedPlan(
+      [
+        { text: 'வணக்கம் நண்பர்களே.', startMs: 0, endMs: 2_700 },
+        { text: 'Today we plan.', startMs: 2_700, endMs: 6_400 },
+      ],
+      { prefix: 'flat vector illustration', negative: 'no people' },
+    );
+
+    scenePlanSchema.parse(plan);
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.degradedFrom).toEqual([]);
+    expect(plan.totalMs).toBe(6_400);
+    expect(plan.scenes.map((scene) => [scene.startMs, scene.endMs])).toEqual([
+      [0, 2_700],
+      [2_700, 6_400],
+    ]);
+    expect(plan.scenes[0]?.motion).toBe('kenburns-in');
+    expect(plan.scenes[1]?.motion).toBe('pan-left');
+    for (const scene of plan.scenes) {
+      expect(scene.emphasis).toEqual([]);
+      expect(scene.imagePrompt.startsWith('flat vector illustration, ')).toBe(true);
+      expect(scene.imagePrompt.endsWith(', no people')).toBe(true);
+    }
   });
 });

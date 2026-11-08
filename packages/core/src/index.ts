@@ -173,7 +173,7 @@ export {
   strokeDensity,
 } from './style/stats';
 export type { LineStats, SafeAreaStats, StatSummary } from './style/stats';
-export { lineColorFor, seedBaseFor } from './style/profile';
+export { lineColorFor, sceneSeedFor, seedBaseFor } from './style/profile';
 export type { PaletteHexes, StyleSeedInput } from './style/profile';
 export {
   LANDSCAPE_PREVIEW,

@@ -2,11 +2,15 @@ import { describe, expect, it } from 'vitest';
 
 import { ERROR_CODES, apiError, statusForError } from './errors';
 import {
+  asrSegmentSchema,
   audioTimelineSchema,
   cacheStatsSchema,
   mediaHealthSchema,
+  mediaVoicePairSchema,
   narrationPlanSchema,
   synthesizeRequestSchema,
+  synthesizeResponseSchema,
+  transcribeResponseSchema,
   wordTimingSchema,
 } from './media';
 import {
@@ -202,6 +206,120 @@ describe('media service contract', () => {
 
     expect(timeline.boundaries).toEqual(['start']);
     expect(timeline.segments[0]?.words[0]?.end_ms).toBe(900);
+  });
+
+  it('parses the synthesize response with both master formats', () => {
+    const response = synthesizeResponseSchema.parse({
+      request_id: 'r1',
+      segments: [
+        {
+          index: 0,
+          voice: 'ta-IN-PallaviNeural',
+          text: 'வணக்கம்',
+          audio_path: '/data/tts/r1/run-000.wav',
+          start_ms: 0,
+          duration_ms: 2_966,
+          head_trim_ms: 150,
+          words: [{ text: 'வணக்கம்', start_ms: 0, end_ms: 900 }],
+        },
+      ],
+      master_path: '/data/tts/r1/master.wav',
+      master_mp3_path: '/data/tts/r1/master.mp3',
+      total_duration_ms: 2_966,
+    });
+
+    expect(response.master_mp3_path).toBe('/data/tts/r1/master.mp3');
+  });
+
+  it('parses the transcribe response the voiceover intake needs', () => {
+    const response = transcribeResponseSchema.parse({
+      request_id: 'r1',
+      language: 'ta',
+      duration_ms: 4_100,
+      text: 'வணக்கம் நண்பர்களே. Today we plan.',
+      segments: [
+        {
+          text: 'வணக்கம் நண்பர்களே.',
+          start_ms: 120,
+          end_ms: 2_240,
+          words: [
+            { text: 'வணக்கம்', start_ms: 120, end_ms: 980 },
+            { text: 'நண்பர்களே', start_ms: 1_020, end_ms: 2_240 },
+          ],
+        },
+        {
+          text: 'Today we plan.',
+          start_ms: 2_500,
+          end_ms: 4_100,
+          words: [
+            { text: 'Today', start_ms: 2_500, end_ms: 2_980 },
+            { text: 'we', start_ms: 3_020, end_ms: 3_260 },
+            { text: 'plan', start_ms: 3_300, end_ms: 4_080 },
+          ],
+        },
+      ],
+    });
+
+    expect(response.segments).toHaveLength(2);
+    expect(response.segments[1]?.words[2]?.text).toBe('plan');
+  });
+
+  it('rejects an ASR answer without speech, words or a positive span', () => {
+    const segment = {
+      text: 'வணக்கம்',
+      start_ms: 120,
+      end_ms: 980,
+      words: [{ text: 'வணக்கம்', start_ms: 120, end_ms: 980 }],
+    };
+    expect(
+      transcribeResponseSchema.safeParse({
+        request_id: 'r1',
+        language: 'ta',
+        duration_ms: 1_000,
+        text: 'வணக்கம்',
+        segments: [segment],
+      }).success,
+    ).toBe(true);
+
+    // No speech detected is a 422 at the service, not an empty success here.
+    expect(
+      transcribeResponseSchema.safeParse({
+        request_id: 'r1',
+        language: 'ta',
+        duration_ms: 1_000,
+        text: '',
+        segments: [],
+      }).success,
+    ).toBe(false);
+
+    expect(asrSegmentSchema.safeParse({ ...segment, end_ms: 120 }).success).toBe(
+      false,
+    );
+    expect(
+      asrSegmentSchema.safeParse({ ...segment, words: [] }).success,
+    ).toBe(false);
+    expect(
+      asrSegmentSchema.safeParse({ ...segment, start_ms: -1 }).success,
+    ).toBe(false);
+  });
+
+  it('resolves a voice pair from the media catalogue', () => {
+    expect(
+      mediaVoicePairSchema.parse({
+        id: 'valluvar',
+        ta: 'ta-IN-ValluvarNeural',
+        en: 'ta-IN-ValluvarNeural',
+        notes: 'one speaker',
+      }).ta,
+    ).toBe('ta-IN-ValluvarNeural');
+
+    expect(
+      mediaVoicePairSchema.safeParse({
+        id: 'valluvar',
+        ta: 'ta-IN-ValluvarNeural',
+        en: 'ta-IN-ValluvarNeural',
+      }).success,
+    ).toBe(false);
   });
 
   it('media health reports the engine and the cache flag', () => {

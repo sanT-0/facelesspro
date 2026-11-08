@@ -8,12 +8,13 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { videoRowSchema } from '@facelesspro/contracts';
+import { jobEventRowSchema, videoRowSchema } from '@facelesspro/contracts';
 import type { VideoStep } from '@facelesspro/contracts';
 import {
   createDb,
   creditLedger,
   databaseUrl,
+  jobEvent,
   jobLock,
   video,
   workspace,
@@ -27,7 +28,7 @@ import {
   withStep,
 } from '@facelesspro/queue';
 import type { StepDeps } from '@facelesspro/queue';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import type PgBoss from 'pg-boss';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -110,6 +111,14 @@ async function locks() {
   return await db.select().from(jobLock).where(eq(jobLock.video_id, videoId));
 }
 
+async function events() {
+  return await db
+    .select()
+    .from(jobEvent)
+    .where(eq(jobEvent.video_id, videoId))
+    .orderBy(asc(jobEvent.created_at));
+}
+
 suite('withStep', () => {
   beforeAll(async () => {
     const created = createDb();
@@ -151,6 +160,15 @@ suite('withStep', () => {
       const before = await readVideo();
       expect(before.video_url).toBeNull();
 
+      ctx.observe({
+        adapter: 'heuristic',
+        items: 3,
+        ok: 3,
+        bytes: 1_024,
+        costUnits: 2,
+        degradedFrom: 'cloudflare',
+      });
+
       await ctx.transaction(async (tx) => {
         await tx.db
           .update(video)
@@ -182,6 +200,25 @@ suite('withStep', () => {
 
     expect(await queueSize('create-vocal')).toBe(1);
     expect(await locks()).toHaveLength(0);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    const event = jobEventRowSchema.parse(recorded[0]);
+    expect(event).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 1,
+      outcome: 'committed',
+      error: null,
+      adapter: 'heuristic',
+      items: 3,
+      ok: 3,
+      failed: null,
+      bytes: 1_024,
+      cost_units: 2,
+      degraded_from: 'cloudflare',
+    });
+    expect(event.duration_ms).toBeGreaterThanOrEqual(0);
   });
 
   it('drops a job for a step the video has already left', async () => {
@@ -193,6 +230,16 @@ suite('withStep', () => {
     expect(result.outcome).toBe('stale');
     expect(body).not.toHaveBeenCalled();
     expect(await locks()).toHaveLength(0);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: null,
+      outcome: 'stale',
+      error: null,
+    });
   });
 
   it('reports a live lock instead of running the step twice', async () => {
@@ -212,6 +259,16 @@ suite('withStep', () => {
     const rows = await locks();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.attempt).toBe(7);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 7,
+      outcome: 'locked',
+      error: null,
+    });
   });
 
   it('reclaims an expired lock with a new attempt', async () => {
@@ -236,6 +293,7 @@ suite('withStep', () => {
 
   it('marks the video failed, releases the lock and charges nothing', async () => {
     const result = await withStep(deps, videoId, 'create-scenes', async (ctx) => {
+      ctx.observe({ adapter: 'procedural', items: 2 });
       await ctx.transaction(async (tx) => {
         await tx.charge({ action: 'image', units: 2, unitCost: 1.5 });
         throw new StepFailure('upstream_failed', 'image provider returned 500');
@@ -257,6 +315,18 @@ suite('withStep', () => {
     expect(await ledger()).toHaveLength(0);
     expect(await locks()).toHaveLength(0);
     expect(await queueSize('create-vocal')).toBe(0);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 1,
+      outcome: 'failed',
+      error: { code: 'upstream_failed', message: 'image provider returned 500' },
+      adapter: 'procedural',
+      items: 2,
+    });
   });
 
   it('rethrows a retryable failure without touching video state', async () => {
@@ -269,6 +339,16 @@ suite('withStep', () => {
         throw failure;
       }),
     ).rejects.toBe(failure);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 1,
+      outcome: 'retryable',
+      error: { code: 'rate_limited', message: 'slow down' },
+    });
 
     const row = await readVideo();
     expect(row.status).toBe('processing');
@@ -356,6 +436,16 @@ suite('withStep', () => {
     expect(await credits()).toBe(100);
     expect(await ledger()).toHaveLength(0);
     expect(await queueSize('create-vocal')).toBe(1);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 1,
+      outcome: 'reused',
+      error: null,
+    });
   });
 
   it('lets the newer attempt commit and rolls the stale one back', async () => {
@@ -386,11 +476,26 @@ suite('withStep', () => {
     const rows = await locks();
     expect(rows).toHaveLength(1);
     expect(rows[0]?.attempt).toBe(2);
+
+    const recorded = await events();
+    expect(recorded).toHaveLength(1);
+    expect(jobEventRowSchema.parse(recorded[0])).toMatchObject({
+      video_id: videoId,
+      step: 'create-scenes',
+      attempt: 1,
+      outcome: 'superseded',
+      error: null,
+    });
   });
 
   it('treats a deleted video as a job to drop, not to retry', async () => {
-    const result = await withStep(deps, randomUUID(), 'render', async () => undefined);
+    const unknownId = randomUUID();
+    const result = await withStep(deps, unknownId, 'render', async () => undefined);
     expect(result.outcome).toBe('missing');
+
+    // No video row means no FK target: a `job_event` would be orphaned.
+    const recorded = await db.select().from(jobEvent).where(eq(jobEvent.video_id, unknownId));
+    expect(recorded).toHaveLength(0);
   });
 
   it('fails loudly when a step does work but writes nothing', async () => {

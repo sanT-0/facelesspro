@@ -42,5 +42,27 @@ class SegmentResult(BaseModel):
 class SynthesizeResponse(BaseModel):
     request_id: str
     segments: list[SegmentResult]
+    # The WAV is the frame-exact timing source; the MP3 is what the pipeline
+    # stores as the narration asset.
     master_path: str
+    master_mp3_path: str
     total_duration_ms: int = Field(ge=0)
+
+
+class AsrSegment(BaseModel):
+    text: str = Field(min_length=1)
+    start_ms: int = Field(ge=0)
+    end_ms: int = Field(ge=0)
+    # A segment without usable word timings is dropped by the engine, not
+    # shipped: captions depend on them.
+    words: list[WordTiming] = Field(min_length=1)
+
+
+class TranscribeResponse(BaseModel):
+    request_id: str
+    # ISO 639-1 code from the model (faster-whisper `info.language`).
+    language: str = Field(min_length=1, max_length=8)
+    duration_ms: int = Field(ge=0)
+    text: str = Field(min_length=1)
+    # Silence-only audio is a 502 at the engine, never an empty success.
+    segments: list[AsrSegment] = Field(min_length=1)

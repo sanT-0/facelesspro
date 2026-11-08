@@ -13,6 +13,13 @@ const VOICES: NarrationPlanOptions = {
   pair: 'routing-fixture',
 };
 
+/** One speaker reading both languages: the shipped shape of every pair. */
+const ONE_SPEAKER: NarrationPlanOptions = {
+  ta: 'ta-IN-ValluvarNeural',
+  en: 'ta-IN-ValluvarNeural',
+  pair: 'valluvar',
+};
+
 const LATIN = /[A-Za-z]/u;
 
 describe('buildNarrationPlan — voice routing', () => {
@@ -184,6 +191,45 @@ describe('planToSegments', () => {
       expect(Object.keys(segment).sort()).toEqual(['text', 'voice']);
       expect(segment.text.length).toBeGreaterThan(0);
     }
+  });
+
+  it('reads a sentence with a language switch in one stretch, not three', () => {
+    // The pair is one speaker, so the switch is a fact about spelling, not a
+    // reason to stop and restart the voice mid-sentence.
+    const plan = buildNarrationPlan('நான் online தொழில் செய்கிறேன்.', ONE_SPEAKER);
+    const segments = planToSegments(plan);
+
+    expect(plan.runs.length).toBeGreaterThan(1);
+    expect(segments).toEqual([
+      { text: 'நான் online தொழில் செய்கிறேன்.', voice: ONE_SPEAKER.ta },
+    ]);
+  });
+
+  it('still breaks at a full stop that ends a run', () => {
+    const plan = buildNarrationPlan('நான் online. நன்றி.', ONE_SPEAKER);
+    const segments = planToSegments(plan);
+
+    expect(segments.map((segment) => segment.text)).toEqual([
+      'நான் online.',
+      'நன்றி.',
+    ]);
+  });
+
+  it('never merges two different voices, even mid-sentence', () => {
+    const plan = buildNarrationPlan('இன்று today', VOICES);
+    const segments = planToSegments(plan);
+
+    expect(new Set(segments.map((segment) => segment.voice)).size).toBe(2);
+  });
+
+  it('keeps the spoken script identical after merging', () => {
+    const plan = buildNarrationPlan(
+      'நான் online தொழில் செய்கிறேன். Google Sheets பயன்படுத்துங்கள்.',
+      ONE_SPEAKER,
+    );
+    const segments = planToSegments(plan);
+
+    expect(segments.map((segment) => segment.text).join(' ')).toBe(plan.spokenText);
   });
 });
 

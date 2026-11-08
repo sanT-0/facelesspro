@@ -44,6 +44,13 @@ PAUSE_THRESHOLD_DB = -35
 PAUSE_MIN_MS = 60
 PAUSE_MAX_MS = 250
 PAUSE_KEEP_MS = 25
+# A full stop *inside* a run is not a word gap: edge-tts leaves ~950 ms there.
+# Leaving those alone made a real 3-minute Tanglish master 24.9% silence with 34
+# pauses of ~0.94 s, which reads as a lecture, not narration. The sentence band
+# cuts [250, 1200] ms to a 320 ms beat. Past 1200 ms the pause is a paragraph
+# break and stays: that one is the writer's, not the engine's.
+PAUSE_SENTENCE_MAX_MS = 1_200
+PAUSE_SENTENCE_KEEP_MS = 160
 # A silence this close to a file edge belongs to the leading/trailing trim.
 EDGE_WINDOW_MS = 20
 
@@ -223,14 +230,20 @@ def compress_pauses(
     min_ms: int = PAUSE_MIN_MS,
     max_ms: int = PAUSE_MAX_MS,
     keep_ms: int = PAUSE_KEEP_MS,
+    sentence_max_ms: int = PAUSE_SENTENCE_MAX_MS,
+    sentence_keep_ms: int = PAUSE_SENTENCE_KEEP_MS,
 ) -> tuple[list[PauseCut], int]:
     """Shorten provider-internal pauses in place; return the cuts and the frames.
 
-    Every silence in `[min_ms, max_ms]` is reduced to `2 * keep_ms`, keeping
-    `keep_ms` at each side so a consonant's onset is never clipped. Longer
-    silences are left alone: inside a run they are sentence breaks, and the
-    listener needs those. The PCM outside a cut is copied verbatim, so the only
-    claim this makes is "silence is shorter", not "audio is better".
+    Two bands, because a provider leaves two different silences inside a run.
+    A silence in `[min_ms, max_ms]` is a word gap and is cut to `2 * keep_ms`.
+    A silence in `(max_ms, sentence_max_ms]` is a full stop and is cut to
+    `2 * sentence_keep_ms`; leaving it alone made continuous narration stop for
+    a second at every sentence. Anything longer is a paragraph break and stays.
+    `sentence_max_ms=0` disables the sentence band, and `keep_ms` is the guard
+    at each edge that stops the splice touching a consonant onset. The PCM
+    outside a cut is copied verbatim, so the only claim this makes is "silence
+    is shorter", not "audio is better".
 
     Returns the removed intervals in the coordinates of the file *before* the
     cut, which is what lets `Stitcher` move word timings by exactly as much as
@@ -241,10 +254,15 @@ def compress_pauses(
     )
     cuts: list[PauseCut] = []
     for start_ms, end_ms in intervals:
-        if end_ms - start_ms > max_ms:
+        length = end_ms - start_ms
+        if length <= max_ms:
+            keep = keep_ms
+        elif sentence_max_ms > 0 and length <= sentence_max_ms:
+            keep = sentence_keep_ms
+        else:
             continue
-        start_frame = ms_to_frames(start_ms + keep_ms)
-        end_frame = ms_to_frames(end_ms - keep_ms)
+        start_frame = ms_to_frames(start_ms + keep)
+        end_frame = ms_to_frames(end_ms - keep)
         if end_frame <= start_frame:
             continue
         cuts.append(

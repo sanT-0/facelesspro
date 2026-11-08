@@ -147,6 +147,32 @@ describe('correctTowardPalette', () => {
     expect(Array.from(zero.pixels)).toEqual(Array.from(source));
   });
 
+  it('never reports a deltaE above the cap it applied, even at a float boundary', () => {
+    // `magnitude * (cap / magnitude)` can round one ULP above the cap; the
+    // manifest contract (`sceneFrameCorrectionSchema`) rejects that, and a real
+    // 13-scene procedural run failed its commit on exactly this. The invariant
+    // is the cap, not "close to" it, so a strict comparison is the test.
+    const source = rgbBuffer([90, 110, 130], 4);
+    const mean = rgbToLab(90, 110, 130);
+    const cap = 6;
+    let clamped = 0;
+
+    for (let index = 0; index < 512; index += 1) {
+      const target = {
+        l: 20 + ((index * 13) % 80),
+        a: -70 + ((index * 29) % 140),
+        b: -70 + ((index * 47) % 140),
+      };
+      if (Math.hypot(target.l - mean.l, target.a - mean.a, target.b - mean.b) > cap) {
+        clamped += 1;
+      }
+      const { deltaE } = correctTowardPalette(source, target, cap);
+      expect(deltaE).toBeLessThanOrEqual(cap);
+    }
+
+    expect(clamped).toBeGreaterThan(64);
+  });
+
   it('validates the buffer and the cap', () => {
     expect(() => correctTowardPalette(new Uint8Array(3), rgbToLab(1, 2, 3), -1)).toThrow(
       /maxDeltaE/i,

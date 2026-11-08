@@ -13,6 +13,7 @@ import {
   databaseFor,
   databaseUrl,
   findArtStyle,
+  findVideo,
   listBuiltInCaptionTemplates,
   listReadyArtStyles,
   loadEnv,
@@ -27,6 +28,7 @@ import { serve } from '@hono/node-server';
 
 import { createApp } from './app';
 import type { ArtStyleSubmission } from './art-styles';
+import { createQueueRender, createQueueRetry } from './video-queues';
 
 loadEnv();
 
@@ -96,6 +98,13 @@ async function main(): Promise<void> {
     listArtStyles: () => listReadyArtStyles(db),
     readArtStyle: (id) => findArtStyle(db, id),
     listCaptionTemplates: () => listBuiltInCaptionTemplates(db),
+    readVideo: (id) => findVideo(db, id),
+    queueRender: createQueueRender(pool, producer),
+    queueRetry: createQueueRetry(pool, producer),
+    // `editorUrl`/`videoUrl` are absolute on the wire. Operators behind a proxy
+    // set PUBLIC_BASE_URL; the listen address is only a local-dev fallback.
+    publicBaseUrl:
+      process.env.PUBLIC_BASE_URL?.trim() || `http://127.0.0.1:${port}`,
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

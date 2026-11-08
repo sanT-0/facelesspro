@@ -1,4 +1,4 @@
-# 02 — How the reference product was analysed (REA notes)
+# 02 — Product-reference research and baseline REA notes
 
 This document separates three things on purpose:
 
@@ -6,12 +6,38 @@ This document separates three things on purpose:
 - **Inferred** — a reasonable conclusion from observations, but not proven.
 - **Unknown** — not established, and not needed for our design.
 
-Everything below was gathered with **REA** (Reverse Engineering Assistant) plus public
-documentation. No authentication was bypassed, no private API was called, no code was copied.
+The baseline evidence below was gathered with **REA** (Reverse Engineering Assistant) plus
+public documentation. No authentication was bypassed, no private API was called, no code was
+copied.
 
 ---
 
-## 1. Target routing
+## 0. Research policy
+
+This baseline is one input, not FacelessPro's blueprint. The product requirements and committed
+specs remain authoritative.
+
+When a behaviour, workflow, or UX decision is unclear:
+
+1. State the exact question before researching it.
+2. Before opening any reference, always read the local, gitignored
+   `docs/reference-products.local.md` index. If it is missing, recreate it locally before
+   continuing; update it whenever a named source or starting URL changes.
+3. Check public standards and official documentation first, then compare multiple relevant
+   products where practical. Do not silently inherit one product's assumptions.
+4. Record each finding as **observed**, **inferred**, or **unknown**, with the source type and
+   date. Conflicting observations stay visible instead of being averaged into a false fact.
+5. Choose an original FacelessPro solution based on self-hosting, Tamil/English/Tanglish quality,
+   accessibility, reliability, cost, and the existing architecture.
+6. If the result changes scope or a public contract, update the relevant spec before coding.
+
+References answer *what users may expect*, not *how another vendor implemented it*. Research is
+limited to lawfully accessible public material; the copying, access, and trademark boundaries in
+[11](./11-legal-and-compliance.md#1-what-we-copy-and-what-we-dont) always apply.
+
+---
+
+## 1. Baseline target routing
 
 The product under analysis is a **live SaaS web application**, not a shipped desktop artifact.
 So the applicable REA routes were:
@@ -50,7 +76,7 @@ intent.
 
 ---
 
-## 2. What was observed
+## 2. What was observed in the baseline
 
 ### 2.1 Hosts
 
@@ -131,7 +157,7 @@ prices. Self-hosted default is "unlimited dev mode"; pricing is data, not code.
 
 ---
 
-## 3. Documented contract (authoritative, public docs)
+## 3. Baseline documented contract (authoritative for the observation, not for FacelessPro)
 
 Base URL: the reference service's API host (public docs). Auth: workspace-scoped bearer
 token, never expires, revoked manually. MCP endpoint: same host, `/mcp` path (Streamable
@@ -192,14 +218,14 @@ check on ours: our step ids are `create-scenes`, `create-vocal`, `create-images`
 
 ---
 
-## 4. What we deliberately did NOT do
+## 4. What the baseline analysis deliberately did NOT do
 
 - No login, no payment flow, no private endpoint calls.
 - No decompilation of server code (not accessible).
 - No reuse of their JS, copy, images, templates, sample videos, or voices.
 - No attempt to defeat rate limits or paywalls.
 
-## 5. What remains unknown (and why it doesn't block us)
+## 5. What remains unknown in the baseline (and why it doesn't block us)
 
 | Unknown | Impact | Mitigation |
 |---|---|---|
@@ -209,9 +235,14 @@ check on ours: our step ids are `create-scenes`, `create-vocal`, `create-images`
 | Voice model behind the in-house engine | none | our edge-tts/IndicF5 stack is already better for Tamil |
 | Editor internals | ux only | we design our own editor |
 
-## 6. Evidence hygiene
+## 6. Evidence hygiene for every reference
 
 - The bundle mirror lives outside the repo (temp dir) and is **not committed**.
 - Findings are labelled observed/inferred throughout this doc.
+- Every additional product, standard, or documentation source gets a separate dated evidence
+  block that names the question it was used to answer. Do not merge independent sources into the
+  baseline claims above.
 - Any future runtime capture must be recorded as a new evidence record, not merged into the
   static claims above.
+- Product names and hosts remain in external evidence notes unless a licence, attribution, or
+  interoperability requirement makes naming them necessary in the repository.

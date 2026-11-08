@@ -67,6 +67,7 @@ export type {
   StepBody,
   StepContext,
   StepDeps,
+  StepEventMetrics,
   StepOutcome,
   StepResult,
   StepWork,

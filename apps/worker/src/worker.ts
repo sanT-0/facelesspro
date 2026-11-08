@@ -1,19 +1,25 @@
 /**
  * The worker's job wiring, in one place.
  *
- * Deliberately empty of pipeline steps: `create-scenes` … `render` land in P5
- * together with the ports they call. Until then the worker consumes only the
- * `ping` queue, so a step job that *is* enqueued stays visible in `pgboss.job`
- * as unprocessed work instead of being failed by a handler that does not exist
- * yet. That is the honest failure mode for a skeleton.
+ * Pipeline handlers are supplied by stable step id. A step without a handler is
+ * deliberately not consumed, so work for a later P5 slice stays visible in the
+ * queue instead of being falsely completed or failed.
  *
  * `startWorker` takes a `JobConsumer`, not a `PgBoss`: the tests below register
  * handlers against a fake, so the wiring is verified without a database.
  */
 
-import { PING_QUEUE, ART_STYLE_QUEUE, consume, parseArtStyleJob } from '@facelesspro/queue';
-import type { JobConsumer } from '@facelesspro/queue';
-import type { ArtStyleBuildJob } from '@facelesspro/contracts';
+import { VIDEO_STEPS } from '@facelesspro/contracts';
+import type { ArtStyleBuildJob, VideoStep } from '@facelesspro/contracts';
+import {
+  ART_STYLE_QUEUE,
+  PING_QUEUE,
+  consume,
+  parseArtStyleJob,
+  parseJob,
+  queueFor,
+} from '@facelesspro/queue';
+import type { JobConsumer, StepHandler } from '@facelesspro/queue';
 
 import { consumePings } from './ping';
 
@@ -25,6 +31,8 @@ export interface WorkerDeps {
   readonly log?: WorkerLog;
   /** `build-art-style` handler; absent only in wiring tests that do not build styles. */
   readonly artStyle?: (job: ArtStyleBuildJob) => Promise<void>;
+  /** Only implemented steps are present; absent queues remain untouched. */
+  readonly steps?: Partial<Record<VideoStep, StepHandler>>;
 }
 
 export interface WorkerHandle {
@@ -46,6 +54,21 @@ export async function startWorker(deps: WorkerDeps): Promise<WorkerHandle> {
       await artStyle(payload);
     });
     queues.push(ART_STYLE_QUEUE);
+  }
+
+  for (const step of VIDEO_STEPS) {
+    const handler = deps.steps?.[step];
+    if (handler === undefined) continue;
+    const queue = queueFor(step);
+    await consume(
+      deps.boss,
+      queue,
+      (data) => parseJob(queue, data),
+      async ({ id, payload }) => {
+        await handler({ ...payload, jobId: id });
+      },
+    );
+    queues.push(queue);
   }
 
   return {

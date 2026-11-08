@@ -40,6 +40,10 @@ function appWith(
     submitArtStyle,
     listCaptionTemplates: async () => [],
     ...catalog,
+    readVideo: async () => null,
+    queueRender: async () => ({ kind: 'not_found' as const }),
+    queueRetry: async () => ({ kind: 'not_found' as const }),
+    publicBaseUrl: 'http://api.test',
   });
 }
 

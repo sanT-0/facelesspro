@@ -7,6 +7,7 @@ import {
   imageAdapterSchema,
   imageCapabilitiesSchema,
   imageGenerationRequestSchema,
+  sceneManifestSchema,
 } from './index';
 import type { ImageGenerationRequest, StyleProfile } from './index';
 
@@ -150,5 +151,76 @@ describe('generatedImageSchema', () => {
     expect(generatedImageSchema.safeParse({ ...image, adapter: 'unknown' }).success).toBe(false);
     expect(generatedImageSchema.safeParse({ ...image, size: 'portrait' }).success).toBe(false);
     expect(generatedImageSchema.safeParse({ ...image, path: '/tmp/x.png' }).success).toBe(false);
+  });
+});
+
+describe('sceneManifestSchema', () => {
+  const frame = {
+    idx: 0,
+    key: 'ws/22222222-2222-4222-8222-222222222222/videos/11111111-1111-4111-8111-111111111111/frames/0001.png',
+    prompt: 'flat vector scene, a desk',
+    seed: 42,
+    adapter: 'procedural',
+    degradedFrom: ['cloudflare'],
+    width: 1024,
+    height: 576,
+    bytes: 12_345,
+    sha256: 'a'.repeat(64),
+    correction: { deltaE: 6, maxDeltaE: 6 },
+    consistency: {
+      distance: null,
+      outlier: false,
+      regenerated: false,
+      finalDistance: null,
+    },
+  } as const;
+
+  const manifest = {
+    version: 1 as const,
+    videoId: '11111111-1111-4111-8111-111111111111',
+    styleId: '33333333-3333-4333-8333-333333333333',
+    size: 'landscape' as const,
+    frames: [frame],
+  };
+
+  it('accepts the documented manifest record', () => {
+    expect(sceneManifestSchema.parse(manifest)).toEqual(manifest);
+  });
+
+  it('rejects an empty frame list, a bad hash and unknown keys', () => {
+    expect(sceneManifestSchema.safeParse({ ...manifest, frames: [] }).success).toBe(false);
+    expect(
+      sceneManifestSchema.safeParse({ ...manifest, frames: [{ ...frame, sha256: 'abc' }] }).success,
+    ).toBe(false);
+    expect(
+      sceneManifestSchema.safeParse({ ...manifest, frames: [{ ...frame, extra: true }] }).success,
+    ).toBe(false);
+    expect(sceneManifestSchema.safeParse({ ...manifest, version: 2 }).success).toBe(false);
+  });
+
+  it('requires ordered indices, unique keys and bounded correction metrics', () => {
+    const second = { ...frame, idx: 1, key: `${frame.key}.second` };
+    expect(sceneManifestSchema.safeParse({ ...manifest, frames: [frame, second] }).success).toBe(
+      true,
+    );
+    expect(
+      sceneManifestSchema.safeParse({ ...manifest, frames: [frame, { ...second, idx: 2 }] }).success,
+    ).toBe(false);
+    expect(
+      sceneManifestSchema.safeParse({ ...manifest, frames: [frame, { ...second, key: frame.key }] })
+        .success,
+    ).toBe(false);
+    expect(
+      sceneManifestSchema.safeParse({
+        ...manifest,
+        frames: [{ ...frame, correction: { deltaE: 7, maxDeltaE: 6 } }],
+      }).success,
+    ).toBe(false);
+    expect(
+      sceneManifestSchema.safeParse({
+        ...manifest,
+        frames: [{ ...frame, consistency: { ...frame.consistency, distance: 1.01 } }],
+      }).success,
+    ).toBe(false);
   });
 });

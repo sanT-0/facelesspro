@@ -341,52 +341,69 @@ export const captionExportWordSchema = z
   });
 export type CaptionExportWord = z.infer<typeof captionExportWordSchema>;
 
-/** Display cue: raw lines/words remain separate from optional presentation emoji. */
-export const captionExportCueSchema = z
-  .strictObject({
+const captionCueBaseSchema = z.strictObject({
+  startMs: z.int().min(0),
+  endMs: z.int().min(0),
+  lines: z.array(captionSingleLineTextSchema).min(1),
+  words: z.array(captionExportWordSchema).min(1),
+  emoji: captionEmojiSchema.optional(),
+});
+type CaptionCueBase = z.infer<typeof captionCueBaseSchema>;
+
+function validateCaptionCue(
+  cue: CaptionCueBase,
+  ctx: z.core.$RefinementCtx<CaptionCueBase>,
+): void {
+  if (cue.endMs <= cue.startMs) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'caption cue endMs must be > startMs',
+      path: ['endMs'],
+      input: cue,
+    });
+  }
+  const first = cue.words[0];
+  const last = cue.words[cue.words.length - 1];
+  if (first?.startMs !== cue.startMs || last?.endMs !== cue.endMs) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'caption cue timing must match its first and last word',
+      path: ['words'],
+      input: cue,
+    });
+  }
+  if (cue.lines.join(' ') !== cue.words.map((word) => word.text).join(' ')) {
+    ctx.addIssue({
+      code: 'custom',
+      message: 'caption cue lines must reconstruct its words',
+      path: ['lines'],
+      input: cue,
+    });
+  }
+  for (let index = 1; index < cue.words.length; index += 1) {
+    const previous = cue.words[index - 1];
+    const word = cue.words[index];
+    if (previous !== undefined && word !== undefined && word.startMs < previous.endMs) {
+      ctx.addIssue({
+        code: 'custom',
+        message: 'caption words must not overlap',
+        path: ['words', index, 'startMs'],
+        input: cue,
+      });
+    }
+  }
+}
+
+/** Stored display cue: enough information to reproduce every sidecar exactly. */
+export const captionCueSchema = captionCueBaseSchema.superRefine(validateCaptionCue);
+export type CaptionCue = z.infer<typeof captionCueSchema>;
+
+/** Portable JSON cue adds only its stable one-based index. */
+export const captionExportCueSchema = captionCueBaseSchema
+  .extend({
     index: z.int().min(1),
-    startMs: z.int().min(0),
-    endMs: z.int().min(0),
-    lines: z.array(captionSingleLineTextSchema).min(1),
-    words: z.array(captionExportWordSchema).min(1),
-    emoji: captionEmojiSchema.optional(),
   })
-  .superRefine((cue, ctx) => {
-    if (cue.endMs <= cue.startMs) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'caption cue endMs must be > startMs',
-        path: ['endMs'],
-      });
-    }
-    const first = cue.words[0];
-    const last = cue.words[cue.words.length - 1];
-    if (first?.startMs !== cue.startMs || last?.endMs !== cue.endMs) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'caption cue timing must match its first and last word',
-        path: ['words'],
-      });
-    }
-    if (cue.lines.join(' ') !== cue.words.map((word) => word.text).join(' ')) {
-      ctx.addIssue({
-        code: 'custom',
-        message: 'caption cue lines must reconstruct its words',
-        path: ['lines'],
-      });
-    }
-    for (let index = 1; index < cue.words.length; index += 1) {
-      const previous = cue.words[index - 1];
-      const word = cue.words[index];
-      if (previous !== undefined && word !== undefined && word.startMs < previous.endMs) {
-        ctx.addIssue({
-          code: 'custom',
-          message: 'caption words must not overlap',
-          path: ['words', index, 'startMs'],
-        });
-      }
-    }
-  });
+  .superRefine(validateCaptionCue);
 export type CaptionExportCue = z.infer<typeof captionExportCueSchema>;
 
 /** Versioned contents of `captions.json`; paths and database fields never leak here. */
@@ -426,14 +443,6 @@ export const captionJsonExportSchema = z
     }
   });
 export type CaptionJsonExport = z.infer<typeof captionJsonExportSchema>;
-
-/** One on-screen caption cue. Timings are in the master track's clock. */
-export const captionCueSchema = z.strictObject({
-  text: z.string(),
-  startMs: z.int().min(0),
-  endMs: z.int().min(0),
-});
-export type CaptionCue = z.infer<typeof captionCueSchema>;
 
 // --- §7 export --------------------------------------------------------------
 

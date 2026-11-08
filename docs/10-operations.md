@@ -31,6 +31,8 @@ curl localhost:3001/health          # {status:"ok", db:"ok", queue:"ok"}
 curl localhost:8000/health          # media service + active engine
 npm run ping                        # enqueue a job; exit 0 = the worker completed it
 npm run gate
+npx tsx scripts/e2e-video.ts        # P5 gate: real video through all five steps, no keys
+npx tsx scripts/e2e-video.ts --dry-run   # estimate scenes/duration only, no services
 ```
 
 `/health` is `200` only when every component is `ok`; otherwise it is `503` and the body says
@@ -74,15 +76,17 @@ else can expire. Suggested retention: renders 90 days, intermediate frames 14 da
 
 | Lever | Default | Effect |
 |---|---|---|
-| `IMAGE_CONCURRENCY` | 3 | stays under free rate limits |
+| `IMAGE_CONCURRENCY` | 3 (reserved) | P5.3 is intentionally sequential so the cross-scene guard sees every accepted prior frame; bounded provider batching has not landed yet |
 | `TTS_CONCURRENCY` | 6 | edge-tts tolerates more; IndicF5 wants 1 |
 | `MAX_VIDEO_MINUTES` | 30 | caps render time and credit burn |
 | `MAX_SCENES` | 120 | caps image count per video |
+| `SUBTITLE_UNIT_COST` | 20 | one enabled caption track records one subtitles unit at the committed reference price; selfhost remains unlimited |
+| `RENDER_UNIT_COST` | 10 | per-minute render price at 30 fps; a 60 fps render bills double. Duration comes from the stitched narration, not the requested estimate; selfhost remains unlimited |
 | per-run TTS cache | on (`TTS_CACHE=0` disables) | retries and unchanged scenes cost nothing |
 | `TTS_CACHE_MAX_MB` | 2048 | oldest entries pruned when a write goes over budget |
 | `TTS_CACHE_DIR` | `<MEDIA_DATA_DIR>/cache` | entry = `<sha256>.audio` + `<sha256>.json` |
 | `GET /cache` | — | hits / misses / writes / entries / bytes |
-| per-scene image cache | on, keyed by prompt+seed | a redraw is cheap, a retry is free |
+| per-scene image cache | not implemented yet | deterministic keys make storage retries safe, but a pre-commit retry may still call the provider again |
 | `speed=slow` batching | off | 10% cheaper image-gen behaviour, as specified |
 | `npm run usage` | — | prints per-step cost for the last N videos |
 
@@ -111,6 +115,22 @@ its visible provider watermark remains even when `nologo=true`.
 
 Every failure path writes `error` + `step` + the stderr tail (for ffmpeg) into the video row, so
 the editor can show it and `curl /v1/videos/:id` returns it.
+
+Each step attempt also appends one `job_event` row (docs/04 §9) — the video row says *what*
+failed, `job_event` says *what the attempt saw*:
+
+```sql
+select outcome, attempt, duration_ms, adapter, items, ok, failed, bytes,
+       cost_units, degraded_from, error, created_at
+from job_event
+where video_id = '<uuid>'
+order by created_at;
+```
+
+`failed` rows carry the same `{code, message}` as the video row; `retryable` rows are
+attempts pg-boss was asked to try again; `stale`/`superseded` rows are duplicate deliveries
+that were dropped on purpose. Rows are best-effort telemetry — absence of a row is not
+evidence that a step did not run.
 
 ---
 

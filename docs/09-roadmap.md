@@ -472,18 +472,38 @@ correctly, no audio/video drift at the end.
 
 ## P5 — V3 pipeline end to end
 
-- [ ] Steps: `create-scenes`, `create-vocal`, `create-images`, `create-captions`, `render`.
-- [ ] Idempotency + lock + per-step ledger tx.
-- [ ] Retry-from-step endpoint/behaviour; artifacts preserved.
-- [ ] `GET /v1/videos/:id` with `status`/`step`/`error`/`videoUrl`.
-- [ ] `POST /v1/videos/:id/render` with 409 guard.
+- [x] Steps: `create-scenes`, `create-vocal`, `create-images`, `create-captions`, `render`.
+- [x] Idempotency + lock + per-step ledger tx.
+- [x] Retry-from-step endpoint/behaviour; artifacts preserved.
+      `POST /v1/videos/:id/retry` on a `failed` video clears `error`, re-enqueues only the
+      recorded `step` and returns the `video` in `processing` (or `rendering` for a failed
+      `render`). Earlier steps and their ledger rows are untouched; the transition itself writes
+      no ledger row. `409` for `processing`/`rendering`/`completed`, `404` for an unknown id.
+- [x] `GET /v1/videos/:id` with `status`/`step`/`error`/`videoUrl`.
+- [x] `POST /v1/videos/:id/render` with 409 guard.
 - [ ] `voiceoverUrl` intake: download caps, ASR transcript, narration = uploaded audio.
-- [ ] `job_event` observability rows.
+      Intake is implemented end to end (download guardrails → ASR → `create-scenes` plan +
+      transaction, `create-vocal` pass-through; docs/04 §1b), and the real-Postgres commit test
+      passes. Still open: a **successful live transcript** (faster-whisper cannot install on
+      Python 3.14 here) and loudness normalisation + AAC re-encode of the upload — the stored
+      narration is the received container.
+- [x] `job_event` observability rows.
+- [x] Real 3-minute mixed-language artifact: `scripts/e2e-video.ts` drives all five production
+      handlers against real Postgres, edge-tts and ffmpeg (no fakes, no API process) and writes
+      the MP4, thumbnail, ASS and observed `summary.json` to `.data/artifacts/p5-gate/`.
 
 **Gate:** a real 3-minute mixed-language video completes; kill-and-resume test passes with no
 double charge; re-render at 60fps works; a `failed` job resumes at the right step.
 
-**Artifact check:** the 3-minute video, end to end, from a Tanglish script I wrote by hand.
+Gate status: kill-and-resume **proven** (`steps/pipeline-resume.db.test.ts`: redelivered
+committed step is `stale`, one artifact set, one debit); the real 3-minute video **proven**
+(`scripts/e2e-video.ts`: 2:56 Tanglish video, 12 scenes, H.264 1920×1080 30/1 + AAC 48 kHz,
+one ledger row per step, five `committed` events); retry-from-step proven at the API and queue
+layers. Still open: a real 60 fps re-render artifact, and a resume driven by an actual process
+kill rather than a simulated redelivery.
+
+**Artifact check:** the 3-minute video, end to end, from a Tanglish script I wrote by hand —
+reproduced by `scripts/e2e-video.ts`, output in `.data/artifacts/p5-gate/`.
 
 ---
 

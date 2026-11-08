@@ -4,6 +4,9 @@ dist/
 .env
 storage/
 
+# local product-reference index (contains third-party names and hosts)
+docs/reference-products.local.md
+
 # python media service
 services/media/.venv/
 services/media/.smoke/

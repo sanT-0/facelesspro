@@ -8,6 +8,7 @@
     "start": "tsx src/main.ts"
   },
   "dependencies": {
+    "@facelesspro/art": "*",
     "@facelesspro/contracts": "*",
     "@facelesspro/core": "*",
     "@facelesspro/db": "*",

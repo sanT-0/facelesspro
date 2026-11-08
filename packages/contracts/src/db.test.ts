@@ -9,6 +9,8 @@ import {
   captionTemplateRowSchema,
   captionTrackRowSchema,
   creditLedgerRowSchema,
+  jobEventOutcomeSchema,
+  jobEventRowSchema,
   jobLockRowSchema,
   memberRowSchema,
   narrationRowSchema,
@@ -30,7 +32,7 @@ const NOW = '2026-10-26T17:00:00.000Z';
 
 describe('database rows', () => {
   it('names every table once', () => {
-    expect(DB_TABLES).toHaveLength(17);
+    expect(DB_TABLES).toHaveLength(18);
     expect(new Set(DB_TABLES).size).toBe(DB_TABLES.length);
   });
 
@@ -187,9 +189,56 @@ describe('database rows', () => {
       captionTrackRowSchema.parse({
         video_id: VIDEO,
         template_id: -1,
-        cues: [{ text: 'vanakkam', startMs: 0, endMs: 900 }],
+        cues: [
+          {
+            lines: ['வணக்கம் நண்பர்களே.'],
+            words: [
+              { text: 'வணக்கம்', startMs: 0, endMs: 400 },
+              { text: 'நண்பர்களே.', startMs: 400, endMs: 900 },
+            ],
+            startMs: 0,
+            endMs: 900,
+            emoji: '🙏',
+          },
+        ],
       }).cues,
     ).toHaveLength(1);
+
+    expect(
+      captionTrackRowSchema.safeParse({
+        video_id: VIDEO,
+        template_id: 0,
+        cues: [
+          {
+            lines: ['vanakkam'],
+            words: [{ text: 'vanakkam', startMs: 0, endMs: 900 }],
+            startMs: 0,
+            endMs: 900,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      captionTrackRowSchema.safeParse({
+        video_id: VIDEO,
+        template_id: -1,
+        cues: [
+          {
+            lines: ['one'],
+            words: [{ text: 'one', startMs: 0, endMs: 900 }],
+            startMs: 0,
+            endMs: 900,
+          },
+          {
+            lines: ['two'],
+            words: [{ text: 'two', startMs: 800, endMs: 1_200 }],
+            startMs: 800,
+            endMs: 1_200,
+          },
+        ],
+      }).success,
+    ).toBe(false);
 
     expect(
       renderRowSchema.parse({
@@ -223,6 +272,41 @@ describe('database rows', () => {
         payload: { event: 'completed' },
       }).attempts,
     ).toBe(0);
+
+    expect(
+      jobEventRowSchema.parse({
+        id: '0190a0a0-0000-7000-8000-000000000021',
+        video_id: VIDEO,
+        step: 'create-images',
+        attempt: 1,
+        outcome: 'committed',
+        error: null,
+        duration_ms: 84_210,
+        adapter: 'cloudflare',
+        items: 35,
+        ok: 34,
+        failed: 1,
+        bytes: 18_340_233,
+        cost_units: 2,
+        degraded_from: 'cloudflare',
+        created_at: NOW,
+      }).outcome,
+    ).toBe('committed');
+  });
+
+  it('job_event rejects unknown outcomes and negative metrics', () => {
+    const base = {
+      id: '0190a0a0-0000-7000-8000-000000000021',
+      video_id: VIDEO,
+      step: 'render',
+      outcome: 'committed',
+      duration_ms: 10,
+      created_at: NOW,
+    };
+    expect(jobEventRowSchema.safeParse({ ...base, outcome: 'done' }).success).toBe(false);
+    expect(jobEventRowSchema.safeParse({ ...base, duration_ms: -1 }).success).toBe(false);
+    expect(jobEventRowSchema.safeParse({ ...base, items: -1 }).success).toBe(false);
+    expect(jobEventOutcomeSchema.options).toContain('retryable');
   });
 
   it('credits is required and nullable, never missing', () => {

@@ -26,9 +26,14 @@ const alias = {
 export default defineConfig({
   resolve: { alias },
   test: {
-    include: ['packages/**/*.db.test.ts'],
+    include: ['packages/**/*.db.test.ts', 'apps/**/*.db.test.ts'],
     environment: 'node',
     env: { DB_TESTS: '1' },
+    // Suites isolate application rows by workspace, but pg-boss queue names are
+    // global. Parallel files that both purge `create-vocal` can erase the other
+    // suite's just-enqueued artifact and turn a good atomic commit into a false
+    // failure.
+    fileParallelism: false,
     // Real transactions, real queues: a cold pg-boss start is not a unit test.
     testTimeout: 30_000,
     hookTimeout: 60_000,

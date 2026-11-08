@@ -4,7 +4,7 @@ import {
   captionTemplateRowSchema,
   type CaptionTemplateRow,
 } from '@facelesspro/contracts';
-import { desc, isNull } from 'drizzle-orm';
+import { desc, eq, isNull } from 'drizzle-orm';
 
 import type { Database } from './client';
 import { captionTemplate } from './schema';
@@ -20,4 +20,18 @@ export async function listBuiltInCaptionTemplates(
     .orderBy(desc(captionTemplate.id));
 
   return rows.map((row) => captionTemplateRowSchema.parse(row));
+}
+
+/** One built-in or workspace template by its stable non-zero id. */
+export async function findCaptionTemplate(
+  db: Database,
+  id: number,
+): Promise<CaptionTemplateRow | null> {
+  const rows = await db
+    .select()
+    .from(captionTemplate)
+    .where(eq(captionTemplate.id, id))
+    .limit(1);
+  const row = rows[0];
+  return row === undefined ? null : captionTemplateRowSchema.parse(row);
 }

@@ -28,8 +28,14 @@ Two goals, in this order:
 
 **Explicit non-goal:** copying any third-party product's code, copy, artwork, templates,
 sample videos, or branding. This project is our own implementation, our own assets, and our
-own copy. Observed behaviour that informed the design is documented in
-[docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md). See
+own copy. FacelessPro's requirements and specs are the authority. When a behaviour, workflow,
+or UX choice is unclear, research may compare lawfully accessible public documentation and
+observable behaviour from multiple relevant products; no single product is a blueprint. We
+synthesise an original solution for our constraints and update the spec before importing any new
+scope. Every product-reference task starts by reading the local, gitignored
+`docs/reference-products.local.md` index (recreate it locally first if missing) and updates that
+index when its named sources change. Evidence and its confidence are recorded in
+[docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md); the research boundary is in
 [docs/11-legal-and-compliance.md](./docs/11-legal-and-compliance.md).
 
 ---

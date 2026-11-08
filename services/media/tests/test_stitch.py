@@ -12,6 +12,7 @@ from app.stitch import Stitcher
 RUN_MS = 900
 TRIMMED_MS = RUN_MS - 260
 LEAD_MS = 150
+BURST_MS = 300
 
 
 def words_for(count: int) -> list[WordTiming]:
@@ -219,6 +220,38 @@ def test_pause_compression_can_be_switched_off(tmp_path: Path, gapped_wav) -> No
     assert run.pause_cuts == []
     assert run.duration_ms == GAPPED_TRIMMED_MS
     assert run.words[1].start_ms == 470
+
+
+def test_sentence_pause_is_compressed_and_moves_every_later_word(
+    tmp_path: Path, gapped_wav
+) -> None:
+    """A 900 ms full-stop pause is cut to a beat and the timeline follows it.
+
+    `global = run.start_ms + word.local_ms` is the caption contract, so the
+    word after the pause must move by exactly the number of samples removed.
+    """
+    pause_ms = 900
+    second_start = LEAD_MS + BURST_MS + pause_ms  # 1350
+    words = [
+        WordTiming(text="first", start_ms=150, end_ms=450),
+        WordTiming(text="second", start_ms=second_start, end_ms=second_start + 300),
+    ]
+
+    run = Stitcher().process(
+        gapped_wav(pauses_ms=(pause_ms,)), index=0, out_dir=tmp_path, words=words
+    )
+
+    assert len(run.pause_cuts) == 1
+    removed_ms = run.pause_removed_ms
+    assert 560 <= removed_ms <= 600  # 900 ms pause, 160 ms kept at each edge
+    assert run.duration_ms == LEAD_MS + 2 * BURST_MS + pause_ms + 150 - 260 - removed_ms
+    assert run.words[0].start_ms == 20
+    assert run.words[1].start_ms == second_start - 130 - removed_ms
+    starts = [word.start_ms for word in run.words]
+    assert starts == sorted(starts)
+    for word in run.words:
+        assert 0 <= word.start_ms < run.duration_ms
+        assert word.end_ms <= run.duration_ms
 
 
 def test_several_pauses_keep_the_words_ordered_and_inside_the_run(

@@ -58,7 +58,7 @@ pipeline.
 interface PlanFn        { plan(request: PlanRequest): Promise<ScenePlan> }
 interface PlannerPort extends PlanFn { readonly name: PlannerAdapter }
 interface TTSPort      { synthesize(plan: VoicePlan): Promise<Narration> }
-interface ASRPort      { transcribe(audio: Buffer): Promise<WordTimings> }
+interface ASRPort      { transcribe({ audio, mime }): Promise<AsrTranscription> }
 interface ImageFn      { draw(request: ImageGenerationRequest): Promise<GeneratedImage> }
 interface ImagePort extends ImageFn {
   readonly name: ImageAdapter
@@ -133,12 +133,18 @@ video          (id, workspace_id, kind, status, step, error,
                 duration_ms, video_url, editor_seen_at, created_at, updated_at)
 scene          (id, video_id, idx, text, image_asset_id, motion jsonb, start_ms, end_ms)
 narration      (video_id, asset_id, duration_ms, word_timings jsonb, voice_plan jsonb)
-caption_track  (video_id, template_id, cues jsonb)
+caption_track  (video_id, template_id, cues jsonb)  -- lines + timed words + optional emoji
 render         (id, video_id, resolution, fps, format, asset_id, status, created_at)
 
 job_lock       (video_id, step, attempt, started_at)  -- resumability guard
 webhook_event  (id, video_id, event, attempts, next_at, delivered_at, payload jsonb)
+job_event      (id, video_id, step, attempt?, outcome, error jsonb, duration_ms,
+                adapter?, items?, ok?, failed?, bytes?, cost_units?,
+                degraded_from?, created_at)           -- append-only telemetry
 ```
+
+`job_event` is observability only: every step attempt appends one row after its outcome is
+decided, and nothing in the pipeline reads it back. A write failure is logged, never fatal.
 
 `video.request` stores the **normalised** create request, so "retry" and "re-render" replay
 the same input without the client resending anything.
@@ -230,14 +236,23 @@ proves the schema is ready, not that a worker is actively consuming; `npm run pi
 ```
 s3://bucket/
   ws/{workspaceId}/videos/{videoId}/frames/0001.png
-  ws/{workspaceId}/videos/{videoId}/audio/narration.mp3
+  ws/{workspaceId}/videos/{videoId}/frames/manifest.json
+  ws/{workspaceId}/videos/{videoId}/audio/narration.mp3   # TTS; an upload keeps its container extension
   ws/{workspaceId}/videos/{videoId}/audio/scene-003.mp3
   ws/{workspaceId}/videos/{videoId}/captions.ass
-  ws/{workspaceId}/videos/{videoId}/render-1080p-30.mp4
+  ws/{workspaceId}/videos/{videoId}/captions.srt
+  ws/{workspaceId}/videos/{videoId}/captions.vtt
+  ws/{workspaceId}/videos/{videoId}/captions.json
+  ws/{workspaceId}/videos/{videoId}/render-1080p-30-standard.mp4
+  ws/{workspaceId}/videos/{videoId}/thumbnail-1080p-30-standard.png
   ws/{workspaceId}/styles/{styleId}/profile.json
   ws/{workspaceId}/styles/{styleId}/preview.png
   public/voices/{voiceId}.mp3
 ```
+
+`render-<resolution>p-<fps>-<format>.mp4` and `thumbnail-<resolution>p-<fps>-<format>.png`
+carry the whole render profile, so a 60 fps or greenscreen re-render writes a new object instead
+of overwriting the previous one.
 
 Disk adapter mirrors this under `.data/` for local dev. Public URLs are signed or served by a
 static route; `videoUrl` for completed renders must be stable and unauthenticated (committed
@@ -283,6 +298,12 @@ IMAGE=cloudflare,pollinations,comfyui,procedural
 STYLE=cloudflare,gemini,heuristic
 TTS=edge,indicf5,piper
 ASR=whisper-local,cloudflare
+
+# voiceover intake (services/media): whisper model name and upload ceiling.
+# faster-whisper is an optional import — without it the service boots and
+# /transcribe answers 503 with the install hint.
+ASR_MODEL=large-v3-turbo
+ASR_MAX_MB=200
 
 # optional credentials — the app runs with none of these
 CLOUDFLARE_ACCOUNT_ID=

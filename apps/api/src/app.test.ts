@@ -19,6 +19,10 @@ function appWith(probes: {
     listArtStyles: async () => [],
     readArtStyle: async () => null,
     listCaptionTemplates: async () => [],
+    readVideo: async () => null,
+    queueRender: async () => ({ kind: 'not_found' as const }),
+    queueRetry: async () => ({ kind: 'not_found' as const }),
+    publicBaseUrl: 'http://api.test',
   });
 }
 
@@ -91,6 +95,10 @@ describe('unexpected errors', () => {
       },
       readArtStyle: async () => null,
       listCaptionTemplates: async () => [],
+      readVideo: async () => null,
+      queueRender: async () => ({ kind: 'not_found' as const }),
+      queueRetry: async () => ({ kind: 'not_found' as const }),
+      publicBaseUrl: 'http://api.test',
     });
 
     const res = await app.request('/v1/art-styles');

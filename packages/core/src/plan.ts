@@ -113,7 +113,37 @@ export function buildNarrationPlan(
   };
 }
 
-/** The exact payload `POST /synthesize` expects. */
+/** Terminals from docs/05 §3.4, plus the closers that may trail one. */
+const SENTENCE_END = /[.!?।…]["'”’»)\]]*$/u;
+
+function endsSentence(text: string): boolean {
+  return SENTENCE_END.test(text.trimEnd());
+}
+
+/**
+ * The exact payload `POST /synthesize` expects.
+ *
+ * Adjacent runs that share a voice and do not end at a full stop are merged
+ * into one call. A run boundary is a language boundary, not a reason to stop:
+ * the pair is one speaker, so `நான் online தொழில்` sent as three calls is three
+ * prosody resets and three seams inside one sentence. The provider reads the
+ * merged stretch itself, and its internal full stop is compressed to the
+ * sentence beat by `compress_pauses`. A run that ends with `.!?` still starts a
+ * new segment, so a sentence is never cut — only sentences are separated.
+ */
 export function planToSegments(plan: NarrationPlan): NarrationSegment[] {
-  return plan.runs.map((run) => ({ text: run.text, voice: run.voice }));
+  const segments: NarrationSegment[] = [];
+  for (const run of plan.runs) {
+    const previous = segments[segments.length - 1];
+    if (
+      previous !== undefined &&
+      previous.voice === run.voice &&
+      !endsSentence(previous.text)
+    ) {
+      previous.text = `${previous.text} ${run.text}`;
+      continue;
+    }
+    segments.push({ text: run.text, voice: run.voice });
+  }
+  return segments;
 }

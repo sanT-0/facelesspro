@@ -8,6 +8,13 @@
       "when": 1793037725825,
       "tag": "0000_slow_butterfly",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1794036394211,
+      "tag": "0001_omniscient_falcon",
+      "breakpoints": true
     }
   ]
 }

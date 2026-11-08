@@ -85,6 +85,7 @@ def test_single_segment_writes_trimmed_audio(tmp_path: Path, tone_wav) -> None:
     assert audio.is_file()
     assert audio.read_bytes().startswith(b"RIFF")
     assert Path(body["master_path"]).is_file()
+    assert Path(body["master_mp3_path"]).is_file()
 
 
 def test_two_segments_are_offset_by_the_explicit_gap(

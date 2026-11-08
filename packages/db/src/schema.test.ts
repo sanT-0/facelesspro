@@ -17,6 +17,7 @@ import {
   captionTemplateRowSchema,
   captionTrackRowSchema,
   creditLedgerRowSchema,
+  jobEventRowSchema,
   jobLockRowSchema,
   memberRowSchema,
   narrationRowSchema,
@@ -94,10 +95,11 @@ describe('schema ↔ contracts', () => {
     render: renderRowSchema,
     job_lock: jobLockRowSchema,
     webhook_event: webhookEventRowSchema,
+    job_event: jobEventRowSchema,
   };
 
   it('defines exactly the documented tables', () => {
-    expect(DB_TABLES).toHaveLength(17);
+    expect(DB_TABLES).toHaveLength(18);
     expect(tables.size).toBe(DB_TABLES.length);
     for (const name of DB_TABLES) {
       expect(tables.has(name), `missing table ${name}`).toBe(true);

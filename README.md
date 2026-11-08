@@ -83,7 +83,8 @@ docs                everything in the table above
 | P1 Tamil/English TTS | ✅ closed 2026-10-28 — all 35 gate clips approved by ear; five voices (`valluvar` male default, `pallavi` female default, `seraphina`, `vivienne`, `thalita`) |
 | P2 scene planner | ✅ checklist complete — splitter, duration estimate, scene packing, provider planner chain + heuristic floor, `POST /v1/videos/plan` |
 | P3 art style + images | 🟡 in progress — style build + previews, four image adapters, ordered chain, palette correction and cross-scene consistency, catalog/export endpoints. Gate (2-minute reference → six consistent scenes) not yet observed |
-| P4 captions + render | ⬜ next — caption cue builder, ASS writer, renderer |
+| P4 captions + render | ✅ closed 2026-11-05 — karaoke captions, bundled Tamil/emoji fonts, six templates, deterministic ffmpeg renderer, 1080p/2K/4K at 30/60 fps, green-screen and caption sidecars; 61-second playback gate approved |
+| P5 V3 pipeline | 🟡 in progress — all five steps (`create-scenes` → `render`) are wired through the real worker/queue; captions persist one lossless cue track and matching ASS/SRT/VTT/JSON sidecars; `render` writes a deterministic demo MP4 + thumbnail and completes the video; `GET /v1/videos/:id` exposes status/step/error and the public render URL, `POST /v1/videos/:id/render` re-renders a completed video at 30/60 fps (guarded by `409`), and `POST /v1/videos/:id/retry` resumes a failed job at its recorded step. The P5 gate (real 3-minute video, kill-and-resume, 60 fps re-render through the worker, retry-from-step) is not yet observed |
 
 ## Licence
 

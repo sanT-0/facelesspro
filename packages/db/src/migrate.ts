@@ -35,9 +35,9 @@ async function main(): Promise<void> {
         `${versions.rows[0]?.count ?? '?'} migrations applied, ` +
         `${result.templates} new caption templates`,
     );
-    if (tables.rows[0]?.count !== '17') {
+    if (tables.rows[0]?.count !== '18') {
       throw new Error(
-        `expected 17 tables, found ${tables.rows[0]?.count ?? '0'} — schema drift`,
+        `expected 18 tables, found ${tables.rows[0]?.count ?? '0'} — schema drift`,
       );
     }
   } finally {

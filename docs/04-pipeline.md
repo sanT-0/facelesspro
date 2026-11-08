@@ -70,6 +70,12 @@ Sub-steps:
    (153–202 wpm, +20.5% mean error), so an English-only script is estimated ~15% long; the
    planner may pass per-pair `rates` once it knows the voice. Commas and clause pauses are
    deliberately not modelled, which is why a comma-dense 7 s clip can read −20%.
+   **Counter-evidence (2026-11-08):** two real gate runs mastered 26.5% and 27.0% *longer* than
+   this model on multi-paragraph Tanglish narration from edge-tts `valluvar` (140.3 s estimated →
+   177.5 s mastered; 182.2 s → 231.3 s) — a stable ~1.27×, not noise. The cause is **not**
+   isolated; the leading guess is sentence-final silence in a long master versus the per-sentence
+   clips the calibration used. Until the rate is re-anchored, treat the estimate as a **floor**
+   for scene packing, and check a long script's real duration before promising a length.
 4. **Beat splitting** — LLM returns JSON only, and never timings:
    ```jsonc
    { "scenes": [
@@ -133,9 +139,18 @@ Sub-steps:
    bounds its own at 18 words / 220 chars. If the style clauses alone exceed the budget that is a
    configuration bug and fails loudly rather than shipping a truncated prompt.
 
+   The pipeline derives those clauses from the selected `StyleProfile` deterministically:
+   `promptPrefix` is the prefix; palette hexes, measured line colour, background and composition
+   form the suffix; `negative` is retained and gains any missing `text`, `watermark`, `logo` and
+   `signature` terms. The worker re-validates the stored profile and requires the style to be
+   ready, support the requested orientation, and be either workspace-owned or published before
+   calling the planner.
 
-**Artifacts:** `plan.json`. **Ledger:** planner tokens are not billed to the user in self-host
-mode; recorded as `action=plan` with `units=0` for observability.
+**Artifacts:** `plan.json` plus ordered `scene` rows. The plan, rows, estimated `duration_ms`,
+cursor advance and `create-vocal` enqueue commit together through `withStep`. **Ledger:** planner
+tokens are not billed to the user in self-host mode. A zero-unit action writes no ledger row;
+adapter/degradation provenance lives in the plan, and the step's runtime measurements land in
+the attempt's `job_event` row (docs/04 §9).
 
 **Test hooks:** golden script → snapshot of scene count and scene durations; property test
 "concat(scenes.text) preserves script"; fallback determinism test.
@@ -144,44 +159,93 @@ mode; recorded as `action=plan` with `units=0` for observability.
 
 If `voiceoverUrl` is present:
 
-1. Download (cap 200 MB, allow-list of extensions, HTTPS only).
-2. ASR with word timestamps (faster-whisper) → transcript + timings + detected language.
-3. Transcript **is** the script; scenes are split on the ASR sentence boundaries so the
-   picture cuts land where the speaker breathes.
-4. **No TTS is run.** `voiceId`/`voiceStyle` are ignored (committed behaviour).
-5. Narration asset = the uploaded audio, normalised (loudness + true peak) and re-encoded to
-   AAC 48 kHz.
+1. Download with the `voiceover/download` guardrails: HTTPS only (every redirect
+   hop re-validated), the `AUDIO_EXTENSIONS` allow-list, `MAX_VOICEOVER_BYTES`
+   (200 MB) enforced on both the declared `content-length` and the stream,
+   bounded redirects and a 120 s ceiling. The extension also picks the mime
+   sent to ASR.
+2. ASR with word timestamps: the worker `POST`s the raw audio bytes to the media
+   service's `/transcribe` (no multipart) and gets back the transcript, the
+   detected language, sentence-level segments and **global** word timings
+   (`services/media/app/asr.py`, faster-whisper local; a missing engine is a 503,
+   silence-only audio a 502 — never an empty success). A `transcript.json`
+   artifact lands under `<request_id>/` for debugging.
+3. Transcript **is** the script. Each ASR segment becomes one scene, so cuts land on the
+   speaker's sentence boundaries. The first scene starts at 0, scene *i+1* starts exactly
+   where scene *i* ends (the pause before a sentence belongs to the scene that just spoke),
+   and the last scene ends on the audio duration. Past `MAX_SCENES` (120), the shortest
+   adjacent pair is merged repeatedly, so every remaining cut is still a sentence boundary
+   and the transcript is preserved (`scenes.text` still reassembles it).
+4. Image prompts are composed deterministically (`imagePromptFor`) from each span and the
+   selected style; the plan records `adapter: heuristic` instead of pretending a model
+   described cuts that were already decided by speech.
+5. **No TTS is run.** `voiceId`/`voiceStyle` are ignored (committed behaviour).
+6. The upload's bytes are written before the commit at
+   `ws/<workspaceId>/videos/<videoId>/audio/narration.<ext>` (extension from the mime). The
+   transaction writes the audio asset, the narration row (`word_timings` from ASR,
+   `voice_plan.runs = []`, `pair = null`), the scene spans, the plan/duration and the cursor
+   advance. `create-vocal` then advances without synthesising, charging or rewriting.
+7. **Not built yet:** loudness normalisation and AAC 48 kHz re-encoding. The stored narration
+   is the uploaded container as received (the asset records its real mime), so the render
+   decodes the upload as-is. This is the one part of the original §5 design still missing.
 
 ---
 
 ## 2. `create-vocal`
 
-**In:** scene text + voice plan + `voiceStyle`.
-**Out:** one audio track + word timings + per-scene audio offsets.
+**In:** stored scene text + the request's `voiceId` (a pair id) or the `TTS_PAIR` default.
+**Out:** one encoded narration asset + global word timings + contiguous per-scene spans.
 
 ```
-voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
-          ──► [run: en]  ──► TTS(en voice)  ──┼──► stitch ──► loudness ──► mp3/aac
-          ──► [run: tanglish] ──► transliterate ──► TTS(ta voice)
+scene 1 text ──► buildNarrationPlan ──► runs ──┐
+scene 2 text ──► buildNarrationPlan ──► runs ──┼──► POST /synthesize ──► master.mp3 + word timings
+scene N text ──► buildNarrationPlan ──► runs ──┘
 ```
 
-1. Build the **voice plan** (see [05](./05-tts-tamil-mixed.md)) — runs, not sentences, so
-   mid-sentence switching is allowed.
-2. Synthesise each run. Concurrency 4–8. Each run is cached by `hash(engine, voice, text)` — the
-   text *after* transliteration and number expansion — so a retry, or an unchanged scene in a new
-   video, costs ffmpeg time instead of a network call. Implemented in
-   `services/media/app/cache.py`; see [05 §3.7](./05-tts-tamil-mixed.md).
-3. Trim silence, compress the provider's *internal* word pauses (60–250 ms → 50 ms), insert a
-   calibrated gap (`120–200 ms`, proportional to punctuation), match loudness run-to-run
-   (`loudnorm` two-pass), then concatenate. The internal-pause step is what stops edge-tts's
-   Tamil voice from sounding word-by-word; [05 §3.4](./05-tts-tamil-mixed.md) has the numbers.
-4. Word timings: engine-provided (`WordBoundary`) with a global offset per run; if missing,
-   forced-align with ASR. Store `start_ms`/`end_ms` per word, plus per-scene ranges.
-5. Probed duration corrects the planner's estimate → scene durations are **re-derived** from
-   real audio, so images and captions always match the voice.
+1. Resolve `voiceId` as a **voice pair** (`GET /voices/:pairId`). A pair is one speaker reading
+   both Tamil and English (see [05 §3.5](./05-tts-tamil-mixed.md)); a bare engine voice id is
+   rejected by the catalogue, and an absent `voiceId` falls back to `TTS_PAIR` (default
+   `valluvar`).
+2. Build the voice plan **per scene** with `buildNarrationPlan()` — runs, not sentences, so
+   mid-sentence switching is allowed. Then `planToSegments()` **merges adjacent runs that share a
+   voice and do not end at a full stop**: a language switch is a fact about spelling, and a pair
+   is one speaker, so sending `நான் online தொழில்` as three calls is three prosody resets and three
+   seams inside one sentence. A run ending in `.!?` still starts a new segment, so merging never
+   cuts a sentence — it only refuses to cut one. On the 10-scene gate script this is 24 runs → 11
+   calls.
+3. Concatenate every scene's segments into one `POST /synthesize` request. The media service does
+   the real work: cache each segment by `hash(engine, voice, text)`, trim silence, compress
+   internal word *and* sentence pauses, insert punctuation-calibrated gaps, match loudness, stitch,
+   and return one master plus global `start_ms`/`end_ms` per word. Response segments are
+   index-ordered and map 1:1 to the requested segments.
+4. Validate the response against the request (same count, text, voice, monotonic spans, words
+   inside their run). A mismatch is a **permanent** upstream failure: repeating the call cannot
+   fix it.
+5. Re-derive scene spans from the **stitched master**, not the planner estimate. Scene *i* starts
+   at its first run's `start_ms`; the gap before scene *i+1* belongs to scene *i*, so spans stay
+   contiguous and the last scene ends exactly on the master duration. That duration is written to
+   `video.duration_ms`, which is what images and captions consume.
+6. Store the encoded master before opening the commit transaction. The transaction writes the
+   `asset` row, the `narration` row (`word_timings`, `voice_plan`), the scene spans, the video
+   duration, one ledger row and the cursor advance — nothing partial survives a crash.
 
-**Artifacts:** `audio/narration.m4a`, `audio/scene-NNN.m4a`, `timeline.audio.json`.
-**Ledger:** `action=tts`, `units=characters`, per engine.
+**Artifacts:** `ws/<workspaceId>/videos/<videoId>/audio/narration.mp3` (the encoded master);
+scene offsets live in `scene.start_ms`/`scene.end_ms` and the word timeline in
+`narration.word_timings`.
+**Ledger:** `action=tts`, `units=characters`, `unit_cost` from `TTS_UNIT_COST` (0 for self-host;
+the row still records the characters).
+
+**Implemented limits in P5.2:**
+
+- `voiceStyle` is accepted by the contract but not applied by the media service yet.
+- A `voiceoverUrl` request skips this step: `create-scenes` has already stored the uploaded
+  audio and its ASR word timings (§1b), so `create-vocal` only advances. The upload is stored
+  as received; loudness normalisation + AAC re-encoding is still a follow-up.
+- There is one master file, not per-scene `scene-NNN` extracts; captions use the stored word
+  timings, not separate scene audio.
+- The worker reads the encoded master from `master_mp3_path`, so the worker and
+  `services/media` must share `MEDIA_DATA_DIR` (the default single-host setup). Splitting them
+  across hosts needs a media download endpoint first.
 
 ---
 
@@ -190,10 +254,14 @@ voicePlan ──► [run: ta]  ──► TTS(ta voice)  ──┐
 **In:** scene image prompts + style profile + size.
 **Out:** one still per scene (+ optional motion file).
 
-1. Compose the final prompt from style profile + scene prompt + deterministic seed
-   (`hash(videoId, sceneIdx)`) so a redraw is reproducible.
+1. Compose the final prompt from style profile + scene prompt, and derive a deterministic seed
+   (`hash(videoId, sceneIdx)`) so a redraw is reproducible. `create-scenes` already stores the
+   style-composed prompt in `video.plan.scenes[i].imagePrompt`; `create-images` reuses it
+   unchanged rather than prefixing the style twice.
 2. Negative prompt from the style profile, always including `text, watermark, logo, signature`.
-3. Generate at the target aspect. Batch by provider limits.
+3. Generate at the target aspect. The current cross-scene guard is order-dependent, so P5.3
+   processes scenes sequentially; a later bounded first-pass batch may use provider limits only if
+   it preserves the same accepted-frame comparison semantics.
 4. Post-process (`image/postprocess`): decode the exact-size RGB24 PNG the adapter's normalizer
    already produced, colour-correct toward the weighted style palette with one bounded LAB
    translation (≤6 ΔE), compute a soft 4×4×4 RGB histogram, compare it with the scenes already
@@ -258,13 +326,37 @@ were transient, matching the planner/vision chains. Scene storage remains.
 sRGB⇄CIELAB (D65), CIE76 `ΔE`, the weighted palette centroid, the bounded translation and the
 RGB histogram. Correction is **one translation for the whole image**, never a per-pixel nearest-
 colour remap: it moves the still's shading toward the palette without posterising it, and the
-reported `deltaE` is the applied shift (≤ `maxDeltaE`, default 6). The histogram is 4×4×4 and
+reported `deltaE` is the applied shift, clamped to exactly `maxDeltaE` (default 6) rather than
+the float product `magnitude * (maxDeltaE / magnitude)`, which can round one ULP above the cap
+and make the manifest schema reject a perfectly good frame. The histogram is 4×4×4 and
 normalised, with **soft per-channel bins** — each value contributes to the two nearest bin centres
 by distance — so a channel one byte either side of a bin edge does not read as a different palette.
 Distance is total variation in `[0, 1]`: 0 identical, 1 disjoint.
 
-**Artifacts:** `frames/0001.png …`, `frames/manifest.json` (prompt, seed, provider, recycle).
+**Artifacts:** `frames/0001.png …`, `frames/manifest.json` (accepted prompt, seed, adapter,
+degradation provenance, hashes, palette correction and whether the consistency guard regenerated).
 **Ledger:** `action=image`, `units=ceil(scenes/20)`, plus animation seconds if enabled.
+
+**P5.3 implementation.** `apps/worker/src/steps/create-images.ts` re-parses the stored request and
+`video.plan`, re-checks that the style is ready, visible to the workspace and supports the
+requested orientation, and validates its `StyleProfile` again. It requires the stored scene rows to
+match the plan one-for-one. Prompts, negative terms and seeds are built before any draw; every
+request is schema-valid before an adapter sees it.
+
+Generation and post-processing run **after** `withStep` claims the job and **before** the commit
+transaction opens. Frames are processed in scene order because the quality guard compares each
+still with the scenes already accepted; `IMAGE_CONCURRENCY` therefore does not apply to this pass
+yet. A successful draw is decoded with ffmpeg, colour-corrected, hashed, and written under
+`ws/<workspaceId>/videos/<videoId>/frames/0001.png …` together with
+`frames/manifest.json`. The manifest is a disk artifact with a typed contract
+(`sceneManifestSchema`), not an invented `asset.kind`: it records index, key, accepted prompt, seed,
+adapter, `degradedFrom`, geometry, byte count, SHA-256, the applied ΔE and the consistency result.
+
+The one commit writes one `image` asset per scene, links `scene.image_asset_id`, records
+`action=image` with `units=ceil(scenes/20)` and `unit_cost` from `IMAGE_UNIT_COST` (0 on
+self-host), and advances to `create-captions`. A disk-write failure stays retryable with no commit;
+`ImageChainError` keeps the chain's `retryable` verdict; any other draw/decode failure is a
+retryable `upstream_failed`. A stale duplicate delivery commits nothing.
 
 **Quality guard:** the scene's histogram is compared with every already-accepted scene and the
 **nearest** distance decides. Strictly greater than `consistencyThreshold` (default 0.35) is an
@@ -503,6 +595,32 @@ The API route that serves stored sidecars remains P6; P4 supplies and verifies t
 
 **Ledger:** `action=subtitles`, `units=1` per video (20 credits, as specified).
 
+**P5.4 implementation.** A V3 request with `captions:false` still crosses the stable
+`create-captions` cursor, but it advances without loading narration, writing files, creating a
+track or charging a zero-value row. With captions enabled, the worker selects the requested
+template; an omitted id temporarily uses built-in `-1` until workspace "last used" preferences
+land. Built-ins (`workspace_id=null`) are global, while a custom template must belong to the
+video's workspace.
+
+The worker validates the stored narration and requires positive, ordered, non-overlapping global
+word spans inside the master duration. Cue grouping uses the template's `wordLimit`/`maxLines`
+(defaults 6/2) and a conservative grapheme-cell line budget of 32 landscape or 18 portrait. A
+single wider word fails `unprocessable` rather than splitting a Tamil cluster. Emoji decoration
+then runs once, and **that one cue list** feeds all four existing serializers. The JSON sidecar is
+parsed back through `captionJsonExportSchema` before any disk write, while the persisted
+`caption_track.cues` stores the same lines, words, times and optional emoji without the JSON-only
+one-based index.
+
+ASS always uses a 1080p design canvas (1920×1080 or 1080×1920), independent of the requested
+render resolution. libass scales `PlayRes` for 2K/4K, so re-rendering can reuse the exact caption
+artifact. The four UTF-8/LF files are written before the transaction under the documented keys.
+One fenced commit inserts four `caption` assets, the lossless cue track, `action=subtitles` with
+one unit and `SUBTITLE_UNIT_COST` (default 20), then moves the cursor. When the request carried
+`render`, it becomes `status=rendering`, `step=render` and one render job is enqueued. When the
+request omitted `render` (an editable project, docs/01 §2), the same commit instead sets
+`status=completed`, `step=null` and enqueues nothing. Deterministic keys make a partial disk retry
+safe; a stale delivery writes, charges and enqueues nothing.
+
 ---
 
 ## 6. `render`
@@ -561,7 +679,22 @@ signature plus IHDR dimensions before atomically renaming it, so a killed/retrie
 cannot publish a truncated thumbnail. Re-running the same source/path must produce identical
 bytes.
 
-**Ledger:** `action=render`, `units=minutes`, 10 cr/min @30fps, 20 @60fps.
+`apps/worker/src/steps/render.ts` is the step itself. It re-parses the stored V3 request, requires
+the `render` block, and refuses to render unless the stored timeline tiles the narration exactly:
+scenes ordered by `idx`, spans starting at 0 and contiguous, the final `end_ms` equal to
+`narration.duration_ms` **and** `video.duration_ms`, every scene carrying an `image` asset and a
+motion preset the renderer implements, and the narration asset of kind `audio`. Those are
+refuse-early `internal` failures with no commit, because a gap would silently cut audio. ffmpeg or
+thumbnail failures stay retryable (`upstream_failed`) and also write nothing. The MP4 and PNG are
+written under the deterministic keys in [03 §5](./03-architecture.md) before the one commit, which
+inserts both asset rows, the completed `render` row, sets `video.video_url`/`duration_ms`, charges
+and advances; `render` is last, so `advance()` means `status=completed`, `step=null`. A stale
+duplicate delivery writes and charges nothing. Captions are burned only when a `caption_track` row
+exists, and the font directory is always the bundled Noto one (`BUNDLED_CAPTION_FONTS_URL`), never
+the host fontconfig.
+
+**Ledger:** `action=render`, `units=minutes`, 10 cr/min @30fps, 20 @60fps; `RENDER_UNIT_COST`
+overrides the 10 (60 fps still doubles it).
 
 ---
 
@@ -629,13 +762,26 @@ Artifacts from *earlier* steps survive, which is what makes "retry after `failed
 
 ## 9. Observability
 
-Every step emits a structured event:
+Every step attempt appends one row to `job_event` (docs/03 §3) once its outcome is decided:
 
-```jsonc
-{ "videoId":"…", "step":"create-images", "attempt":1, "adapter":"cloudflare",
-  "items":35, "ok":34, "failed":1, "ms":84210, "bytes":18340233,
-  "costUnits":2, "degradedFrom":"cloudflare" }
+```sql
+job_event (video_id, step, attempt, outcome, error, duration_ms,
+           adapter, items, ok, failed, bytes, cost_units, degraded_from, created_at)
 ```
 
-Stored in `job_event` (append-only). The editor's "why did this fail" panel and the ops doc
-both read from it.
+`outcome` is one of `committed`, `reused`, `stale`, `locked`, `superseded`, `failed`,
+`retryable` (plus `missing`, which is defined but never recorded — there is no video row to
+attach it to). Steps attach their own measurements through `ctx.observe(...)`:
+
+| step | metrics it reports |
+|---|---|
+| `create-scenes` | planner `adapter`, scene `items`, `degradedFrom` chain |
+| `create-vocal` | TTS segment `items`, master audio `bytes`, character `cost_units` |
+| `create-images` | image `adapter`/`degradedFrom`, `items`/`ok` frames, total `bytes`, lot `cost_units` |
+| `create-captions` | cue `items`, export `bytes`, `cost_units` = 1 |
+| `render` | scene `items`, output `bytes`, minute `cost_units` |
+
+Writes are best-effort: a failed insert is logged, never fatal — telemetry must not turn a
+finished step into a failed one. `duration_ms` is wall-clock from claim to outcome. Nothing
+reads `job_event` back into pipeline state; the editor's "why did this fail" panel and the ops
+playbook (docs/10 §4) read it as data only.

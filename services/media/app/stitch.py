@@ -24,6 +24,8 @@ from pathlib import Path
 from .audio import (
     FADE_MS,
     HEADROOM_MS,
+    PAUSE_SENTENCE_KEEP_MS,
+    PAUSE_SENTENCE_MAX_MS,
     AudioError,
     MasterGain,
     PauseCut,
@@ -40,6 +42,10 @@ from .audio import (
     write_wav,
 )
 from .models import WordTiming
+
+# 320 ms, the midpoint of a natural sentence beat. `TTS_SENTENCE_PAUSE_MS`
+# overrides it; 0 keeps the provider's own ~950 ms break.
+DEFAULT_SENTENCE_PAUSE_MS = 2 * PAUSE_SENTENCE_KEEP_MS
 
 
 @dataclass(slots=True)
@@ -107,10 +113,12 @@ class Stitcher:
         headroom_ms: int = HEADROOM_MS,
         fade_ms: int = FADE_MS,
         pause_compression: bool = True,
+        sentence_pause_ms: int = DEFAULT_SENTENCE_PAUSE_MS,
     ) -> None:
         self.headroom_ms = headroom_ms
         self.fade_ms = fade_ms
         self.pause_compression = pause_compression
+        self.sentence_pause_ms = sentence_pause_ms
 
 
     def process(
@@ -148,7 +156,13 @@ class Stitcher:
         # word arithmetic below needs.
         cuts: list[PauseCut] = []
         if self.pause_compression:
-            cuts, frames = compress_pauses(path)
+            cuts, frames = compress_pauses(
+                path,
+                sentence_max_ms=(
+                    PAUSE_SENTENCE_MAX_MS if self.sentence_pause_ms > 0 else 0
+                ),
+                sentence_keep_ms=max(1, self.sentence_pause_ms // 2),
+            )
 
         duration_ms = frames_to_ms(frames)
 

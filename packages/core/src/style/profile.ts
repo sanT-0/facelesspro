@@ -99,6 +99,22 @@ export function seedBaseFor(input: StyleSeedInput): number {
   return (fnv1a(canonical) % 2_147_483_646) + 1;
 }
 
+/**
+ * Deterministic 1..2 147 483 647 seed for one scene (docs/04 §3):
+ * `hash(videoId, sceneIdx)`, so a redraw of the same video is reproducible.
+ */
+export function sceneSeedFor(videoId: string, sceneIdx: number): number {
+  if (videoId.length === 0) {
+    throw new TypeError('sceneSeedFor needs a non-empty video id');
+  }
+  if (!Number.isInteger(sceneIdx) || sceneIdx < 0) {
+    throw new TypeError(
+      `sceneSeedFor expects a non-negative integer scene index, got ${String(sceneIdx)}`,
+    );
+  }
+  return (fnv1a(`${videoId}:${sceneIdx}`) % 2_147_483_646) + 1;
+}
+
 function fnv1a(value: string): number {
   let hash = 0x811c9dc5;
   for (let index = 0; index < value.length; index += 1) {

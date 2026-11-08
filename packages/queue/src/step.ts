@@ -36,9 +36,15 @@
  */
 
 import { VIDEO_STEPS } from '@facelesspro/contracts';
-import type { CreditAction, ErrorCode, VideoStep } from '@facelesspro/contracts';
+import type {
+  CreditAction,
+  ErrorCode,
+  JobEventOutcome,
+  VideoStep,
+} from '@facelesspro/contracts';
 import {
   creditLedger,
+  jobEvent,
   jobLock,
   schema as databaseSchema,
   video,
@@ -121,6 +127,23 @@ export interface CommitTx {
   charge(input: ChargeInput): Promise<void>;
 }
 
+/**
+ * Runtime measurements a step can attach to its `job_event` row (docs/04 §9).
+ *
+ * Every field is optional and independent: `adapter`/`degradedFrom` say who did
+ * the work, `items`/`ok`/`failed` describe fan-out, `bytes` and `costUnits` are
+ * output size and spend. A step with nothing to report simply calls nothing.
+ */
+export interface StepEventMetrics {
+  readonly adapter?: string;
+  readonly items?: number;
+  readonly ok?: number;
+  readonly failed?: number;
+  readonly bytes?: number;
+  readonly costUnits?: number;
+  readonly degradedFrom?: string;
+}
+
 export interface StepContext {
   /** Read-only handle for "what does this video already have?" lookups. */
   readonly db: Database;
@@ -128,6 +151,12 @@ export interface StepContext {
   readonly videoId: string;
   readonly step: VideoStep;
   readonly attempt: number;
+  /**
+   * Attach runtime measurements to this attempt's `job_event` row. Safe to
+   * call any number of times; later calls merge over earlier ones. Telemetry
+   * never changes the outcome.
+   */
+  observe(metrics: StepEventMetrics): void;
   /**
    * Open the commit transaction. Call at most once, after network work, and do
    * all writes through the handle it gives you.
@@ -180,14 +209,43 @@ export async function withStep(
   step: VideoStep,
   body: StepBody,
 ): Promise<StepResult> {
+  const startedAt = Date.now();
+  const metrics: { -readonly [K in keyof StepEventMetrics]: StepEventMetrics[K] } = {};
+  const observe = (next: StepEventMetrics): void => {
+    if (next.adapter !== undefined) metrics.adapter = next.adapter;
+    if (next.items !== undefined) metrics.items = next.items;
+    if (next.ok !== undefined) metrics.ok = next.ok;
+    if (next.failed !== undefined) metrics.failed = next.failed;
+    if (next.bytes !== undefined) metrics.bytes = next.bytes;
+    if (next.costUnits !== undefined) metrics.costUnits = next.costUnits;
+    if (next.degradedFrom !== undefined) metrics.degradedFrom = next.degradedFrom;
+  };
+  const elapsed = (): number => Math.max(0, Date.now() - startedAt);
+  const event = (outcome: JobEventOutcome, attempt: number | null, error?: {
+    readonly code: ErrorCode;
+    readonly message: string;
+  }) =>
+    recordEvent(deps, {
+      videoId,
+      step,
+      attempt,
+      outcome,
+      durationMs: elapsed(),
+      metrics,
+      ...(error === undefined ? {} : { error }),
+    });
+
   const claim = await claimStep(deps, videoId, step);
 
   switch (claim.kind) {
     case 'missing':
+      // No video row means no FK target; a `job_event` here would be orphaned.
       return { outcome: 'missing' };
     case 'stale':
+      await event('stale', null);
       return { outcome: 'stale' };
     case 'locked':
+      await event('locked', claim.attempt);
       return {
         outcome: 'locked',
         attempt: claim.attempt,
@@ -204,6 +262,7 @@ export async function withStep(
     videoId: claim.videoId,
     step: claim.step,
     attempt: claim.attempt,
+    observe,
     async transaction(fn) {
       if (committed) {
         throw new StepFailure('internal', `${step} tried to commit twice`);
@@ -226,6 +285,7 @@ export async function withStep(
       await commitStep(deps, claim, async (tx) => {
         await tx.advance();
       });
+      await event('reused', claim.attempt);
       return { outcome: 'reused', attempt: claim.attempt };
     }
 
@@ -236,9 +296,10 @@ export async function withStep(
       );
     }
 
+    await event('committed', claim.attempt);
     return { outcome: 'committed', attempt: claim.attempt };
   } catch (error) {
-    return await settleFailure(deps, claim, error);
+    return await settleFailure(deps, claim, error, metrics, elapsed);
   }
 }
 
@@ -543,9 +604,19 @@ async function settleFailure(
   deps: StepDeps,
   claim: Claimed,
   error: unknown,
+  metrics: StepEventMetrics,
+  elapsed: () => number,
 ): Promise<StepResult> {
   if (error instanceof Superseded) {
     // Someone with a newer attempt owns the lock; leave it exactly as it is.
+    await recordEvent(deps, {
+      videoId: claim.videoId,
+      step: claim.step,
+      attempt: claim.attempt,
+      outcome: 'superseded',
+      durationMs: elapsed(),
+      metrics,
+    });
     return { outcome: 'superseded', attempt: claim.attempt };
   }
 
@@ -556,7 +627,18 @@ async function settleFailure(
 
   await releaseLock(deps, claim);
 
-  if (failure.retryable) throw failure;
+  if (failure.retryable) {
+    await recordEvent(deps, {
+      videoId: claim.videoId,
+      step: claim.step,
+      attempt: claim.attempt,
+      outcome: 'retryable',
+      durationMs: elapsed(),
+      metrics,
+      error: { code: failure.code, message: failure.message },
+    });
+    throw failure;
+  }
 
   if (failure.code === 'internal') {
     // Not rethrown, so this is the only trace a real bug leaves.
@@ -578,11 +660,63 @@ async function settleFailure(
     })
     .where(eq(video.id, claim.videoId));
 
+  await recordEvent(deps, {
+    videoId: claim.videoId,
+    step: claim.step,
+    attempt: claim.attempt,
+    outcome: 'failed',
+    durationMs: elapsed(),
+    metrics,
+    error: { code: failure.code, message: failure.message },
+  });
+
   return {
     outcome: 'failed',
     attempt: claim.attempt,
     error: { code: failure.code, message: failure.message },
   };
+}
+
+interface RecordedEvent {
+  readonly videoId: string;
+  readonly step: VideoStep;
+  readonly attempt: number | null;
+  readonly outcome: JobEventOutcome;
+  readonly durationMs: number;
+  readonly metrics?: StepEventMetrics;
+  readonly error?: { readonly code: ErrorCode; readonly message: string };
+}
+
+/**
+ * Append one telemetry row. Deliberately never throws: observability must not
+ * turn a completed step into a failed one. A missing row costs debugging time,
+ * not a video.
+ */
+async function recordEvent(deps: StepDeps, event: RecordedEvent): Promise<void> {
+  try {
+    await deps.db.insert(jobEvent).values({
+      video_id: event.videoId,
+      step: event.step,
+      attempt: event.attempt,
+      outcome: event.outcome,
+      error: event.error ?? null,
+      duration_ms: event.durationMs,
+      adapter: event.metrics?.adapter ?? null,
+      items: event.metrics?.items ?? null,
+      ok: event.metrics?.ok ?? null,
+      failed: event.metrics?.failed ?? null,
+      bytes: event.metrics?.bytes ?? null,
+      cost_units: event.metrics?.costUnits ?? null,
+      degraded_from: event.metrics?.degradedFrom ?? null,
+    });
+  } catch (error) {
+    console.error('[queue] job_event write failed', {
+      videoId: event.videoId,
+      step: event.step,
+      outcome: event.outcome,
+      error,
+    });
+  }
 }
 
 async function releaseLock(deps: StepDeps, claim: Claimed): Promise<void> {

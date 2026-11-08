@@ -70,7 +70,26 @@ All create responses are identical in shape:
 | Method | Path | Notes |
 |---|---|---|
 | GET | `/v1/videos/:id` | `{status, step, videoUrl?, error?, editorUrl, createdAt, ...}` |
-| POST | `/v1/videos/:id/render` | `{format, frameRate, webhookUrl?}` → 409 if not terminal |
+| POST | `/v1/videos/:id/render` | `{resolution?, frameRate?, format?, webhookUrl?}` → `202` + `videoResponseSchema`; `409` unless `completed` |
+
+`GET /v1/videos/:id` returns exactly `videoResponseSchema` (the same object webhooks carry). The
+stored render key is rewritten to an absolute URL through `PUBLIC_BASE_URL` + the api's stable
+`/files/*` prefix; an absolute stored value is passed through. `error` is `null` until a step
+fails, `step` then names the resume point, and `editorUrl` is `<base>/editor?id=<id>`. `videoUrl`
+is mandatory once `status=completed`: a completed row without a render is a `500`, not a video the
+client can never download. `thumbnailUrl` is not populated yet because the pipeline has no
+video→thumbnail link; `scenes` stays absent here (the inspector uses `/v1/videos/:id/plan`).
+
+`POST /v1/videos/:id/render` accepts `{}` (render with the documented defaults: 1080p / 30 fps /
+`standard`), any subset of `resolution`, `frameRate`, `format`, and an optional https `webhookUrl`.
+Unknown fields, `720`, a frame rate other than 30/60 and non-https webhooks are `400
+invalid_request` with `field`. Only a `completed` video is renderable: `processing`, `rendering` and
+`failed` are `409 conflict`. Success is `202` with the same `videoResponseSchema` as `GET`, now
+`status: "rendering"`, `step: "render"`; the previous `videoUrl` remains until the step replaces
+the MP4. `webhookUrl`, when supplied, replaces the stored callback. The guarded transition and the
+`render` enqueue share one transaction, so a `202` always means exactly one queued job and a `409`
+changed nothing. Unknown id → `404`, non-UUID → `400` with `field: "id"`, malformed JSON → `400`
+`request body must be JSON`.
 
 ### 2.3 Libraries
 
@@ -99,11 +118,24 @@ before every video.
 | POST | `/v1/videos/:id/scenes/:idx/redraw` | redraw one scene with an optional prompt nudge |
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
+| POST | `/v1/videos/:id/retry` | re-enqueue the step recorded on a `failed` video; `409` unless `failed`; no charge of its own |
 | POST | `/v1/art-styles` | upload reference video (multipart) → ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row `status='building'`, returns `202 {id, status, createdAt}`. Build job enqueued asynchronously. |
 | GET | `/v1/art-styles/:id/export` | portable style JSON `{version: 1, name, formats[], profile}` — the full `StyleProfile`, no ids/keys/timestamps; `409 conflict` while building, `404 not_found`, `400 invalid_request` (`field: "id"`), `500 internal` if the stored profile fails validation |
 | POST | `/v1/voices/import` | consent-gated voice import |
 
 None of these change the committed contract; they are additive.
+
+`POST /v1/videos/:id/retry` accepts only a `failed` video with a recorded `step`. It clears
+`error`, re-enqueues that one step and returns `202` + `videoResponseSchema`: `rendering` for a
+failed `render`, otherwise `processing`. Earlier steps keep their artifacts and ledger rows; the
+resumed step is the only work and owns its charge, so a retry writes no ledger row itself.
+`processing`/`rendering`/`completed` → `409 conflict`, unknown id → `404`, non-UUID → `400` with
+`field: "id"`.
+
+`GET /v1/videos/:id/captions` will serve the stored sidecar selected by format. All four are
+serialized from one persisted cue track; JSON is the strict v1 document from
+`captionJsonExportSchema`, while the database-only cue shape is the same document without each
+cue's one-based export index. Paths, asset rows and storage keys never appear in JSON.
 
 ---
 

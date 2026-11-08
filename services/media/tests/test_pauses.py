@@ -19,6 +19,8 @@ from app.audio import (
     PAUSE_KEEP_MS,
     PAUSE_MAX_MS,
     PAUSE_MIN_MS,
+    PAUSE_SENTENCE_KEEP_MS,
+    PAUSE_SENTENCE_MAX_MS,
     SAMPLE_RATE,
     compress_pauses,
     detect_silence_intervals,
@@ -91,15 +93,29 @@ def test_audio_outside_the_cut_is_unchanged(gapped_wav, tmp_path: Path) -> None:
     assert after[start:] == before[end:]
 
 
-def test_sentence_pause_is_left_alone(gapped_wav, tmp_path: Path) -> None:
+def test_sentence_pause_is_shortened_to_the_sentence_gap(
+    gapped_wav, tmp_path: Path
+) -> None:
+    """edge-tts leaves ~950 ms at a full stop *inside* a run.
+
+    Leaving it alone is what made a real 3-minute artifact one-quarter silence
+    and read as a lecture, so a sentence pause is now cut to a beat that a
+    listener would accept mid-paragraph.
+    """
     path = wav_path(tmp_path, gapped_wav(pauses_ms=(900,)))
-    before = read_wav(path)
+    before_frames = frames(path)
 
     cuts, after_frames = compress_pauses(path)
 
-    assert cuts == []
-    assert after_frames == len(before)
-    assert read_wav(path) == before
+    assert len(cuts) == 1
+    removed_ms = cuts[0].end_ms - cuts[0].start_ms
+    assert removed_ms == 900 - 2 * PAUSE_SENTENCE_KEEP_MS
+    assert after_frames == before_frames - removed_ms * 48
+
+    remaining = detect_silence_intervals(path, min_ms=30)
+    assert len(remaining) == 1
+    gap = remaining[0][1] - remaining[0][0]
+    assert abs(gap - 2 * PAUSE_SENTENCE_KEEP_MS) <= 10
 
 
 def test_pause_shorter_than_the_floor_is_left_alone(gapped_wav, tmp_path: Path) -> None:
@@ -110,12 +126,60 @@ def test_pause_shorter_than_the_floor_is_left_alone(gapped_wav, tmp_path: Path) 
     assert cuts == []
 
 
-def test_pause_longer_than_the_ceiling_is_left_alone(gapped_wav, tmp_path: Path) -> None:
+def test_pause_just_over_the_word_band_is_trimmed_to_the_sentence_gap(
+    gapped_wav, tmp_path: Path
+) -> None:
+    """The bands meet, not overlap: 350 ms is a sentence pause, not a word gap."""
     path = wav_path(tmp_path, gapped_wav(pauses_ms=(PAUSE_MAX_MS + 100,)))
 
     cuts, _ = compress_pauses(path)
 
+    assert len(cuts) == 1
+    assert cuts[0].end_ms - cuts[0].start_ms == (
+        PAUSE_MAX_MS + 100 - 2 * PAUSE_SENTENCE_KEEP_MS
+    )
+
+
+def test_sentence_pause_longer_than_the_ceiling_is_left_alone(
+    gapped_wav, tmp_path: Path
+) -> None:
+    """Past the band this is a paragraph beat, and a paragraph is the writer's."""
+    path = wav_path(tmp_path, gapped_wav(pauses_ms=(PAUSE_SENTENCE_MAX_MS + 200,)))
+    before = read_wav(path)
+
+    cuts, after_frames = compress_pauses(path)
+
     assert cuts == []
+    assert after_frames == len(before)
+    assert read_wav(path) == before
+
+
+def test_word_and_sentence_pauses_are_cut_to_their_own_gaps(
+    gapped_wav, tmp_path: Path
+) -> None:
+    pauses = (150, 900, PAUSE_SENTENCE_MAX_MS + 200)
+    path = wav_path(tmp_path, gapped_wav(pauses_ms=pauses))
+
+    cuts, _ = compress_pauses(path)
+
+    assert len(cuts) == 2
+    assert [cut.end_ms - cut.start_ms for cut in cuts] == [
+        150 - 2 * PAUSE_KEEP_MS,
+        900 - 2 * PAUSE_SENTENCE_KEEP_MS,
+    ]
+    assert all(a.end_ms <= b.start_ms for a, b in itertools.pairwise(cuts))
+
+
+def test_sentence_band_can_be_switched_off(gapped_wav, tmp_path: Path) -> None:
+    """`TTS_SENTENCE_PAUSE_MS=0` restores the provider's own sentence break."""
+    path = wav_path(tmp_path, gapped_wav(pauses_ms=(900,)))
+    before = read_wav(path)
+
+    cuts, after_frames = compress_pauses(path, sentence_max_ms=0)
+
+    assert cuts == []
+    assert after_frames == len(before)
+    assert read_wav(path) == before
 
 
 def test_every_pause_is_cut_with_its_own_interval(gapped_wav, tmp_path: Path) -> None:

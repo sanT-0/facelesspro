@@ -13,6 +13,10 @@ function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }
     listArtStyles: async () => [],
     readArtStyle: async () => null,
     listCaptionTemplates: async () => [],
+    readVideo: async () => null,
+    queueRender: async () => ({ kind: 'not_found' as const }),
+    queueRetry: async () => ({ kind: 'not_found' as const }),
+    publicBaseUrl: 'http://api.test',
   });
 }
 

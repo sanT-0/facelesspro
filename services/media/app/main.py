@@ -6,24 +6,30 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 
 from . import __version__
+from .asr import AsrEngine, AsrError, AsrUnavailableError, WhisperLocalEngine
 from .audio import AudioError, MasterGain
 from .boundaries import classify_boundary, gap_ms_for
 from .cache import CachingTTSEngine, SynthesisCache
 from .config import (
+    ASR_MAX_MB,
+    ASR_MODEL,
     SERVICE_NAME,
     TTS_CACHE_DIR,
     TTS_CACHE_ENABLED,
     TTS_CACHE_MAX_MB,
     TTS_DIR,
     TTS_PAUSE_COMPRESSION,
+    TTS_SENTENCE_PAUSE_MS,
 )
 from .models import (
+    AsrSegment,
     SegmentResult,
     SynthesizeRequest,
     SynthesizeResponse,
+    TranscribeResponse,
     WordTiming,
 )
 from .stitch import Stitcher
@@ -62,6 +68,7 @@ def _engine_name(engine: TTSEngine) -> str:
 
 def create_app(
     engine: TTSEngine | None = None,
+    asr: AsrEngine | None = None,
     data_dir: Path | None = None,
     cache: SynthesisCache | bool | None = None,
 ) -> FastAPI:
@@ -69,6 +76,7 @@ def create_app(
     app = FastAPI(title=SERVICE_NAME, version=__version__)
     base_engine = engine if engine is not None else EdgeTTSEngine()
     app.state.data_dir = (data_dir or TTS_DIR).resolve()
+    app.state.asr = asr if asr is not None else WhisperLocalEngine(ASR_MODEL)
 
     if cache is False:
         resolved_cache = None
@@ -139,7 +147,10 @@ def create_app(
         output_dir = Path(app.state.data_dir) / request_id
         output_dir.mkdir(parents=True, exist_ok=True)
 
-        stitcher = Stitcher(pause_compression=TTS_PAUSE_COMPRESSION)
+        stitcher = Stitcher(
+            pause_compression=TTS_PAUSE_COMPRESSION,
+            sentence_pause_ms=TTS_SENTENCE_PAUSE_MS,
+        )
         runs = []
         gaps_ms: list[int] = []
         boundaries: list[str] = []
@@ -234,7 +245,77 @@ def create_app(
             request_id=request_id,
             segments=segments,
             master_path=str(result.master_wav),
+            master_mp3_path=str(result.master_mp3),
             total_duration_ms=result.total_duration_ms,
+        )
+
+    @app.post("/transcribe", response_model=TranscribeResponse)
+    async def transcribe(request: Request) -> TranscribeResponse:
+        audio = await request.body()
+        if not audio:
+            raise HTTPException(status_code=422, detail="empty upload")
+        if len(audio) > ASR_MAX_MB * 1024 * 1024:
+            raise HTTPException(
+                status_code=413,
+                detail=f"upload exceeds {ASR_MAX_MB} MB",
+            )
+
+        try:
+            result = await app.state.asr.transcribe(audio)
+        except AsrUnavailableError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except AsrError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        except Exception as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"asr failed: {type(exc).__name__}",
+            ) from exc
+
+        # Defense in depth: the response model would 500 on empty segments.
+        if not result.segments:
+            raise HTTPException(status_code=502, detail="no speech detected")
+
+        request_id = uuid.uuid4().hex
+        output_dir = Path(app.state.data_dir) / request_id
+        output_dir.mkdir(parents=True, exist_ok=True)
+        transcript = {
+            "request_id": request_id,
+            "language": result.language,
+            "duration_ms": result.duration_ms,
+            "text": result.text,
+            "segments": [
+                {
+                    "text": segment.text,
+                    "start_ms": segment.start_ms,
+                    "end_ms": segment.end_ms,
+                    "words": [
+                        word.model_dump() for word in segment.words
+                    ],
+                }
+                for segment in result.segments
+            ],
+            "created_at": datetime.now(UTC).isoformat(),
+        }
+        (output_dir / "transcript.json").write_text(
+            json.dumps(transcript, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+
+        return TranscribeResponse(
+            request_id=request_id,
+            language=result.language,
+            duration_ms=result.duration_ms,
+            text=result.text,
+            segments=[
+                AsrSegment(
+                    text=segment.text,
+                    start_ms=segment.start_ms,
+                    end_ms=segment.end_ms,
+                    words=segment.words,
+                )
+                for segment in result.segments
+            ],
         )
 
     return app

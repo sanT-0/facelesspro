@@ -23,6 +23,26 @@ one task → contract + failing test → smallest real implementation
 - A phase does not close with a red gate, a skipped test, or an unverified artifact.
 - If you deviate from a spec, **edit the spec in the same change**. The docs are the contract.
 
+## Product-reference research
+
+- FacelessPro's user requirements and committed specs are authoritative. A third-party product is
+  never the product specification.
+- When behaviour, workflow, or UX is unclear, consult the existing baseline evidence in
+  `docs/02-reverse-engineering.md` and, where practical, compare multiple relevant products,
+  public standards, or official documentation. Do not make one product the default blueprint.
+- Before **any** product-reference research, always read `docs/reference-products.local.md` as
+  the local index of named products and starting URLs. If it is missing, recreate it locally and
+  keep it gitignored before researching. Update it whenever a named source or starting URL is
+  added, removed, or materially re-evaluated. It is navigation, not evidence by itself.
+- Use references to learn **what users expect**, then write an original FacelessPro design suited
+  to self-hosting, Tamil/English/Tanglish, and this repo's architecture. Do not copy how another
+  product expresses or implements the behaviour.
+- Record new findings in `docs/02-reverse-engineering.md` as **observed**, **inferred**, or
+  **unknown**. If a finding changes scope or a contract, update the relevant spec before coding.
+- Research only lawfully accessible public material. No auth/paywall/rate-limit bypass, private
+  endpoints, proprietary code, copy, assets, branding, or use of another service as our backend.
+  The full boundary is in `docs/11-legal-and-compliance.md`.
+
 ## Code rules
 
 - **`packages/core` is pure.** No I/O, no network, no `Date.now()`, no `process.env`, no deps.

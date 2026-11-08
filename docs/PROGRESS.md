@@ -39,6 +39,37 @@ Format: `[x] date — note`. Anything surprising goes in the note.
 - [x] 2026-10-26 — public API + MCP docs transcribed into `01`/`07`
       note: one chunk exceeded the 1 GiB heap; 11 inline scripts unanalysed → endpoints from
       those are unknown (absence of evidence, not evidence of absence)
+- [x] 2026-11-05 — multi-product reference-research policy made durable in `AGENTS.md`,
+      `plan.md`, `docs/02-reverse-engineering.md` §0 and `docs/11-legal-and-compliance.md` §1.
+      FacelessPro's user requirements and specs remain authoritative; when behaviour or UX is
+      unclear, future work checks the anonymised baseline plus public standards/docs and multiple
+      relevant products where practical, records observed/inferred/unknown evidence, and produces
+      an original design instead of treating one product as a blueprint. Public, lawful access
+      only; no copied implementation/expression or access-control bypass. Docs-only task, so no
+      invented failing unit test; structural artifact check `git diff --check` was clean and
+      `npm run gate` passed **83 files / 1044 tests**. Python not run because no media/render code
+      changed. **Observed:** the rule is present in all four durable instruction/spec locations.
+      **Assumed:** future contributors follow it; product identities remain in external evidence
+      notes under the existing de-anonymisation decision rather than being reintroduced here.
+- [x] 2026-11-05 — local named-product index added at
+      `docs/reference-products.local.md`, with the exact path ignored in `.gitignore` and an
+      `AGENTS.md` instruction to read it when present. It contains the known baseline identity,
+      an explicitly unverified and expandable candidate pool, research workflow, legal boundaries,
+      and a dated evidence-note template; the file says plainly that navigation is not evidence.
+      **Observed:** `git check-ignore -v` resolves the file to `.gitignore:8`, normal
+      `git status --short` omits it, the file remains locally readable, `git diff --check` is clean,
+      and `npm run gate` passed **83 files / 1044 tests**. Python not run because no media/render
+      code changed. **Surprise/constraint:** an ignored file persists for agents in this workspace
+      but cannot travel through Git to a fresh clone; it must be recreated there intentionally.
+- [x] 2026-11-05 — consulting the local reference index is now mandatory before **every**
+      product-reference task, not conditional. `AGENTS.md`, `plan.md`, `docs/02` §0,
+      `docs/11` §1 and the ignored file itself all require reading
+      `docs/reference-products.local.md` first, recreating it locally if absent, and updating it
+      whenever a named source or starting URL is added, removed, or materially re-evaluated.
+      The index remains navigation rather than evidence. **Observed:** a structural grep found the
+      mandatory rule in all five locations, `git check-ignore -v` still resolves the file to
+      `.gitignore:8`, `git diff --check` is clean, and `npm run gate` passed
+      **83 files / 1044 tests**. Python not run because no media/render code changed.
 - [ ] optional — browser/network capture of the authenticated editor, only if exact payloads
       become necessary
 
@@ -1058,7 +1089,7 @@ file stays the single "what is actually true today" view.
 
 ---
 
-## P4 - captions + render
+## P4 - captions + render - closed (2026-11-05)
 
 - [x] 2026-11-02 — **Caption cue builder** (roadmap P4 task 1). New pure module
       `packages/core/src/captions.ts`: narration word timings → cues under the template rules
@@ -1216,12 +1247,543 @@ file stays the single "what is actually true today" view.
       the replacement — P4 human watch/listening gate remains open. Full gate green: typecheck +
       eslint + **83 files / 1044 tests**.
 
+- [x] 2026-11-05 — **P4 CLOSED: the replacement 61-second render passed the human playback
+      gate.** The user played `.data/p4-gate/p4-tamil-caption-gate.mp4` in their normal player and
+      approved audible voice throughout, caption-to-word timing through the end, Tamil shaping and
+      final A/V sync. This is the required human verdict, not an inference from metadata.
+      Rechecked immediately before approval: `npm run gate` green at **83 files / 1044 tests**;
+      `ruff check app tests` clean; `python -m pytest` **113 passed / 2 opt-in LIVE tests not run**.
+      ffprobe observed 1920x1080 H.264 at 30 fps, 1,831 frames, 61.038 s overall, and AAC-LC
+      48 kHz stereo starting at 0.000 s; SHA-256
+      `a5ec00fd82ec57f04b79656c209be7c587092d139435d87669744bee28950646`.
+      Sampled frames at 5, 35 and 60 seconds were opened again and show intact Tamil/Latin shaping
+      and karaoke highlighting. **Observed:** automated invariants plus the user's actual playback
+      verdict. **Assumed:** nothing required by the P4 gate.
+
+---
+
+## P5 - V3 pipeline - in progress
+
+- [x] 2026-11-05 — **`create-scenes` is the first real video pipeline step.** The worker now
+      registers only supplied stable step handlers; production wires `create-scenes` to the
+      configured planner chain while the four later queues remain deliberately unconsumed. The
+      handler re-parses the stored V3 request, requires a ready/orientation-compatible style that
+      is workspace-owned or published, validates its `StyleProfile`, and deterministically maps
+      prompt prefix + palette/line/background/composition + required negative terms into every
+      scene prompt. Planning stays outside the transaction. One `withStep` commit writes the
+      schema-valid plan, estimated `duration_ms`, ordered scene rows and `create-vocal` enqueue;
+      all-transient planner-chain failures retain retryability. Script reconstruction is checked
+      again before any write. Voiceover remains the separate ASR task and currently fails with
+      `unprocessable` rather than silently running TTS.
+      Tests: 12 step tests + 2 worker-wiring tests; `npm run gate` green at **84 files / 1058
+      tests**. `npm run test:db` now runs package and app DB suites serially and passed **15/15**.
+      Real artifact path: `.data/artifacts/p5-create-scenes/plan.json`; the actual pg-boss consumer
+      planned `fixtures/scripts/tamil-mixed.txt` through the heuristic floor into 3 scenes ending
+      at 41,700 ms, persisted exact reconstructable Tamil/English text, advanced to
+      `create-vocal`, enqueued exactly one next job, wrote no zero-unit ledger row, and a duplicate
+      delivery called the planner once total and inserted no duplicate scenes/jobs.
+      **Spec correction:** docs/04 previously promised an `action=plan, units=0` ledger row, but
+      `charge()` deliberately and correctly omits zero-unit noise; planner provenance is in
+      `video.plan`, with runtime observability reserved for `job_event`.
+      **Surprise:** adding a second DB test file exposed that Vitest ran files concurrently while
+      both purged global pg-boss queue names, so one suite could erase the other's just-enqueued
+      artifact. `vitest.db.config.ts` now sets `fileParallelism: false`; application rows remain
+      isolated by workspace. **Observed:** queue → worker → planner → one Postgres transaction →
+      next queue, plus the retained plan artifact. **Assumed:** hosted planner quality remains
+      unobserved; the artifact intentionally used the offline heuristic and no provider network.
+      Python was not run because no media/render code changed.
+
+- [x] 2026-11-05 — **`create-vocal` turns stored scenes into one narration master and re-derives
+      scene spans from real audio.** `TtsPort` (`apps/worker/src/ports/tts.ts`) owns the pair +
+      synthesis boundary; `tts/media.ts` implements it against the media service, with the same
+      retry taxonomy as the planner transport (network/timeout/408/425/429/5xx retryable; 4xx and
+      an unreadable `200` permanent). `voiceId` is a **pair id**; absent it, `TTS_PAIR`
+      (`valluvar`) is used. Each scene is planned independently, then every run is sent in one
+      `POST /synthesize`; response segments are validated 1:1 against the request before any
+      write. Scene *i* starts at its first run and ends where scene *i+1* begins, so spans are
+      contiguous and the last ends exactly on the probed master duration, which also becomes
+      `video.duration_ms`. The encoded master is stored before the single commit; the transaction
+      writes the `asset`, `narration` (`word_timings`, `voice_plan`), scene spans, video duration,
+      one `action=tts` ledger row (`units=characters`, `unit_cost` from `TTS_UNIT_COST`, 0 here)
+      and the `create-images` enqueue. A duplicate delivery is stale and writes nothing.
+      The media response now exposes both `master_path` (frame-exact WAV timing source) and
+      `master_mp3_path` (the encoded master the pipeline stores); contracts and pydantic mirror
+      each other and the fixture test covers both.
+      Tests: 10 adapter tests + 15 step tests + 3 contract tests; `npm run gate` green at
+      **86 files / 1085 tests**. `npm run test:db` passed **16/16**, including a real
+      ffmpeg/ffprobe 2.4 s MP3 stored byte-identically at
+      `.data/artifacts/p5-create-vocal/narration.mp3` (39,331 bytes, SHA-256
+      `3fae8cd8b36d0b61bc6b5a07742a8e2c56095c3d70672739eb19bbc17c70e18d`), with
+      `.data/artifacts/p5-create-vocal/narration.json` recording spans 0–1200–2400 ms and the
+      word timeline. Python: `pytest services/media` passed (113 passed, 2 LIVE skipped) and
+      `ruff check` clean.
+      A separate **manual live check** through the real media service (edge-tts, `valluvar`, two
+      runs: one Tamil sentence and one English sentence) produced
+      `.data/artifacts/p5-create-vocal/live/narration-live.mp3`: 3.492 s, mono 48 kHz MP3, 85,292
+      bytes, SHA-256 `9fe1a5ab0ed7b7d958c8b85ad7d75695fdaf69dee1f3d63fb5303abcff06bd72`, with
+      starts at 0 and 1,502 ms and 8 word timings. That call exercised the media contract and the
+      encoded-master hand-off; the **worker step itself was not run live end-to-end**.
+      **Implemented limits (recorded, not hidden):** `voiceStyle` is still ignored by the media
+      service; `voiceoverUrl` fails `unprocessable` until the ASR/upload step exists; there is one
+      master file, not per-scene extracts; and the adapter reads `master_mp3_path` from disk, so the
+      worker and media service must share `MEDIA_DATA_DIR` on one host (a remote split needs a
+      download endpoint).
+      **Observed:** worker → fake TTS → one real Postgres transaction → `create-images`, a
+      byte-identical stored master, and one real Tamil/English media synthesis. **Assumed:** the
+      listening gate for this step is still open — the artifact proves format, duration and
+      timing, not whether the narration sounds right; live worker latency/retry behaviour remains
+      unobserved because the DB test injected a synthetic timeline and never touched the network.
+
+- [x] 2026-11-05 — **`create-images` generates, post-processes, stores and links one still per
+      planned scene.** Production now consumes the queue with the configured `IMAGE` chain. The
+      step re-parses the stored V3 request and `ScenePlan`, re-checks style visibility/readiness/
+      orientation, validates the `StyleProfile`, and requires ordered scene rows whose text still
+      matches the plan. It reuses the already style-composed `imagePrompt`, adds the required
+      `text, watermark, logo, signature` negative terms, and derives each caller-owned seed with
+      pure `sceneSeedFor(videoId, idx)`. Scenes run in order through the existing palette correction
+      and nearest-prior-frame consistency guard; any outlier redraws at most once with the same
+      seed. Frames are written before the commit to
+      `ws/<workspace>/videos/<video>/frames/0001.png …`, with a strict v1
+      `frames/manifest.json` contract recording the accepted prompt, seed, adapter/degradation,
+      geometry, bytes, SHA-256, ΔE and regenerate result. The one fenced transaction inserts one
+      `image` asset per frame, links `scene.image_asset_id`, charges `action=image` with
+      `units=ceil(scenes/20)` and `IMAGE_UNIT_COST` (0 here), and advances to `create-captions`.
+      Disk failures stay retryable with no commit, image-chain failures preserve their retryability,
+      and a stale duplicate delivery writes or charges nothing.
+      Tests: 14 step tests, 10 image-contract tests and 3 scene-seed tests; `npm run gate` green at
+      **87 files / 1,105 tests**. `npm run test:db` passed **4 files / 17 tests**. The real DB test
+      exercised pg-boss, the procedural adapter, real ffmpeg decode, PNG re-encode and Postgres:
+      two linked 1024×576 RGB24 frames, one manifest, one ledger row, one `create-captions` job and
+      no duplicate work. Retained artifact `.data/artifacts/p5-create-images/frame-0001.png` is
+      3,818 bytes, SHA-256
+      `7e79e4eb84d808424136a17758ecb7bcbd5966f48e1c04c95b827ea5963390c7`; its manifest and audit
+      summary are beside it. `pytest services/media` remained green (113 passed, 2 LIVE skipped)
+      and `ruff check services/media` was clean.
+      **Surprise / documented limit:** cross-scene quality is order-dependent, so P5.3 intentionally
+      generates sequentially; `IMAGE_CONCURRENCY=3` is reserved rather than falsely applied.
+      `frames/manifest.json` remains a disk artifact because the public asset vocabulary has no
+      manifest kind. The planned per-scene image-result cache has not landed: deterministic keys
+      make disk retries overwrite safely, but a pre-commit retry can call a hosted provider again.
+      **Observed:** queue → procedural generation → real image post-processing →
+      disk + one Postgres transaction → `create-captions`; the retained image is a valid, visibly
+      on-palette abstract fallback with no text/logo/watermark. **Assumed:** hosted-provider visual
+      quality, latency, throttling and one-shot regeneration under a real outlier remain unobserved;
+      the offline procedural floor proves orchestration and artifact invariants, not semantic art
+      quality.
+
+- [x] 2026-11-05 — **`create-captions` persists one lossless cue track and four matching
+      sidecars, or cleanly skips when V3 captions are disabled.** Production now consumes the
+      queue. The enabled branch selects a global built-in or workspace-owned template (omitted id
+      temporarily defaults to `-1` until workspace preferences exist), validates positive ordered
+      global narration words inside the master, groups them with template word/line limits and
+      32-landscape/18-portrait grapheme-cell budgets, then applies the existing deterministic emoji
+      pass. ASS, SRT, VTT and strict JSON v1 are all serialized from that same cue list; JSON is
+      parsed back through the shared contract before disk I/O. ASS uses one reusable 1080p
+      landscape/portrait PlayRes canvas so libass can scale it on later 2K/4K renders. Files are
+      written before the commit under `ws/<workspace>/videos/<video>/captions.*`. One fenced
+      transaction inserts four `caption` assets, the cue track, `action=subtitles` (`units=1`,
+      `SUBTITLE_UNIT_COST=20` by default) and moves the cursor. With `render` requested it becomes
+      `status=rendering` / `step=render` and enqueues one render job; with `render` omitted (an
+      editable project, docs/01 §2) it sets `status=completed` / `step=null` and enqueues nothing.
+      `captions:false` likewise advances with no template/narration lookup, artifact, track or
+      ledger row. Disk failures stay retryable; an over-wide word is permanent `unprocessable`
+      rather than splitting a Tamil grapheme cluster; stale delivery writes and charges nothing.
+      **Contract correction:** the old `caption_track.cues` placeholder stored only
+      `{text,startMs,endMs}`, which could not reconstruct line breaks, karaoke words or emoji. It
+      now stores raw lines, global timed words, cue times and optional one-cluster emoji, validates
+      cross-cue overlap, and rejects template id 0. This is a JSONB shape correction with no DDL
+      migration; docs/01, 03 and 07 were updated in the same task.
+      Tests: 16 step tests plus the strengthened row contract; `npm run gate` green at **88 files /
+      1,121 tests**. `npm run test:db` passed **5 files / 18 tests**. The real integration test ran
+      pg-boss → worker → disk + Postgres → render queue, verified four byte-identical assets and a
+      track equal to JSON cues minus export indexes, recorded one −20 subtitles row, and proved a
+      duplicate delivery remained stale. It then rendered the retained ASS with real
+      ffmpeg/libass, which selected `NotoSansTamil-Variable.ttf`; the opened 1920×1080 RGB24 frame
+      shows intact Tamil shaping and karaoke colour. Artifacts:
+      `.data/artifacts/p5-create-captions/captions.{ass,srt,vtt,json}` and
+      `caption-frame.png` (30,037 bytes, SHA-256
+      `76a321b55614634ec23c43b18e173873e64de0fbf5e442aae780c3f042eb6a1c`); ASS is 790 bytes,
+      SHA-256 `168bf33e0b0ff1427cc7b788dd7dfc8de36c875fa64fc61147cddb2621c9d898`.
+      `pytest services/media` remained green (113 passed, 2 LIVE skipped) and Ruff was clean.
+      **Observed:** exact cue/sidecar parity, bundled-font selection, Tamil raster, atomic database
+      writes and render enqueue. **Assumed:** this exact persisted ASS has not yet travelled through
+      the production render step or a 2K/4K re-render; P5.5 is deliberately not started here.
+
+- [x] 2026-11-05 — **`render` turns the stored timeline into one verified MP4 + thumbnail and
+      completes the video.** The worker now consumes all five step queues. The step re-parses the
+      stored V3 request, requires its `render` block, and refuses to spawn ffmpeg unless the stored
+      timeline tiles the narration exactly: scenes ordered by `idx`, spans starting at 0 and
+      contiguous, the final `end_ms` equal to both `narration.duration_ms` and
+      `video.duration_ms`, every scene owning an `image` asset and an implemented motion preset, and
+      the narration asset of kind `audio` in the same workspace. Those are `internal` failures with
+      no commit because a gap would silently cut audio. Composition and encoding stay in the pure
+      `buildRenderPlan` + thin ffmpeg adapter; this step only resolves keys, checks the encoder
+      actually returned the requested width/height/fps/duration, then extracts the 25% thumbnail.
+      MP4 and PNG are written before the commit under
+      `ws/<workspace>/videos/<video>/render-<resolution>p-<fps>-<format>.mp4` and
+      `thumbnail-<resolution>p-<fps>-<format>.png`. One fenced transaction inserts both asset rows,
+      the completed `render` row, sets `video.video_url` (a storage key; the api maps it to
+      `/files/*`) and `duration_ms`, charges `action=render` with `units=minutes` and
+      `RENDER_UNIT_COST` (10 by default, doubled at 60 fps), then advances. `render` is last, so
+      that advance is what `status=completed` / `step=null` means. ASS is burned only when a
+      `caption_track` row exists, and fonts always come from `BUNDLED_CAPTION_FONTS_URL`, never the
+      host fontconfig. ffmpeg/thumbnail failures stay retryable and write nothing; a stale duplicate
+      delivery writes and charges nothing.
+      **Spec correction:** docs/03 promised `render-1080p-30.mp4`, but a greenscreen or profile
+      change must not clobber the previous object, so the key now includes the format (docs/03 §5
+      and docs/04 §6 were updated here). `RENDER_UNIT_COST` is documented in docs/10 and
+      `.env.example`.
+      Tests: 20 hermetic step tests; `npm run gate` green at **89 files / 1,141 tests**.
+      `npm run test:db` passed **6 files / 19 tests**. The real integration test ran
+      pg-boss → worker → real ffmpeg/libass → Postgres: 1920×1080 H.264 yuv420p 30/1, stereo
+      AAC-LC 48 kHz, exactly 2.000 s, a 1280×720 RGB thumbnail, both asset rows, one completed
+      `render` row, `video_url`/`duration_ms`, one `action=render` ledger row
+      (`units=0.03`, `unit_cost=10`, `delta=-0.3`) and `status=completed`/`step=null`; a duplicate
+      delivery added no row, asset or charge. Retained P5 artifact
+      `.data/artifacts/p5-render/final.mp4` (63,338 bytes, SHA-256
+      `380395e3f99fd9f1f3124f9bed3646c73c0ce397f92c9d08008b3a76518e1893`), `thumbnail.png`
+      (33,647 bytes, SHA-256
+      `28b5ea86038152396ac8779caa41a56ec214ec9464bd9c51fe1fbdfe75cfbef0`) and `summary.json`.
+      Frames extracted at 0.4 s and 1.5 s and the thumbnail were opened: each half shows its own
+      scene image and motion clip, and the Tamil cue `வணக்கம் நண்பர்களே.` / `Today fire!` is burned
+      in with intact shaping, no split clusters, and at 0.4 s the first word is yellow (karaoke)
+      while the second is still white. `pytest services/media`
+      remained green (113 passed, 2 LIVE skipped) and Ruff was clean.
+      **Observed:** queue → step → real MP4/thumbnail → one Postgres transaction → terminal state,
+      plus the opened Tamil-captioned frames. **Assumed:** the P5 phase gate is still open — no
+      real 3-minute mixed-language video has been rendered, the 4K/60 greenscreen profile was
+      proven at the art-adapter level but not through this step, and kill-and-resume, retry-from-step
+      and `POST /v1/videos/:id/render` (the 60 fps re-render path) belong to the next P5 tasks.
+
+- [x] 2026-11-05 — **`GET /v1/videos/:id` exposes the pipeline cursor, including the finished MP4.**
+      New `apps/api/src/videos.ts` returns exactly `videoResponseSchema` (the same object webhooks
+      will carry). `render` answers the stored create request's presence, `step` stays populated
+      after a failure because it is the resume point, and `error` is the recorded `{code, message}`
+      or `null`. The stored render key is rewritten to an absolute `<PUBLIC_BASE_URL>/files/…` URL
+      (absolute values pass through, a trailing base slash never doubles); a completed row without
+      a render key or a stored error that no longer matches the public envelope is a fixed `500`
+      rather than a broken 200. Unknown id → `404`, non-UUID → `400` with `field: "id"`. The real
+      dependency is `findVideo` (`packages/db/src/videos.ts`), which parses through
+      `videoRowSchema` so the route can never meet an unparsed cursor. `server.ts` wires
+      `PUBLIC_BASE_URL` with the listen address as a local-dev fallback.
+      Tests: 9 hermetic route tests + 1 real-Postgres test; `npm run gate` green at **90 files /
+      1,150 tests**. `npm run test:db` passed **7 files / 20 tests**; the integration test inserted
+      a workspace + completed video, served it through `findVideo` + the route, and observed an
+      absolute `/files/…` render URL, `error: null`, `durationMs`, and UTC `Z` timestamps; a random
+      UUID returned `404`. Docs/07 §2.2 now states these semantics and docs/08 lists both tests.
+      **Documented gap:** `thumbnailUrl` and `scenes` stay absent — the schema links only the mp4
+      and there is no `video → thumbnail` column yet, so publishing it would mean guessing from a
+      storage key. **Observed:** in-process Hono request + real Postgres. **Assumed:** no create
+      route exists yet, so `PUBLIC_BASE_URL` behind a proxy and a live HTTP origin are unobserved;
+      `POST /v1/videos/:id/render` and the retry/kill-and-resume evidence remain open.
+
+- [x] 2026-11-07 — **`POST /v1/videos/:id/render` re-renders a completed video, guarded by `409`.**
+      The route accepts `{}` (1080p / 30 fps / `standard` defaults), a subset of
+      `resolution`/`frameRate`/`format` and an optional https `webhookUrl`; malformed JSON, unknown
+      keys, `720`, 24/25 fps and non-https webhooks are `400` naming the field. Only `completed` is
+      renderable — `processing`, `rendering` and `failed` are `409 conflict` — because a failure is
+      resumed by retrying `step`, not by rendering a half-built project (docs/01 §2 rule 4 corrected
+      from 400 to 409). `beginRender` (`packages/db/src/videos.ts`) takes `for update` on the row,
+      then writes `status=rendering`, `step=render`, `error=null`, the merged
+      `request.body.render` and, when supplied, the new `webhook_url`. `createQueueRender`
+      (`apps/api/src/render-queue.ts`) opens one transaction, calls `beginRender`, enqueues `render`
+      through the same client and commits, so a `202` means exactly one queued job and a `409`
+      changed nothing. Success is `202` + `videoResponseSchema` built by the mapper extracted to
+      `apps/api/src/video-response.ts`; the previous `videoUrl` stays playable until the step
+      replaces the MP4.
+      Tests: 14 hermetic route tests + 4 real-Postgres/pg-boss tests; `npm run gate` green at
+      **91 files / 1,164 tests**; `npm run test:db` passed **8 files / 24 tests**. The integration
+      test observed `completed → rendering/render`, a stored profile of
+      2160/60/greenscreen with `script`/`artStyleId` intact, the persisted webhook, one `render`
+      job carrying `{videoId}`; a second call was `409` with profile and queue unchanged; a `failed`
+      video returned `409`, kept `step=create-images`, and queued nothing.
+      **Observed:** in-process Hono request → real Postgres transaction + pg-boss insert.
+      **Assumed:** the worker consuming this re-render into a 60 fps artifact, kill-and-resume and
+      retry-from-step evidence remain open — the P5 phase gate is still not claimed.
+
+- [x] 2026-11-07 — **`POST /v1/videos/:id/retry` resumes a failed video at its recorded step.**
+      The endpoint accepts only `failed` with a non-null `step`: it clears `error`, moves the video
+      to `processing` (or back to `rendering` when the failed step is `render`), re-enqueues that
+      one step and returns `202` + `videoResponseSchema`. Earlier steps keep their artifacts and
+      ledger rows, and the retry itself writes no ledger row — the resumed step owns its single
+      charge on commit. `processing`/`rendering`/`completed` → `409 conflict`, unknown id → `404`,
+      non-UUID → `400` with `field: "id"`. `beginRetry` (`packages/db/src/videos.ts`) takes the row
+      `for update`; `createQueueRetry` shares one transaction with the enqueue, so a double-click
+      yields one accepted retry and one `409`, never two jobs. The queue builders moved to
+      `apps/api/src/video-queues.ts` and now share the transaction/enqueue plumbing.
+      Tests: 8 hermetic route tests + 5 real-Postgres/pg-boss tests; `npm run gate` green at
+      **92 files / 1,172 tests**; `npm run test:db` passed **9 files / 29 tests**. The integration
+      test observed a failed `create-images` video re-queued exactly once on that queue with
+      `{videoId}`, `error` cleared, the stored request untouched and zero ledger rows; a failed
+      `render` returned to `rendering` with the old mp4 still served; a second retry was `409` with
+      one job left; `completed` was `409` and queued nothing.
+      **Observed:** in-process Hono request → real Postgres transaction + pg-boss insert.
+      **Assumed:** that the resumed worker run itself succeeds (and the kill-and-resume no-double-
+      charge evidence) is still open — the P5 phase gate is not claimed.
+      **Process deviation:** the route was implemented before its test file, so this task has no
+      red-run artifact; the 8 hermetic and 5 real-DB tests were green on first execution.
+
+- [x] 2026-11-07 — **`job_event` gives every step attempt an append-only telemetry row.**
+      `packages/contracts/src/db.ts` adds table 18 with `JOB_EVENT_OUTCOMES` = `committed`,
+      `reused`, `stale`, `locked`, `superseded`, `failed`, `retryable`, `missing` — `retryable`
+      exists only in events because a retryable failure is rethrown, not returned; `missing` is
+      defined but never recorded, since a deleted video leaves no FK target to attach the row to.
+      The drizzle table (`job_event`, index `job_event_video_idx`) landed as migration
+      `0001_omniscient_falcon.sql` and `npm run db:migrate` now reports **18 tables, 2
+      migrations** (the hard-coded count check in `packages/db/src/migrate.ts` was raised to 18).
+      `withStep` gained `ctx.observe({adapter, items, ok, failed, bytes, costUnits,
+      degradedFrom})` — merged per attempt in `packages/queue/src/step.ts` — and writes exactly
+      one `job_event` row per attempt after the outcome, `duration_ms` measured with
+      `Date.now()` in the queue layer. Writes are best-effort: a failed insert is logged
+      (`[queue] job_event write failed`), never fatal, and events are never part of the commit
+      transaction, so telemetry cannot change pipeline state. All five steps report what they
+      actually have: scenes = planner adapter/items/degraded chain; vocal = segment count,
+      master bytes, character units; images = adapter/chain, frames ok, total bytes, lot units;
+      captions = cues, export bytes, 1 unit; render = scenes, output bytes, fractional minutes
+      (numeric(12,2) holds it).
+      Tests: contract row test covers every metric column plus invalid outcome/negative-metric
+      rejection; `step.db.test.ts` asserts the committed row with observed metrics, `failed`
+      with the error payload, `retryable`, `stale` (attempt null), `locked`, `reused`,
+      `superseded` and zero rows for a `missing` video; the five worker step harnesses pass
+      `observe: vi.fn()` and create-scenes asserts its metric call. `npm run gate` green at
+      **92 files / 1,173 tests**; `npm run test:db` passed **9 files / 29 tests** against the
+      real Postgres.
+      **Observed:** migration applied on the live container; real-Postgres rows for every
+      outcome above, read back through `jobEventRowSchema`.
+      **Assumed:** that nothing in the editor/ops path reads these rows yet — nothing does,
+      which is exactly why writes being best-effort cannot lose state.
+      **Process deviation:** no red-run artifact; the schema/contract tests were updated in the
+      same pass as the implementation, so the first full run was already green.
+
+- [x] 2026-11-07 — **`voiceoverUrl` step 1 of 3: the ASR boundary exists.**
+      `POST /transcribe` on the media service: raw audio bytes in (no multipart —
+      `python-multipart` is not installed and the worker owns the download anyway), and out
+      comes what the pipeline needs to treat the transcript as the script: ISO-639-1 language,
+      duration, sentence-level segments and **global** word timings, mirrored field-for-field
+      as `asrSegmentSchema`/`transcribeResponseSchema` in `packages/contracts/src/media.ts`
+      (`words` ≥ 1 per segment, positive spans; silence-only audio is a 502, never an empty
+      success). `services/media/app/asr.py` defines the engine boundary (`AsrEngine`,
+      `AsrError`, `AsrUnavailableError`) with `WhisperLocalEngine` as rank 1 (docs/06 §1.4):
+      faster-whisper is a **lazy optional import** because its wheels lag CPython 3.14 — the
+      service boots without it and `/transcribe` answers **503 naming the package**; the model
+      runs at int8/CPU with `word_timestamps` via `asyncio.to_thread`, and segments without
+      usable word timings are dropped rather than shipped. Config: `ASR_MODEL`
+      (default `large-v3-turbo`), `ASR_MAX_MB` (default 200, matching the worker's download
+      cap; 413 before the engine runs, 422 on an empty upload). Each transcription writes
+      `transcript.json` under `<request_id>/`. Endpoint errors follow the synthesize
+      precedent (type name in the detail, never the message).
+      Tests: 8 hermetic endpoint tests + 1 RUN_LIVE round-trip (synthesize a Tamil clip →
+      transcribe the encoded master back), plus 2 contract tests. `python -m pytest` green at
+      **120 passed, 3 skipped** (LIVE), `ruff check` clean; `npm run gate` green at
+      **92 files / 1,175 tests**. Artifact: real `uvicorn` boot on 8137 — `GET /health` 200 and
+      `POST /transcribe` **503** with `faster-whisper is not installed…` (verified by curl).
+      **Observed:** the boundary, its degradation and its artifact, against the running
+      service. **Unproven:** the real model — faster-whisper cannot install on this
+      interpreter's Python 3.14, so the RUN_LIVE test is the gate for when it can; the worker
+      download (step 2) and the `create-scenes` voiceover branch (step 3) do not exist yet, so
+      the docs/09 P5 `voiceoverUrl` item stays open.
+
+- [x] 2026-11-07 — **`voiceoverUrl` step 2 of 3: the worker can fetch one and ask for a transcript.**
+      `apps/worker/src/voiceover/download.ts` (`downloadVoiceover`, `VoiceoverDownloadError`,
+      `extensionOf`, `mimeForAudioExtension`) is the one place the worker touches an arbitrary
+      host. Guardrails, all enforced in code: **HTTPS only** (`redirect: 'manual'`, so every hop
+      is re-validated — an https URL cannot bounce to plaintext or to a non-audio document), the
+      `AUDIO_EXTENSIONS` allow-list (which also picks the ASR mime), `MAX_VOICEOVER_BYTES`
+      enforced on both the declared `content-length` (rejected **before** a body reader exists)
+      and the live stream (reader cancelled mid-flight), bounded redirects (default 4 → at most
+      5 requests), 120 s ceiling and an injected `fetchImpl`. Failures are `invalid_request`
+      permanent for a bad URL/scheme/extension, `payload_too_large` permanent for over-cap,
+      `upstream_failed` for HTTP/network/redirect problems with
+      `isRetryableHttpStatus` deciding retryability (a bad redirect is permanent). An empty body
+      is a permanent upstream failure. `apps/worker/src/ports/asr.ts` defines `AsrPort`
+      (`transcribe({ audio, mime })` → `AsrTranscription` with sentence segments and **global**
+      camelCase word timings), and `apps/worker/src/asr/media.ts` is the media-service adapter:
+      one raw-body `POST /transcribe` (no multipart/JSON wrapper), the contract parsed with
+      `transcribeResponseSchema`, and the TTS adapter's taxonomy with one deliberate exception —
+      the service's **502 is permanent** ("decoded, but no usable speech"; retrying identical
+      bytes cannot help) while **503 stays retryable** (engine missing/not loaded). Empty audio
+      and a non-audio mime are refused before any request.
+      Tests: 13 downloader tests + 12 adapter tests, all hermetic (injected fetch, no socket).
+      `npm run gate` green at **94 files / 1,200 tests**. Artifact: a real `tsx` run of the
+      adapter against a real `uvicorn` on 8138 returned `AsrPortError status=503
+      retryable=true :: … faster-whisper is not installed …` (confirmed in the server log), and
+      the downloader refused `http://…/audio.mp3` and `https://…/notes.txt` as
+      `invalid_request` without opening a connection.
+      **Observed:** both guardrail paths and the adapter→service hand-off. **Unproven:** an
+      actual successful transcription (needs faster-whisper, unavailable on Python 3.14 here),
+      and the `create-scenes` branch (step 3) is still absent, so the docs/09 P5 item stays open.
+
+- [x] 2026-11-08 — **`voiceoverUrl` step 3 of 3: `create-scenes` turns an uploaded voiceover into
+      the scene plan, and `create-vocal` steps aside.**
+      `create-scenes` now owns intake end to end: `downloadVoiceover(url)` →
+      `AsrPort.transcribe({audio, mime})` → `buildVoiceoverPlan()` → store the bytes at
+      `ws/<workspaceId>/videos/<videoId>/audio/narration.<ext>` → **one transaction** that writes
+      the plan/duration, the ordered scene rows, the audio asset, the narration row and the
+      cursor advance. The transcript *is* the script: one ASR segment = one scene, first at 0,
+      scene *i+1* starting exactly where *i* ends (the pause belongs to the scene that just
+      spoke), last ending on `max(reported duration, last word end)`. Past `MAX_SCENES` the
+      shortest adjacent pair is merged repeatedly, so every surviving cut is still a sentence
+      boundary and `scenes.text` still reassembles the transcript. Image prompts come from the
+      deterministic `imagePromptFor()` via `buildFixedPlan()`, and the plan records
+      `adapter: heuristic` rather than pretending a model chose cuts speech already chose.
+      `create-vocal` sees `voiceoverUrl` and only advances: no pair resolution, no TTS, no
+      characters charged, no narration rewrite (`voice_plan.runs = []`, `pair = null`, ASR words
+      in `word_timings`). Error mapping: download bad URL/scheme/extension → `invalid_request`,
+      oversize → `payload_too_large` (both permanent), HTTP/network → `upstream_failed` keeping
+      its retryability; ASR 422/413 → permanent `invalid_request`/`payload_too_large`, 502 →
+      permanent `upstream_failed`, 503 → retryable; unordered segments, empty spans and
+      overlapping word timings are permanent `upstream_failed` before anything is stored; a disk
+      write failure is `internal` retryable and never opens the commit.
+      Tests: `create-scenes` 21, `create-vocal` 15, `planner/heuristic` 16; downloader 13 and
+      media-ASR adapter 12 unchanged and still green. `npm run gate` green at
+      **94 files / 1,210 tests**; `npm run typecheck` clean. `npm run test:db` later the same day
+      (Docker engine came back up) passed **9 files / 29 tests**, including
+      `create-scenes.db.test.ts`: the voiceover commit wrote the plan/duration, two contiguous
+      scenes (0→2,700→6,400 ms), one `audio` asset with the upload's key/bytes/mime and one
+      narration row whose ASR word timings and empty-`runs`/null-`pair` voice plan parse through
+      `narrationRowSchema`.
+      **Observed:** the decisions above hermetically, and the real Postgres commit rows.
+      **Unproven:** no successful live transcription (faster-whisper still cannot install on
+      Python 3.14), so the P5 3-minute upload artifact does not exist and the docs/09 item stays
+      open. A full `test:db` run needed the Docker engine, which was down for the first half of
+      the session.
+      **Deliberately not built:** loudness normalisation and AAC 48 kHz re-encoding of the
+      upload. The stored asset is the received container at its real mime; docs/04 §1b/§2 record
+      this as a follow-up.
+
+- [x] 2026-11-08 — **Kill-and-resume across a committed step: a redelivered job is `stale` and the
+      workspace is charged once.**
+      `apps/worker/src/steps/pipeline-resume.db.test.ts` (`test:db`) runs the real
+      `create-scenes` → `create-vocal` → `create-images` → `create-captions` handlers against
+      Postgres + pg-boss, with only the two network providers replaced: the offline heuristic
+      planner, a fake `TtsPort` answering with a real ffmpeg-encoded MP3 and a contiguous global
+      timeline, and the procedural image adapter plus real ffmpeg. After `create-images` commits,
+      the same step is delivered again as pg-boss would after a crash before its ack: the video
+      has already moved to `create-captions`, so the redelivery is `stale` — no asset, ledger row
+      or queued job changes, and `job_event` records three `committed` plus one `stale`. The
+      following `create-captions` then completes from the committed artifacts: four caption
+      assets, one caption track, one render job, status `rendering`. Exactly one
+      `tts`/`image`/`subtitles` ledger row exists, and the workspace balance equals the single
+      sum (1000 → 944 with injected unit costs 1/5/2; units 49/1/1), so a double charge would
+      have been caught. A second test double-delivers the first step and asserts one set of
+      scenes and one next job.
+      Tests: `npm run test:db` green at **10 files / 31 tests**; `npm run gate` unchanged at
+      **94 files / 1,210 tests** (the new file is a DB test and stays out of the hermetic gate);
+      `npm run typecheck` clean. Retained artifact
+      `.data/artifacts/p5-resume/summary.json` + `frame-0001.png` (3,796 bytes, SHA-256
+      `57dddeb5624370c8d153b31b71fa2f71b906fad526be00af66edaea9c63cfe0c`) records the scene/frame/
+      caption counts, the three ledger rows, the 56-credit spend and the four `job_event`
+      outcomes.
+      **Observed:** redelivery → `stale` → resume, with one set of artifacts and one debit.
+      **Unproven:** the same scenario under a *real* process kill (this test calls the handler
+      directly after the commit rather than SIGKILLing a consumer mid-claim, so pg-boss's own
+      retry bookkeeping is simulated, not exercised), and provider-backed TTS/image calls, which
+      would need credentials and the media service. The P5 gate also still needs the real
+      3-minute video and the 60 fps re-render.
+      **Process deviation:** no red-run artifact; the test was written after the implementation
+      it verifies and was green on first execution.
+
+- [x] 2026-11-08 — **Palette correction never reports a `deltaE` above the cap it applied.**
+      The first P5 gate run failed `create-images` on real procedural frames: the manifest schema
+      rejected `frames[3].correction.deltaE` and `frames[9]` with "applied deltaE cannot exceed
+      maxDeltaE". `correctTowardPalette` returned `magnitude * min(1, cap / magnitude)`, and at
+      `magnitude = 10.599999999999978` that product rounds to `6.000000000000001` — one ULP above
+      the 6 ΔE cap, on roughly 6% of clamped vectors in a 20,000-point sweep. A new test in
+      `packages/core/src/style/color.test.ts` walks 512 targets and asserts every reported value
+      is `<= cap`; it reproduced `expected 6.000000000000001 to be less than or equal to 6`. The
+      fix is one line: `Math.min(magnitude * scale, maxDeltaE)`.
+      **Observed:** red → green on the new test, `color` + `postprocess` suites 30 passed,
+      `npm run gate` green at 94 files / 1,210 tests.
+      **Assumed:** no other arithmetic sink exceeds its contract bound the same way; the other
+      clamps were not re-swept. docs/04 §3 now says the reported value is the cap itself, not the
+      rounded product.
+
+- [x] 2026-11-08 — **P5 gate artifact: a real 2:57 Tanglish video through all five steps, with no
+      fakes.**
+      `scripts/e2e-video.ts` drives the production handlers (`create-scenes` → `create-vocal` →
+      `create-images` → `create-captions` → `render`) against real Postgres, the real media
+      service (edge-tts on `MEDIA_SERVICE_URL`) and real ffmpeg; only the HTTP API is bypassed
+      (the video row is inserted directly, so no api process is needed). The planner is the
+      offline heuristic and the image adapter is the procedural one because this machine has no
+      provider credentials; both record their provenance in the plan/manifest. The script is a
+      hand-written Tanglish explainer: 252 Tamil + 27 English words, 10 scenes.
+      Observation from `.data/artifacts/p5-gate/`: container 177.466667 s, stored duration
+      177,457 ms, 279 word timings, H.264 1920×1080 30/1 + AAC 48 kHz stereo, MP4 11,030,297 bytes
+      SHA-256 `da19886924503fb17073cd57bdcac2ed45667f28d48526e3a961b284dc170367`; exactly one
+      ledger row per action — `tts` 2,278 units at cost 0, `image` 1, `subtitles` 1, `render` 2.96
+      units at 10 credits each — and five `committed` `job_event` rows with nothing else; the ASS
+      carries Tamil text. Step seconds 0.0 / 23.4 / 4.3 / 0.1 / 48.1 (TTS cache hit; render is
+      the cost).
+      **Surprise:** the shipped wpm model disagrees with real continuous Tamil narration. The
+      same script estimated 140.3 s but mastered at 177.5 s (+26.5%), and the earlier 3:51 cut
+      estimated 182.2 s but mastered at 231.3 s (+27.0%) — a stable ~1.27× factor, whereas docs/04
+      §1 records Tamil calibration at −1.5% mean on the sample sets. The cause is not isolated
+      (sentence-final silence in a multi-paragraph master is the leading guess). Recorded in
+      docs/04 §1 and **not fixed**: re-anchoring the rate changes scene packing and the
+      request-duration limit, so it is its own task.
+      **Still open for the gate:** the 60 fps re-render artifact, and resume under a real process
+      kill.
+
+- [x] 2026-11-08 — **Sentence pauses are compressed, so narration stops sounding like a
+      lecture.**
+      A listener said the voice "is not natural, too much break and stops". Measurement on the
+      2:57 gate artifact agreed: 44.1 s of 177.5 s (24.9%) was silence, 34 pauses at ~0.94 s and
+      32 at ~0.35 s. Cause: `compress_pauses` had one band (60–250 ms) and deliberately left
+      everything longer alone, but edge-tts's ~950 ms full stop lives *inside* a run (confirmed
+      on the cached run WAVs: `run-13` = 0.98 + 0.98 s), and `gap_ms_for('sentence')` then added
+      another 300 ms at the run join.
+      Change: a second band in `services/media/app/audio.py` — 250–1200 ms → 320 ms
+      (`TTS_SENTENCE_PAUSE_MS`, `0` restores the provider break), >1200 ms left as a paragraph
+      beat; `Stitcher` passes it through, `main.py`/`config.py` read the env. `PauseCut` and
+      `_compact()` needed no change, so the caption invariant is untouched by construction.
+      Tests: `test_pauses.py` now covers 900 ms → 320 ms, the 350 ms band boundary, a 1400 ms
+      paragraph guard, mixed bands in one file and the disable switch; `test_stitch.py` adds a
+      900 ms case asserting every later word moves by exactly the removed frames. Red first:
+      `ImportError: cannot import name 'PAUSE_SENTENCE_KEEP_MS'`, then
+      `assert 960 == 1540 - 580` on a wrong expectation in my own test (fixed, not the code).
+      `python -m pytest` green (3 pre-existing ASR skips), `ruff` clean.
+      **Observed A/B** on the first nine runs of the real master (identical text): old 54.59 s /
+      20.3% silence / 9 pauses ≥ 600 ms → new 48.68 s / 10.6% / none, speech time unchanged at
+      43.5 s. Artifacts `.data/artifacts/p5-pacing/{old,new}.mp3`, measured with
+      `silencedetect=noise=-35dB:d=0.20`.
+      **Unproven:** "natural" is the user's listening verdict, not mine; the full 3-minute
+      artifact has **not** been re-rendered on the new policy yet (deliberately: listening
+      gate first), so `.data/artifacts/p5-gate/` still holds the older, pause-heavy audio.
+
+- [x] 2026-11-08 — **One sentence is one provider call, not one call per language switch.**
+      Follow-up to the pause fix: even with the 320 ms beat, `நான் online தொழில் செய்கிறேன்` was
+      sent as three `/synthesize` segments and came back as three stitched clips — three 5 ms
+      fades, three prosody resets, a seam at every English word. Cause: `planToSegments()`
+      forwarded the segmenter's language runs 1:1, but a run boundary is a spelling boundary, not
+      a speech boundary, and every shipped pair is **one** speaker reading both languages.
+      Change: `planToSegments()` merges adjacent runs that share a voice and whose previous text
+      does not end at `.!?।…` (trailing closers allowed). A full stop that ends a run still starts
+      a new call, so merging never cuts a sentence; the provider's own sentence pause inside a
+      merged stretch is what the 320 ms band then compresses.
+      Tests (red first, then green): `plan.test.ts` — one speaker reads
+      `நான் online தொழில் செய்கிறேன்.` as one segment; `நான் online. நன்றி.` still splits into two;
+      two different voices never merge; and `segments.join(' ') === plan.spokenText`, so merging
+      cannot change a word. `npm run gate` green at **94 files / 1,215 tests**.
+      **Observed:** the 12-scene gate script is **28 runs → 13 calls** (five scenes merged);
+      the 48 s A/B `.data/artifacts/p5-pacing/stretch.mp3` sends the same text as 3 calls instead
+      of 9 with the silence share unchanged (10.7%): the seams are gone, the pauses are not.
+      **Re-measured end to end** — the pause fix had made the previously trimmed script 145.4 s,
+      which failed the 150 s gate floor, so the cut paragraphs were restored: **176.03 s**, 12
+      scenes, 318 word timings, H.264 1920×1080 30/1 + AAC 48 kHz stereo, MP4 11,863,752 bytes
+      SHA-256 `f9da937d32ece76ade428357d14515081e7d49c73a5ea0ff7e3d95229b4f49b4`; one ledger row
+      per action (`tts` 2,739 units at 0, `image` 1, `subtitles` 1, `render` 2.93 at 10 credits)
+      and five `committed` events. Against the old 2:57 artifact: silence 44.1 s / 24.9% → 26.4 s
+      / 15.0%, pauses ≥ 600 ms 34 → 0, and 56 more words spoken in about the same runtime.
+      **Unproven:** the user's ear on `stretch.mp3` and the new `p5-gate/video.mp4`; `sample-tts`
+      labels provider calls as "runs", so regenerated sample tables would read lower.
+
 ---
 
 ## Decisions log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-05 | Use multiple public references when a FacelessPro behaviour or UX decision is unclear; no single product is the blueprint, and committed specs stay authoritative | comparing independent evidence reduces accidental cloning and exposes trade-offs; the resulting design must be original and any scope/contract change is written into the spec first |
 | 2026-11-02 | Docs de-anonymized from any third-party product: names and hosts replaced with neutral wording, "parity" reworded to "committed behaviour/compatibility", copy-guardrails generalized | the docs stand on their own spec; behavioural content unchanged |
 | 2026-10-26 | Keep `@stickman/*` code, rename scope in P0 | it is real prior work (segmenter + edge-tts + fonts), not scaffolding |
 | 2026-10-26 | pg-boss over Redis/BullMQ | ledger + job state must commit in one transaction |

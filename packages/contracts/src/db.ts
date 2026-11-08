@@ -58,6 +58,7 @@ export const DB_TABLES = [
   'render',
   'job_lock',
   'webhook_event',
+  'job_event',
 ] as const;
 
 const jsonb = z.record(z.string(), z.unknown());
@@ -236,11 +237,25 @@ export const narrationRowSchema = z.strictObject({
 });
 export type NarrationRow = z.infer<typeof narrationRowSchema>;
 
-export const captionTrackRowSchema = z.strictObject({
-  video_id: idSchema,
-  template_id: z.int(),
-  cues: z.array(captionCueSchema),
-});
+export const captionTrackRowSchema = z
+  .strictObject({
+    video_id: idSchema,
+    template_id: captionTemplateIdSchema,
+    cues: z.array(captionCueSchema).min(1),
+  })
+  .superRefine((track, ctx) => {
+    for (let index = 1; index < track.cues.length; index += 1) {
+      const previous = track.cues[index - 1];
+      const cue = track.cues[index];
+      if (previous !== undefined && cue !== undefined && cue.startMs < previous.endMs) {
+        ctx.addIssue({
+          code: 'custom',
+          message: 'caption track cues must not overlap',
+          path: ['cues', index, 'startMs'],
+        });
+      }
+    }
+  });
 export type CaptionTrackRow = z.infer<typeof captionTrackRowSchema>;
 
 export const renderRowSchema = z.strictObject({
@@ -274,3 +289,43 @@ export const webhookEventRowSchema = z.strictObject({
   payload: jsonb,
 });
 export type WebhookEventRow = z.infer<typeof webhookEventRowSchema>;
+
+/**
+ * One step attempt, append-only (docs/04 §9).
+ *
+ * `outcome` is `StepOutcome` plus `retryable`, which never surfaces as a result
+ * because the error is rethrown to pg-boss. Metric fields are nullable: a step
+ * that has nothing to say leaves them empty rather than inventing zeros.
+ */
+export const JOB_EVENT_OUTCOMES = [
+  'committed',
+  'reused',
+  'stale',
+  'locked',
+  'superseded',
+  'failed',
+  'retryable',
+  'missing',
+] as const;
+export const jobEventOutcomeSchema = z.enum(JOB_EVENT_OUTCOMES);
+export type JobEventOutcome = z.infer<typeof jobEventOutcomeSchema>;
+
+export const jobEventRowSchema = z.strictObject({
+  id: idSchema,
+  video_id: idSchema,
+  step: videoStepSchema,
+  /** Absent when the attempt never reached a lock (stale/missing). */
+  attempt: z.int().min(1).nullish(),
+  outcome: jobEventOutcomeSchema,
+  error: jsonb.nullish(),
+  duration_ms: z.int().min(0),
+  adapter: z.string().nullish(),
+  items: z.int().min(0).nullish(),
+  ok: z.int().min(0).nullish(),
+  failed: z.int().min(0).nullish(),
+  bytes: z.int().min(0).nullish(),
+  cost_units: z.number().min(0).nullish(),
+  degraded_from: z.string().nullish(),
+  created_at: isoDateTimeSchema,
+});
+export type JobEventRow = z.infer<typeof jobEventRowSchema>;

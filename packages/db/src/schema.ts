@@ -21,6 +21,7 @@ import type {
   CaptionSpec,
   CreditAction,
   Engine,
+  JobEventOutcome,
   NarrationPlan,
   PlanId,
   RenderFormat,
@@ -367,6 +368,31 @@ export const webhookEvent = pgTable(
   ],
 );
 
+/** Append-only step telemetry (docs/04 §9). Reads never drive pipeline state. */
+export const jobEvent = pgTable(
+  'job_event',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    video_id: uuid('video_id')
+      .notNull()
+      .references(() => video.id, { onDelete: 'cascade' }),
+    step: videoStepEnum('step').notNull(),
+    attempt: integer('attempt'),
+    outcome: text('outcome').$type<JobEventOutcome>().notNull(),
+    error: jsonb('error').$type<VideoError | null>(),
+    duration_ms: integer('duration_ms').notNull(),
+    adapter: text('adapter'),
+    items: integer('items'),
+    ok: integer('ok'),
+    failed: integer('failed'),
+    bytes: integer('bytes'),
+    cost_units: numeric('cost_units', { precision: 12, scale: 2, mode: 'number' }),
+    degraded_from: text('degraded_from'),
+    created_at: createdAt(),
+  },
+  (table) => [index('job_event_video_idx').on(table.video_id, table.created_at)],
+);
+
 /** Everything the api/worker need, for `drizzle(pool, { schema })`. */
 export const schema = {
   workspace,
@@ -386,4 +412,5 @@ export const schema = {
   render,
   jobLock,
   webhookEvent,
+  jobEvent,
 };
