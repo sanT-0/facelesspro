@@ -20,3 +20,4 @@ export * from './planner';
 export * from './webhooks';
 export * from './health';
 export * from './db';
+export * from './mcp';

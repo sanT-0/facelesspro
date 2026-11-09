@@ -17,6 +17,7 @@ import type { StepJob } from './jobs';
 import { ART_STYLE_QUEUE, ART_STYLE_QUEUE_OPTIONS } from './art-style';
 import { PING_QUEUE, PING_QUEUE_OPTIONS } from './ping';
 import type { PingPayload } from './ping';
+import { WEBHOOK_QUEUE, WEBHOOK_QUEUE_OPTIONS } from './webhooks';
 
 /**
  * Queue policy for every pipeline step.
@@ -90,6 +91,11 @@ export async function ensureQueues(boss: PgBoss): Promise<void> {
   await boss.createQueue(PING_QUEUE, {
     ...PING_QUEUE_OPTIONS,
     name: PING_QUEUE,
+  });
+
+  await boss.createQueue(WEBHOOK_QUEUE, {
+    ...WEBHOOK_QUEUE_OPTIONS,
+    name: WEBHOOK_QUEUE,
   });
 }
 

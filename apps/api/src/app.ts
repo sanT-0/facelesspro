@@ -11,6 +11,15 @@ import { createArtStyleRoutes } from './art-styles';
 import type { ArtStyleDeps } from './art-styles';
 import { createCaptionTemplateRoutes } from './caption-templates';
 import type { CaptionTemplateDeps } from './caption-templates';
+import { createAiVideosV3Routes } from './ai-videos-v3';
+import type { AiVideosV3RouteDeps } from './ai-videos-v3';
+import { createBackgroundVideosRoutes } from './background-videos';
+import { createFilesRoutes } from './files';
+import { createSoundEffectsRoutes } from './sound-effects';
+import { createTtsRoutes } from './text-to-speech';
+import { createVoicesRoutes } from './voices';
+import { createWorkspaceRoutes } from './workspaces';
+import type { WorkspaceRouteDeps } from './workspaces';
 import { createVideoRoutes } from './videos';
 import type { VideoRouteDeps } from './videos';
 
@@ -26,7 +35,70 @@ export interface ApiDeps
     ArtStyleDeps,
     CaptionTemplateDeps,
     VideoRouteDeps,
-    ApiKeyRouteDeps {}
+    ApiKeyRouteDeps,
+    WorkspaceRouteDeps {
+  /** Insert the video row and enqueue `create-scenes` in one transaction. */
+  readonly submitVideo: AiVideosV3RouteDeps['submitVideo'];
+  /** Store an uploaded file and return its key, byte count and mime type. */
+  readonly storeFile: (
+    file: {
+      readonly name: string;
+      readonly type: string;
+      readonly arrayBuffer: () => Promise<ArrayBuffer>;
+    },
+  ) => Promise<{
+    readonly key: string;
+    readonly bytes: number;
+    readonly mime: string;
+  }>;
+  /** Voices visible to a workspace, newest first. */
+  readonly listVoices: (
+    workspaceId: string,
+  ) => Promise<Array<{
+    readonly id: string;
+    readonly name: string;
+    readonly description?: string;
+    readonly gender?: string;
+    readonly accent?: string;
+    readonly age?: string;
+    readonly useCase?: string;
+    readonly previewUrl?: string;
+    readonly languages: readonly string[];
+    readonly mixesEnglish: boolean;
+    readonly engine: string;
+    readonly sampleRate?: number;
+    readonly wordTimings: boolean;
+  }>>;
+  /** Built-in sound effects. */
+  readonly listSoundEffects: () => Promise<Array<{
+    readonly id: string;
+    readonly name: string;
+    readonly url: string;
+    readonly durationMs?: number;
+    readonly tags?: readonly string[];
+  }>>;
+  /** Built-in background videos. */
+  readonly listBackgroundVideos: () => Promise<Array<{
+    readonly id: string;
+    readonly name: string;
+    readonly url: string;
+    readonly durationMs?: number;
+    readonly thumbnailUrl?: string;
+    readonly tags?: readonly string[];
+  }>>;
+  /** Synthesize speech from text via the media service. */
+  readonly synthesizeTts: (
+    input: {
+      readonly text: string;
+      readonly voiceId?: string;
+      readonly voiceStyle?: unknown;
+    },
+  ) => Promise<{
+    readonly audioUrl: string;
+    readonly durationMs: number;
+    readonly voiceId: string;
+  }>;
+}
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
@@ -101,6 +173,45 @@ export function createApp(deps: ApiDeps): Hono {
    * workspace, so another workspace's id is indistinguishable from a missing one.
    */
   app.route('/v1/videos', createVideoRoutes(deps));
+
+  /**
+   * `POST /v1/ai-videos-v3` — create a V3 video. Auth and rate limits come
+   * from `withWorkspace()` inside the route; the submission dependency owns
+   * the row insert and the `create-scenes` enqueue.
+   */
+  app.route('/v1/ai-videos-v3', createAiVideosV3Routes(deps));
+
+  /**
+   * `POST /v1/files` — multipart file upload. Auth and rate limits come from
+   * `withWorkspace()` inside the route; `storeFile` owns the actual storage.
+   */
+  app.route('/v1/files', createFilesRoutes(deps));
+
+  /**
+   * `GET /v1/voices` — voice library for the authenticated workspace.
+   */
+  app.route('/v1/voices', createVoicesRoutes(deps));
+
+  /**
+   * `GET /v1/sound-effects` — built-in sound effect library.
+   */
+  app.route('/v1/sound-effects', createSoundEffectsRoutes(deps));
+
+  /**
+   * `GET /v1/background-videos` — built-in background video library.
+   */
+  app.route('/v1/background-videos', createBackgroundVideosRoutes(deps));
+
+  /**
+   * `POST /v1/text-to-speech` — synthesize speech from text via the media service.
+   */
+  app.route('/v1/text-to-speech', createTtsRoutes(deps));
+
+  /**
+   * `GET /v1/workspace`, `GET /v1/credit-logs`, `GET /v1/balance-logs` —
+   * workspace-scoped reads for the authenticated key's workspace.
+   */
+  app.route('/v1', createWorkspaceRoutes(deps));
 
   return app;
 }

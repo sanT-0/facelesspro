@@ -44,10 +44,12 @@ import type {
 } from '@facelesspro/contracts';
 import {
   creditLedger,
+  insertWebhookEvent,
   jobEvent,
   jobLock,
   schema as databaseSchema,
   video,
+  webhookEvent,
   workspace,
 } from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
@@ -57,6 +59,7 @@ import type { Pool, PoolClient } from 'pg';
 import type PgBoss from 'pg-boss';
 
 import { enqueueStep } from './boss';
+import { enqueueWebhook } from './webhooks';
 
 /** 30 minutes: longer than the slowest documented step (docs/04 §8). */
 export const DEFAULT_LOCK_TTL_MS = 30 * 60_000;
@@ -123,6 +126,8 @@ export interface CommitTx {
   /** Move to the next declared step and enqueue it, or complete after `render`. */
   advance(): Promise<void>;
   enqueue(step: VideoStep): Promise<void>;
+  /** Record a terminal webhook event (completed/failed) and enqueue delivery. */
+  fireWebhook(event: 'completed' | 'failed'): Promise<void>;
   /** Write the ledger row and debit the workspace, or throw `insufficient_credits`. */
   charge(input: ChargeInput): Promise<void>;
 }
@@ -488,10 +493,37 @@ function commitTx(
     );
   };
 
+  const fireWebhook = async (event: 'completed' | 'failed'): Promise<void> => {
+    const [row] = await txDb
+      .insert(webhookEvent)
+      .values({
+        video_id: videoId,
+        event,
+        attempts: 0,
+        next_at: sql`now()`,
+        payload: { event, videoId },
+      })
+      .returning();
+    if (row === undefined) throw new Error('webhook event insert returned no row');
+    await enqueueWebhook(
+      deps.boss,
+      { videoId, event, payload: { event, videoId } },
+      {
+        db: {
+          executeSql: async (text, values) => {
+            const result = await client.query(text, values);
+            return { rows: result.rows };
+          },
+        },
+      },
+    );
+  };
+
   return {
     db: txDb,
     videoId,
     attempt: claim.attempt,
+    fireWebhook,
 
     async setStep(next) {
       await txDb
@@ -508,6 +540,7 @@ function commitTx(
           .update(video)
           .set({ status: 'completed', step: null, updated_at: sql`now()` })
           .where(eq(video.id, videoId));
+        await fireWebhook('completed');
         return;
       }
 
@@ -659,6 +692,30 @@ async function settleFailure(
       updated_at: sql`now()`,
     })
     .where(eq(video.id, claim.videoId));
+
+  // Fire a `failed` webhook outside the (rolled-back) transaction. The
+  // webhook_event row and its delivery job are best-effort here: if the
+  // enqueue fails, the row still exists for the delivery worker to poll.
+  await insertWebhookEvent(deps.db, {
+    videoId: claim.videoId,
+    event: 'failed',
+    payload: { event: 'failed', videoId: claim.videoId },
+  }).catch((error) => {
+    console.error('[queue] webhook event insert failed', {
+      videoId: claim.videoId,
+      error,
+    });
+  });
+  await enqueueWebhook(deps.boss, {
+    videoId: claim.videoId,
+    event: 'failed',
+    payload: { event: 'failed', videoId: claim.videoId },
+  }).catch((error) => {
+    console.error('[queue] webhook enqueue failed', {
+      videoId: claim.videoId,
+      error,
+    });
+  });
 
   await recordEvent(deps, {
     videoId: claim.videoId,

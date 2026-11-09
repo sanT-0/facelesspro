@@ -146,6 +146,7 @@ function harness(row: StepContext['video'] = request()) {
     advance,
     enqueue: vi.fn(async () => {}),
     charge,
+    fireWebhook: vi.fn(async () => {}),
   };
   const transactionCalls: Array<(commit: CommitTx) => Promise<unknown>> = [];
   const transaction: StepContext['transaction'] = async <T>(

@@ -1,0 +1,16 @@
+{
+  "name": "@facelesspro/mcp",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/main.ts",
+    "start": "tsx src/main.ts"
+  },
+  "dependencies": {
+    "@facelesspro/contracts": "*",
+    "@facelesspro/db": "*",
+    "@hono/node-server": "^2.1.5",
+    "hono": "^4.13.14"
+  }
+}

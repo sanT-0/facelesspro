@@ -53,6 +53,17 @@ function appWith(
     listArtStyles: async () => [],
     readArtStyle: async () => null,
     listCaptionTemplates: async () => [],
+    findWorkspace: async () => null,
+    listCreditLogs: async () => [],
+    listVoices: async () => [],    listSoundEffects: async () => [],
+    listBackgroundVideos: async () => [],    synthesizeTts: async () => ({
+      audioUrl: "http://api.test/files/tts/abc.mp3",
+      durationMs: 5000,
+      voiceId: "edge:ta-IN-ValluvarNeural",
+    }),
+
+
+    listBalanceLogs: async () => [],
     readVideo: async () => null,
     queueRender,
     queueRetry: async () => ({ kind: 'not_found' as const }),
@@ -62,6 +73,15 @@ function appWith(
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
+    submitVideo: async () => {
+      throw new Error("ai-videos-v3 is not used in this suite");
+    },
+    storeFile: async () => ({
+      key: "test-key",
+      bytes: 0,
+      mime: "application/octet-stream",
+    }),
+
     publicBaseUrl: BASE,
   }));
 }

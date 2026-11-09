@@ -10,6 +10,8 @@
 import { videoRowSchema } from '@facelesspro/contracts';
 import type {
   RenderOptions,
+  VideoKind,
+  VideoRequestRow,
   VideoRow,
   VideoStatus,
   VideoStep,
@@ -36,6 +38,44 @@ export async function findVideo(
     .limit(1);
   const row = rows[0];
   return row === undefined ? null : videoRowSchema.parse(row);
+}
+
+export interface InsertVideoInput {
+  readonly workspaceId: string;
+  readonly kind: VideoKind;
+  readonly status: VideoStatus;
+  /** The step the first worker job will run. */
+  readonly step: VideoStep;
+  /** Normalised create request, stored for every later step and retry. */
+  readonly request: VideoRequestRow;
+  readonly webhookUrl?: string | null;
+}
+
+/**
+ * Insert one video row and return the committed shape.
+ *
+ * Must run inside the transaction that also enqueues the first step: a row
+ * whose job never landed is a video that looks `processing` forever. Timestamps
+ * and the id come from Postgres, so the create response and a later read agree.
+ */
+export async function insertVideo(
+  db: Database,
+  input: InsertVideoInput,
+): Promise<VideoRow> {
+  const rows = await db
+    .insert(video)
+    .values({
+      workspace_id: input.workspaceId,
+      kind: input.kind,
+      status: input.status,
+      step: input.step,
+      request: input.request,
+      webhook_url: input.webhookUrl ?? null,
+    })
+    .returning();
+  const row = rows[0];
+  if (row === undefined) throw new Error('video insert returned no row');
+  return videoRowSchema.parse(row);
 }
 
 export interface BeginRenderInput {

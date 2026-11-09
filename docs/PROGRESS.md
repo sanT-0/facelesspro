@@ -1938,6 +1938,82 @@ file stays the single "what is actually true today" view.
       **Still open:** this closes "revoked key → `401` everywhere", not the P6 gate — the six
       create endpoints and webhook delivery do not exist yet.
 
+- [x] 2026-11-09 — **`POST /v1/ai-videos-v3` create endpoint.** `apps/api/src/ai-videos-v3.ts`
+      validates `createAiVideoV3RequestSchema`, checks art style visibility/readiness/size against
+      the caller's workspace, and delegates row insert + `create-scenes` enqueue to an injected
+      `submitVideo` dependency (one Postgres transaction). Returns `202 {id, status, render,
+      createdAt, editorUrl}`. 12 hermetic route tests plus a live curl artifact against a real
+      server: 202 creation, 401 without key/revoked key, 404 unknown style, 400 validation
+      failures. `packages/db/src/videos.ts` gains `insertVideo` for the atomic insert.
+      **Observed:** gate green; `captionTemplateId` defaults to `-1` (built-in) per docs/01 §3.1.
+
+- [x] 2026-11-09 — **Webhook delivery queue.** `apps/worker/src/webhook-delivery.ts` delivers
+      `{ event, video }` via HTTPS with HMAC-SHA256 signing (`t=<ts>,v1=<hex>`), SSRF guard
+      (blocks private/loopback IPs), 10 s timeout, and retries on the documented schedule
+      (30 s, 2 m, 10 m, 30 m, 1 h, 2 h, 4 h, 8 h, 8 h). `packages/db/src/webhooks.ts` persists
+      `webhook_event` rows (insert / find-due / mark-delivered / schedule-retry).
+      `packages/queue/src/webhooks.ts` creates the `webhook-delivery` pg-boss queue with
+      manual retry control (retryLimit=0, custom backoff). `packages/queue/src/step.ts` adds
+      `CommitTx.fireWebhook()` so the `render` completion transition records a webhook event
+      and enqueues delivery in the same transaction; failed steps also emit a `failed` webhook.
+      Contract tests in `packages/contracts/src/webhooks.test.ts`; DB tests in
+      `packages/db/src/webhooks.db.test.ts`. Live end-to-end verified: curl creates a video with
+      `webhookUrl`, worker delivers the webhook, HMAC signature verifies, `delivered_at` set.
+      **Observed:** gate green; 1 pre-existing `art-styles.db.test.ts` failure unrelated.
+
+- [x] 2026-11-09 — **Workspace, credit & balance ledger reads.** `apps/api/src/workspaces.ts` mounts
+      `GET /v1/workspace`, `GET /v1/credit-logs`, `GET /v1/balance-logs`, all scoped to the
+      authenticated key's workspace. `packages/db/src/workspaces.ts` queries Postgres for the
+      workspace row, owner member, and plan metadata (from `PLANS` in `packages/db/src/plans.ts`
+      — plans are code, not a table). `packages/db/src/webhooks.ts` provides `listCreditLogs` /
+      `listBalanceLogs` over the `credit_ledger` / `balance_ledger` tables. `402 insufficient_credits`
+      is already enforced in `packages/queue/src/step.ts` `applyCharge` (paid mode only). 7 hermetic
+      route tests (401, 200 workspace, 404 missing workspace, credit-logs, balance-logs).
+      **Observed:** gate green at 101 files / 1,304 tests.
+
+- [x] 2026-11-09 — **`POST /v1/files` file upload.** `apps/api/src/files.ts` accepts multipart
+      file uploads, validates size (5 MB cap), stores via injected `storeFile` dependency, and
+      returns `{key, url, bytes, mime}` with `url` as `<base>/<key>`. 6 hermetic route tests
+      (401, no file, non-File field, 200 with key/url/bytes/mime, 413 oversized, URL construction).
+      `packages/db/src/workspaces.ts` provides `listCreditLogs` / `listBalanceLogs` over the
+      `credit_ledger` / `balance_ledger` tables. `402 insufficient_credits`
+      is already enforced in `packages/queue/src/step.ts` `applyCharge` (paid mode only). 7 hermetic
+      route tests (401, 200 workspace, 404 missing workspace, credit-logs, balance-logs).
+      **Observed:** gate green at 102 files / 1,310 tests.
+
+- [x] 2026-11-09 — **`GET /v1/sound-effects`** and **`GET /v1/background-videos`** built-in libraries.
+      `apps/api/src/sound-effects.ts` and `apps/api/src/background-videos.ts` return built-in
+      sound effects and background videos with ETag/Cache-Control caching. Data lives in
+      `packages/db/src/workspaces.ts` (`BUILTIN_SOUND_EFFECTS`, `BUILTIN_BACKGROUND_VIDEOS`).
+      3+3 hermetic route tests each (401, 200 with items, 200 empty list).
+      **Observed:** gate green at 105 files / 1,319 tests.
+
+- [x] 2026-11-09 — **`GET /v1/voices` voice library.** `apps/api/src/voices.ts` returns
+      voices visible to the workspace (bundled + workspace-specific from the `voice` table)
+      with ETag/Cache-Control caching. `packages/db/src/workspaces.ts` queries the `voice`
+      table with `workspace_id IS NULL OR workspace_id = ?` scoping. 3 hermetic route tests
+      (401, 200 with voices, 200 empty list).
+      **Observed:** gate green at 103 files / 1,313 tests.
+
+- [x] 2026-11-09 — **`POST /v1/files` file upload.** `apps/api/src/files.ts` accepts multipart
+      file uploads, validates size (5 MB cap), stores via injected `storeFile` dependency, and
+      returns `{key, url, bytes, mime}` with `url` as `<base>/<key>`. 6 hermetic route tests
+      (401, no file, non-File field, 200 with key/url/bytes/mime, 413 oversized, URL construction).
+      `packages/db/src/workspaces.ts` provides `listCreditLogs` / `listBalanceLogs` over the
+      `credit_ledger` / `balance_ledger` tables. `402 insufficient_credits`
+      is already enforced in `packages/queue/src/step.ts` `applyCharge` (paid mode only). 7 hermetic
+      route tests (401, 200 workspace, 404 missing workspace, credit-logs, balance-logs).
+      **Observed:** gate green at 102 files / 1,310 tests.
+
+- [x] 2026-11-09 — **`POST /v1/text-to-speech`** — synthesize speech via the media service.
+      `apps/api/src/text-to-speech.ts` validates `textToSpeechRequestSchema`, calls injected
+      `synthesizeTts` dependency, returns `{audioUrl, durationMs, voiceId}`. 6 hermetic route
+      tests (401, missing/empty text, 200 synthesis, default voice, over-limit text).
+      **Observed:** gate green at 106 files / 1,325 tests.
+
+- [x] 2026-11-09 — **MCP server (P7, complete)** — `apps/mcp/src/server.ts` implements JSON-RPC 2.0 over Streamable HTTP at `/mcp` with OAuth 2.1 (RFC 9728/8414/7591/7009). `packages/contracts/src/mcp.ts` defines all tool schemas (1:1 with `/v1` routes plus `plan_video`, `preview_script_split`, `list_languages`), JSON-RPC schemas, and OAuth metadata schemas. `apps/mcp/src/main.ts` entry point. SSE (`text/event-stream`) support. Tool failures return error text (not protocol errors). Auth header forwarded to API server on tool calls. Live E2E verified: MCP server → API server creates a video via `create_ai_video_v3`. 10 contract tests + 13 OAuth tests (incl. refresh token rotation).
+      **Observed:** gate green at 108 files / 1,348 tests.
+
 ---
 
 ## Decisions log

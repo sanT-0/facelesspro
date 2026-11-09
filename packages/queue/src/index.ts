@@ -46,7 +46,14 @@ export {
   parsePing,
   pingPayloadSchema,
 } from './ping';
-export type { PingPayload } from './ping';
+
+export {
+  WEBHOOK_QUEUE,
+  WEBHOOK_QUEUE_OPTIONS,
+  enqueueWebhook,
+  parseWebhookJob,
+} from './webhooks';
+export type { WebhookDeliveryJob } from './webhooks';export type { PingPayload } from './ping';
 
 export {
   PGBOSS_DEFAULT_SCHEMA,

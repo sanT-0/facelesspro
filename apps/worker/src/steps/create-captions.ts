@@ -331,6 +331,7 @@ export async function completeProject(tx: CommitTx, videoId: string): Promise<vo
       updated_at: sql`now()`,
     })
     .where(eq(videoTable.id, videoId));
+  await tx.fireWebhook('completed');
 }
 
 function parseUsableTemplate(

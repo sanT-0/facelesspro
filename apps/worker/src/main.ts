@@ -7,7 +7,7 @@
  */
 
 import { createDb, databaseUrl, loadEnv } from '@facelesspro/db';
-import { createBoss, stopBoss } from '@facelesspro/queue';
+import { createBoss, consume, stopBoss, WEBHOOK_QUEUE } from '@facelesspro/queue';
 import { extractThumbnail, renderVideo } from '@facelesspro/art';
 
 import { startWorker } from './worker';
@@ -27,6 +27,7 @@ import {
 } from './steps/render';
 import { createMediaAsrPort } from './asr/media';
 import { createMediaTtsPort } from './tts/media';
+import { processWebhookDelivery } from './webhook-delivery';
 
 loadEnv();
 
@@ -95,6 +96,23 @@ async function main(): Promise<void> {
   });
   console.log(`[worker] consuming ${worker.queues.join(', ')}`);
 
+  // Webhook delivery: consume jobs from the webhook-delivery queue. Each job
+  // carries { videoId, event, payload }; processWebhookDelivery reads the
+  // current attempt count, delivers via HTTP, and schedules retries on the
+  // documented backoff schedule.
+  await consume(
+    boss,
+    WEBHOOK_QUEUE,
+    (data) => data,
+    async ({ payload }) => {
+      await processWebhookDelivery(db, boss, payload as {
+        readonly videoId: string;
+        readonly event: 'completed' | 'failed';
+        readonly payload: Record<string, unknown>;
+      });
+    },
+  );
+
   let stopping = false;
 
   async function shutdown(signal: string): Promise<void> {
@@ -102,6 +120,7 @@ async function main(): Promise<void> {
     stopping = true;
     console.log(`[worker] ${signal} — draining`);
     await worker.stop();
+    await boss.offWork(WEBHOOK_QUEUE).catch(() => undefined);
     await stopBoss(boss);
     await pool.end();
     process.exit(0);
