@@ -3,8 +3,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { createApp } from './app';
 import { API_VERSION } from './health';
+import { testAuth, testClient } from './test-auth';
 
 const NOW = new Date('2026-10-27T09:00:00.000Z');
+const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
 function appWith(probes: {
   db: () => Promise<void>;
@@ -105,8 +107,7 @@ describe('unexpected errors', () => {
       readVideo: async () => null,
       queueRender: async () => ({ kind: 'not_found' as const }),
       queueRetry: async () => ({ kind: 'not_found' as const }),
-      authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+      ...testAuth(WORKSPACE_ID),
       createApiKey: async () => {
         throw new Error('api keys are not used in this suite');
       },
@@ -115,7 +116,7 @@ describe('unexpected errors', () => {
       publicBaseUrl: 'http://api.test',
     });
 
-    const res = await app.request('/v1/art-styles');
+    const res = await testClient(app).request('/v1/art-styles');
     expect(res.status).toBe(500);
     expect(res.headers.get('content-type')).toContain('application/json');
 

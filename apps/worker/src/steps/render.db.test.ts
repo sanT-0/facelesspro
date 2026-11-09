@@ -428,6 +428,7 @@ describe('render step (Postgres + ffmpeg)', () => {
     // The production transition: `completed` only, cursor moves to render, the
     // previous mp4 stays playable until the step replaces it.
     const begun = await beginRender(db, {
+      workspaceId,
       videoId,
       render: { resolution: 1_080, frameRate: 60, format: 'standard' },
     });

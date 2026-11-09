@@ -27,6 +27,12 @@ limit rejects with `429 rate_limited` and `Retry-After: <seconds>`; rejected req
 extend the window. Counters live in the api process, so a multi-process deployment needs a shared
 limiter before it can rely on these numbers.
 
+Every `/v1` route mounts the same middleware; there is no unauthenticated `/v1` surface. Reads
+and transitions are scoped to the key's workspace, and an id from another workspace is
+`404 not_found`, never `403 forbidden`: knowing a UUID must not reveal that it exists. Art-style
+lookups follow the same rule — published styles are global, unpublished rows are visible only to
+their workspace.
+
 ### 1.2 Errors `[P]`
 
 ```jsonc

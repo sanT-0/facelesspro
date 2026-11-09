@@ -27,6 +27,8 @@ import {
 } from '@facelesspro/contracts';
 import { apiError } from '@facelesspro/contracts';
 import type { ArtStyle, ArtStyleBuildJob, ArtStyleRow } from '@facelesspro/contracts';
+import { withWorkspace } from './auth';
+import type { AuthDeps, WorkspaceEnv } from './auth';
 import { validateReferenceVideo } from './video-probe';
 
 const MAX_FILE_SIZE = 500 * 1024 * 1024; // 500 MB
@@ -49,14 +51,17 @@ export interface ArtStyleSubmission {
   readonly job: ArtStyleBuildJob;
 }
 
-export interface ArtStyleDeps {
+export interface ArtStyleDeps extends AuthDeps {
   /** Absolute or cwd-relative disk root shared with the worker. */
   readonly storageRoot: string;
   readonly submitArtStyle: (submission: ArtStyleSubmission) => Promise<void>;
-  /** Ready styles only, newest first. */
-  readonly listArtStyles: () => Promise<readonly ArtStyleRow[]>;
-  /** Any status, so the route can choose 404 vs 409. */
-  readonly readArtStyle: (id: string) => Promise<ArtStyleRow | null>;
+  /** Ready styles visible to this workspace, newest first. */
+  readonly listArtStyles: (workspaceId: string) => Promise<readonly ArtStyleRow[]>;
+  /** Any status visible to this workspace, so the route can choose 404 vs 409. */
+  readonly readArtStyle: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<ArtStyleRow | null>;
   readonly now?: () => Date;
 }
 
@@ -96,9 +101,11 @@ function toCatalogEntry(row: ArtStyleRow): ArtStyle {
   };
 }
 
-export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
-  const app = new Hono();
+export function createArtStyleRoutes(deps: ArtStyleDeps): Hono<WorkspaceEnv> {
+  const app = new Hono<WorkspaceEnv>();
   const storageRoot = resolve(deps.storageRoot);
+
+  app.use('*', withWorkspace(deps));
 
   app.post('/', async (c) => {
     // Parse multipart form
@@ -173,7 +180,7 @@ export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
     await deps.submitArtStyle({
       row: {
         id,
-        workspace_id: null, // TODO: get from auth (P6)
+        workspace_id: c.get('workspaceId'),
         name: metaParsed.data.name ?? `Style ${id.slice(0, 8)}`,
         published: metaParsed.data.published,
         formats: metaParsed.data.formats,
@@ -198,7 +205,7 @@ export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
    * are omitted, so every id returned can be used as `artStyleId` today.
    */
   app.get('/', async (c) => {
-    const rows = await deps.listArtStyles();
+    const rows = await deps.listArtStyles(c.get('workspaceId'));
     const body = artStyleListSchema.parse({
       styles: rows.filter((row) => row.status === 'ready').map(toCatalogEntry),
     });
@@ -216,7 +223,7 @@ export function createArtStyleRoutes(deps: ArtStyleDeps): Hono {
       return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
     }
 
-    const row = await deps.readArtStyle(id);
+    const row = await deps.readArtStyle(c.get('workspaceId'), id);
     if (row === null) {
       return c.json(apiError('not_found', 'art style not found'), 404);
     }

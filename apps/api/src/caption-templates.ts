@@ -9,8 +9,11 @@ import {
   type CaptionTemplateRow,
 } from '@facelesspro/contracts';
 
-export interface CaptionTemplateDeps {
-  /** Built-ins today; workspace templates join this list when auth lands. */
+import { withWorkspace } from './auth';
+import type { AuthDeps, WorkspaceEnv } from './auth';
+
+export interface CaptionTemplateDeps extends AuthDeps {
+  /** Built-ins today; workspace templates join this list when they land. */
   readonly listCaptionTemplates: () => Promise<readonly CaptionTemplateRow[]>;
 }
 
@@ -26,8 +29,12 @@ function etagMatches(header: string | undefined, etag: string): boolean {
     .some((candidate) => candidate === '*' || candidate === etag || candidate === `W/${etag}`);
 }
 
-export function createCaptionTemplateRoutes(deps: CaptionTemplateDeps): Hono {
-  const app = new Hono();
+export function createCaptionTemplateRoutes(
+  deps: CaptionTemplateDeps,
+): Hono<WorkspaceEnv> {
+  const app = new Hono<WorkspaceEnv>();
+
+  app.use('*', withWorkspace(deps));
 
   app.get('/', async (c) => {
     const rows = await deps.listCaptionTemplates();

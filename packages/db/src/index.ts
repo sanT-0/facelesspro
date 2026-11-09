@@ -1,5 +1,9 @@
 export * from './schema';
-export { findArtStyle, listReadyArtStyles } from './art-styles';
+export {
+  findArtStyle,
+  findVisibleArtStyle,
+  listVisibleArtStyles,
+} from './art-styles';
 export {
   findCaptionTemplate,
   listBuiltInCaptionTemplates,

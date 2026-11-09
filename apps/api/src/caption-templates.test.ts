@@ -6,6 +6,9 @@ import {
 } from '@facelesspro/contracts';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
+
+const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
 const rows = [
   {
@@ -46,7 +49,7 @@ const rows = [
 const healthy = async () => {};
 
 function appWith(listCaptionTemplates: () => Promise<readonly CaptionTemplateRow[]>) {
-  return createApp({
+  return testClient(createApp({
     probes: { db: healthy, queue: healthy },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
@@ -56,15 +59,14 @@ function appWith(listCaptionTemplates: () => Promise<readonly CaptionTemplateRow
     readVideo: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: 'http://api.test',
-  });
+  }));
 }
 
 afterEach(() => {
@@ -72,6 +74,12 @@ afterEach(() => {
 });
 
 describe('GET /v1/caption-templates', () => {
+  it('answers 401 without a key', async () => {
+    const response = await appWith(async () => rows).raw('/v1/caption-templates');
+    expect(response.status).toBe(401);
+    expect(response.headers.get('www-authenticate')).toBe('Bearer');
+  });
+
   it('returns contract-shaped public templates without database fields', async () => {
     const listCaptionTemplates = vi.fn(async () => rows);
     const response = await appWith(listCaptionTemplates).request(

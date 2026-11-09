@@ -152,7 +152,9 @@ thin preset over V3 (background + comment text + voice), and mark it **not contr
 ```
 
 Rules `[P]`: styles still building are omitted; `published` distinguishes global vs
-workspace-private; passing a `size` the style cannot draw is **rejected**.
+workspace-private; passing a `size` the style cannot draw is **rejected**. The catalog is the
+published set plus the workspace's own rows; another workspace's private style is absent from
+the list and `404` by id.
 
 Additive `[+]`: `status` is echoed on each entry. Because non-ready rows are omitted it is
 always `ready` today, and it stays so that a later "show my building styles" filter is a

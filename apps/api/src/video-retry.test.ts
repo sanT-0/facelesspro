@@ -6,7 +6,8 @@ import {
 } from '@facelesspro/contracts';
 
 import { createApp } from './app';
-import type { QueueRetryResult } from './videos';
+import { testAuth, testClient } from './test-auth';
+import type { QueueRetryInput, QueueRetryResult } from './videos';
 
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -41,8 +42,8 @@ function row(overrides: Partial<VideoRow> = {}): VideoRow {
   };
 }
 
-function appWith(queueRetry: (videoId: string) => Promise<QueueRetryResult>) {
-  return createApp({
+function appWith(queueRetry: (input: QueueRetryInput) => Promise<QueueRetryResult>) {
+  return testClient(createApp({
     probes: { db: async () => {}, queue: async () => {} },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
@@ -52,25 +53,38 @@ function appWith(queueRetry: (videoId: string) => Promise<QueueRetryResult>) {
     readVideo: async () => null,
     queueRender: async () => ({ kind: 'not_found' }),
     queueRetry,
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: BASE,
-  });
+  }));
 }
 
-async function retry(app: ReturnType<typeof createApp>): Promise<Response> {
+async function retry(app: ReturnType<typeof appWith>): Promise<Response> {
   return app.request(`/v1/videos/${VIDEO_ID}/retry`, { method: 'POST' });
 }
 
 describe('POST /v1/videos/:id/retry', () => {
+  it('answers 401 without a key and never touches the queue', async () => {
+    const queueRetry = vi.fn(
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({
+        kind: 'not_found',
+      }),
+    );
+    const response = await appWith(queueRetry).raw(`/v1/videos/${VIDEO_ID}/retry`, {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(401);
+    expect(queueRetry).not.toHaveBeenCalled();
+  });
+
   it('resumes a failed generation step and clears the error', async () => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({
         kind: 'queued',
         step: 'create-images',
         video: row({ status: 'processing', error: null }),
@@ -79,7 +93,10 @@ describe('POST /v1/videos/:id/retry', () => {
     const response = await retry(appWith(queueRetry));
 
     expect(response.status).toBe(202);
-    expect(queueRetry).toHaveBeenCalledWith(VIDEO_ID);
+    expect(queueRetry).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
+      videoId: VIDEO_ID,
+    });
     expect(await response.json()).toEqual({
       id: VIDEO_ID,
       kind: 'ai-video-v3',
@@ -95,7 +112,7 @@ describe('POST /v1/videos/:id/retry', () => {
 
   it('returns a failed render to rendering and keeps the old mp4 playable', async () => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({
         kind: 'queued',
         step: 'render',
         video: row({
@@ -125,7 +142,7 @@ describe('POST /v1/videos/:id/retry', () => {
     ['completed', 'completed'],
   ] as const)('refuses to retry a %s video', async (status, reported) => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({
         kind: 'conflict',
         status,
       }),
@@ -140,7 +157,7 @@ describe('POST /v1/videos/:id/retry', () => {
 
   it('answers 404 for an unknown id', async () => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({ kind: 'not_found' }),
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({ kind: 'not_found' }),
     );
     const response = await retry(appWith(queueRetry));
 
@@ -152,7 +169,7 @@ describe('POST /v1/videos/:id/retry', () => {
 
   it('answers 400 for a malformed id without touching the queue', async () => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({ kind: 'not_found' }),
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({ kind: 'not_found' }),
     );
     const response = await appWith(queueRetry).request('/v1/videos/nope/retry', {
       method: 'POST',
@@ -167,7 +184,7 @@ describe('POST /v1/videos/:id/retry', () => {
 
   it('answers 500 when the resumed row does not match the video contract', async () => {
     const queueRetry = vi.fn(
-      async (_id: string): Promise<QueueRetryResult> => ({
+      async (_input: QueueRetryInput): Promise<QueueRetryResult> => ({
         kind: 'queued',
         step: 'create-images',
         video: { ...row(), status: 'done' } as unknown as VideoRow,

@@ -37,9 +37,13 @@ import type {
   VideoStep,
 } from '@facelesspro/contracts';
 
+import { withWorkspace } from './auth';
+import type { AuthDeps, WorkspaceEnv } from './auth';
 import { toVideoResponse, UnpublishableVideo } from './video-response';
 
 export interface QueueRenderInput {
+  /** The authenticated workspace; the guard is scoped to it. */
+  readonly workspaceId: string;
   readonly videoId: string;
   /** The profile the render step will read from `video.request.body.render`. */
   readonly render: RenderOptions;
@@ -60,11 +64,19 @@ export type QueueRetryResult =
   | { readonly kind: 'not_found' }
   | { readonly kind: 'conflict'; readonly status: VideoStatus };
 
-export type QueueRetry = (videoId: string) => Promise<QueueRetryResult>;
+export type QueueRetryInput = {
+  readonly workspaceId: string;
+  readonly videoId: string;
+};
 
-export interface VideoRouteDeps {
-  /** Any status, so the route can answer 404. */
-  readonly readVideo: (id: string) => Promise<VideoRow | null>;
+export type QueueRetry = (input: QueueRetryInput) => Promise<QueueRetryResult>;
+
+export interface VideoRouteDeps extends AuthDeps {
+  /** Any status inside this workspace, so the route can answer 404. */
+  readonly readVideo: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<VideoRow | null>;
   /** Guarded render transition + enqueue in one Postgres transaction. */
   readonly queueRender: QueueRender;
   /** Guarded failed-step resume + enqueue in one Postgres transaction. */
@@ -99,10 +111,13 @@ async function readRenderBody(request: Request): Promise<unknown> {
   return JSON.parse(text) as unknown;
 }
 
-export function createVideoRoutes(deps: VideoRouteDeps): Hono {
-  const app = new Hono();
+export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
+  const app = new Hono<WorkspaceEnv>();
   const base = deps.publicBaseUrl.replace(/\/+$/, '');
   if (base.length === 0) throw new TypeError('publicBaseUrl is empty');
+
+  // The key resolves the workspace once; every handler below is scoped by it.
+  app.use('*', withWorkspace(deps));
 
   app.get('/:id', async (c) => {
     const id = c.req.param('id');
@@ -110,7 +125,7 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono {
       return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
     }
 
-    const stored = await deps.readVideo(id);
+    const stored = await deps.readVideo(c.get('workspaceId'), id);
     if (stored === null) {
       return c.json(apiError('not_found', 'video not found'), 404);
     }
@@ -157,6 +172,7 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono {
 
     const { webhookUrl, ...render } = parsed.data;
     const result = await deps.queueRender({
+      workspaceId: c.get('workspaceId'),
       videoId: id,
       render,
       ...(webhookUrl === undefined ? {} : { webhookUrl }),
@@ -181,7 +197,10 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono {
       return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
     }
 
-    const result = await deps.queueRetry(id);
+    const result = await deps.queueRetry({
+      workspaceId: c.get('workspaceId'),
+      videoId: id,
+    });
     switch (result.kind) {
       case 'not_found':
         return c.json(apiError('not_found', 'video not found'), 404);

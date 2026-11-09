@@ -4,6 +4,7 @@ import { apiError } from '@facelesspro/contracts';
 import { readHealth } from './health';
 import type { HealthDeps } from './health';
 import { planVideo } from './plan';
+import { withWorkspace } from './auth';
 import { createApiKeyRoutes } from './api-keys';
 import type { ApiKeyRouteDeps } from './api-keys';
 import { createArtStyleRoutes } from './art-styles';
@@ -60,9 +61,10 @@ export function createApp(deps: ApiDeps): Hono {
    * blank script return `400 invalid_request` naming the field; anything else
    * is a `200` estimate that parses through `planVideoResponseSchema`.
    *
-   * No auth yet (API keys are P6) and no database touch — this route must stay
-   * fast and available even when Postgres is down.
+   * Authentication is the only database touch (the key row); the estimator has
+   * no probe dependency, so a failing health probe cannot make planning fail.
    */
+  app.use('/v1/videos/plan', withWorkspace(deps));
   app.post('/v1/videos/plan', async (c) => {
     let input: unknown;
     try {
@@ -79,11 +81,11 @@ export function createApp(deps: ApiDeps): Hono {
    * `POST /v1/art-styles` — upload a reference video for style cloning.
    * Validates with ffprobe (≥30s, has audio, ≤10min), stores file, inserts
    * `art_style` row with `status='building'`, enqueues the build atomically,
-   * and returns `202`. No auth yet (P6).
+   * and returns `202` scoped to the authenticated workspace.
    */
   app.route('/v1/art-styles', createArtStyleRoutes(deps));
 
-  /** Slow-changing built-ins; auth-scoped custom templates land with P6. */
+  /** Slow-changing built-ins behind the same workspace key. */
   app.route('/v1/caption-templates', createCaptionTemplateRoutes(deps));
 
   /**
@@ -95,7 +97,8 @@ export function createApp(deps: ApiDeps): Hono {
   /**
    * `GET /v1/videos/:id` — the client's view of the pipeline. The stored render
    * key becomes an absolute `/files/*` URL; a failed video keeps `step` as the
-   * retry resume point. No auth yet (API keys are P6).
+   * retry resume point. Every read and transition is scoped to the key's
+   * workspace, so another workspace's id is indistinguishable from a missing one.
    */
   app.route('/v1/videos', createVideoRoutes(deps));
 

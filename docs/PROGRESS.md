@@ -1908,6 +1908,36 @@ file stays the single "what is actually true today" view.
       snapshots first is what makes "rejected requests do not extend the lockout" true for both
       windows.
 
+- [x] 2026-11-09 — **P6 step 3: `withWorkspace()` on every existing `/v1` router, with real
+      workspace scoping.** `videos`, `videos/plan`, `art-styles` and `caption-templates` now mount
+      the same middleware as `/v1/keys`. The route passes the authenticated workspace id into
+      `readVideo`, `queueRender`, `queueRetry`, `listArtStyles` and `readArtStyle`; the db helpers
+      filter by it, so `findVideo`, `beginRender` and `beginRetry` cannot touch another
+      workspace's row. `POST /v1/art-styles` now stores the real `workspace_id` (the `null` TODO is
+      gone). Art-style visibility is `published OR workspace_id = caller` for both list and export;
+      the worker keeps the unscoped `findArtStyle` because it validates visibility after loading
+      the row.
+      Tests: hermetic suites gained `401`-without-a-key and "the dependency receives the
+      authenticated workspace" cases; the db suites gained cross-workspace `404` cases for video
+      read/render/retry and two new `packages/db` files cover the SQL predicates directly
+      (`videos.db.test.ts`, `art-styles.db.test.ts`). `npm run gate` **98 files / 1,279 tests**;
+      `npm run test:db` **13 files / 46 tests**; typecheck and lint clean; ruff/pytest untouched
+      (no Python change).
+      Artifact `.data/artifacts/p6-auth-scope/summary.json`, produced by `npm run e2e:auth`
+      against a real server: video without key `401` + `WWW-Authenticate: Bearer`; owner key
+      `200`; stranger key on the same video `404 not_found`; plan/caption-templates/art-styles
+      without key `401`; all three with the owner key `200`; stranger's private style export with
+      the owner key `404`; a revoked key on the video route `401`. The script removes every row
+      and key it created.
+      **Observed:** every existing `/v1` route rejects a missing/revoked key, and a valid key only
+      sees its own workspace. **Assumed:** `published` is the right global/private switch for art
+      styles (it is the documented field, but no product flow toggles it yet).
+      **Surprise:** `POST /v1/videos/plan` used to promise "no database touch"; requiring a key
+      makes the key lookup the one DB read, so the comment now says authentication is the only
+      database touch and the estimator still has no probe dependency.
+      **Still open:** this closes "revoked key → `401` everywhere", not the P6 gate — the six
+      create endpoints and webhook delivery do not exist yet.
+
 ---
 
 ## Decisions log
@@ -1970,3 +2000,5 @@ file stays the single "what is actually true today" view.
 | 2026-11-08 | `last_used_at` is written at most once per 60 s | auth runs on every request; an unconditional update turns every read into a write on one row without making Settings more accurate |
 | 2026-11-09 | Rate limits are fixed one-minute windows, and rejected requests are not counted | a predictable `Retry-After` is easier to reason about than a token bucket, and a client that retries must not extend its own lockout |
 | 2026-11-09 | Rate-limit counters are in-process for v1 | a database write per request would make auth a write path; the interface stays small so a shared store can replace it before horizontal scaling |
+| 2026-11-09 | A foreign-workspace id is `404`, never `403` | an id is not a capability; distinguishing "exists elsewhere" from "missing" would turn every route into an existence oracle. The db query filters by workspace so the check happens before the row is loaded |
+| 2026-11-09 | Art-style visibility is `published OR own workspace`; the worker keeps an unscoped `findArtStyle` | `published` already means global in docs/01, and the worker must load a style before it can report the more specific `forbidden`/`not ready` failure. The API uses the visibility-scoped queries so it cannot leak a profile |

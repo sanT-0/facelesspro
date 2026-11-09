@@ -531,6 +531,12 @@ reproduced by `scripts/e2e-video.ts`, output in `.data/artifacts/p5-gate/`.
       / `RATE_LIMIT_WORKSPACE_PER_MINUTE` overrides; the middleware answers `429 rate_limited`
       with `Retry-After` and checks auth first. Counters are per api process; a shared limiter
       is required before horizontal scaling.
+- [x] Workspace scoping on every existing `/v1` router — `withWorkspace()` now guards videos,
+      plan, art-styles and caption-templates. Video reads/transitions take the authenticated
+      workspace id, art-style list/export use published-or-own visibility, and uploads store the
+      real `workspace_id` instead of `null`. A foreign id is `404`, and the live check is
+      `npm run e2e:auth`. This closes “revoked key → `401` everywhere”; the remaining P6 routes
+      below still need to be created.
 - [ ] All `/v1/*` routes from [07](./07-api-and-mcp.md) §2 with the documented defaults.
 - [ ] Credits: plans, ledger, `402` in paid mode, `selfhost` unlimited mode.
 - [ ] Webhook delivery queue, retry schedule, HMAC signing, dedupe header, SSRF guard.

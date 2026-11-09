@@ -14,19 +14,33 @@ import type {
   VideoStatus,
   VideoStep,
 } from '@facelesspro/contracts';
-import { eq, sql } from 'drizzle-orm';
+import { and, eq, sql } from 'drizzle-orm';
 
 import type { Database } from './client';
 import { video } from './schema';
 
-/** One video by id, whatever its status, so the route can answer 404. */
-export async function findVideo(db: Database, id: string): Promise<VideoRow | null> {
-  const rows = await db.select().from(video).where(eq(video.id, id)).limit(1);
+/**
+ * One video by id **inside a workspace**, whatever its status, so the route can
+ * answer 404. The workspace is part of the lookup, not a post-fetch check: a
+ * foreign id must be indistinguishable from a missing one.
+ */
+export async function findVideo(
+  db: Database,
+  workspaceId: string,
+  id: string,
+): Promise<VideoRow | null> {
+  const rows = await db
+    .select()
+    .from(video)
+    .where(and(eq(video.id, id), eq(video.workspace_id, workspaceId)))
+    .limit(1);
   const row = rows[0];
   return row === undefined ? null : videoRowSchema.parse(row);
 }
 
 export interface BeginRenderInput {
+  /** Scopes the guard; another workspace's id is `not_found`. */
+  readonly workspaceId: string;
   readonly videoId: string;
   readonly render: RenderOptions;
   /** A render-call webhook replaces the stored one; omitted keeps it. */
@@ -56,7 +70,9 @@ export async function beginRender(
   const rows = await db
     .select()
     .from(video)
-    .where(eq(video.id, input.videoId))
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
     .for('update');
   const row = rows[0];
   if (row === undefined) return { kind: 'not_found' };
@@ -79,7 +95,9 @@ export async function beginRender(
       ...(input.webhookUrl === undefined ? {} : { webhook_url: input.webhookUrl }),
       updated_at: sql`now()`,
     })
-    .where(eq(video.id, input.videoId))
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
     .returning();
 
   const next = updated[0];
@@ -108,12 +126,13 @@ export type BeginRetryResult =
  */
 export async function beginRetry(
   db: Database,
+  workspaceId: string,
   videoId: string,
 ): Promise<BeginRetryResult> {
   const rows = await db
     .select()
     .from(video)
-    .where(eq(video.id, videoId))
+    .where(and(eq(video.id, videoId), eq(video.workspace_id, workspaceId)))
     .for('update');
   const row = rows[0];
   if (row === undefined) return { kind: 'not_found' };
@@ -129,7 +148,7 @@ export async function beginRetry(
       error: null,
       updated_at: sql`now()`,
     })
-    .where(eq(video.id, videoId))
+    .where(and(eq(video.id, videoId), eq(video.workspace_id, workspaceId)))
     .returning();
 
   const next = updated[0];

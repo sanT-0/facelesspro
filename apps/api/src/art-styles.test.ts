@@ -9,6 +9,9 @@ import type { ArtStyleRow, StyleProfile } from '@facelesspro/contracts';
 
 import { createApp } from './app';
 import type { ArtStyleDeps, ArtStyleSubmission } from './art-styles';
+import { testAuth, testClient } from './test-auth';
+
+const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
 // Mock video-probe to avoid needing real ffprobe in tests
 vi.mock('./video-probe', () => ({
@@ -25,15 +28,18 @@ vi.mock('./video-probe', () => ({
 
 const healthy = async () => {};
 const submitArtStyle = vi.fn(async (_submission: ArtStyleSubmission) => {});
-const emptyCatalog = { listArtStyles: async () => [], readArtStyle: async () => null };
+const emptyCatalog: Pick<ArtStyleDeps, 'listArtStyles' | 'readArtStyle'> = {
+  listArtStyles: async () => [],
+  readArtStyle: async () => null,
+};
 let storageRoot = '';
-let app: ReturnType<typeof createApp>;
+let app: ReturnType<typeof appWith>;
 
 function appWith(
   probes: { db: () => Promise<void>; queue: () => Promise<void> },
   catalog: Pick<ArtStyleDeps, 'listArtStyles' | 'readArtStyle'> = emptyCatalog,
 ) {
-  return createApp({
+  return testClient(createApp({
     probes,
     now: () => new Date('2026-10-27T09:00:00.000Z'),
     storageRoot,
@@ -43,15 +49,14 @@ function appWith(
     readVideo: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: 'http://api.test',
-  });
+  }));
 }
 
 async function errorBody(res: Response) {
@@ -85,6 +90,15 @@ describe('POST /v1/art-styles', () => {
     await rm(storageRoot, { recursive: true, force: true });
   });
 
+  it('answers 401 without a key and stores nothing', async () => {
+    const form = new FormData();
+    form.append('file', validMp4);
+    const res = await app.raw('/v1/art-styles', { method: 'POST', body: form });
+
+    expect(res.status).toBe(401);
+    expect(submitArtStyle).not.toHaveBeenCalled();
+  });
+
   it('returns 202 with building status for a valid video', async () => {
     const res = await multipartRequest(validMp4);
     expect(res.status).toBe(202);
@@ -98,6 +112,7 @@ describe('POST /v1/art-styles', () => {
     const submission = submitArtStyle.mock.calls[0]![0];
     expect(submission.row).toMatchObject({
       id: body.id,
+      workspace_id: WORKSPACE_ID,
       name: `Style ${body.id.slice(0, 8)}`,
       status: 'building',
       formats: ['landscape'],
@@ -242,14 +257,33 @@ function rowOf(overrides: Partial<ArtStyleRow> = {}): ArtStyleRow {
 
 function catalogWith(rows: readonly ArtStyleRow[]) {
   return {
-    listArtStyles: async () => rows,
-    readArtStyle: async (id: string) => rows.find((row) => row.id === id) ?? null,
+    listArtStyles: async (_workspaceId: string) => rows,
+    readArtStyle: async (_workspaceId: string, id: string) =>
+      rows.find((row) => row.id === id) ?? null,
   };
 }
 
 describe('GET /v1/art-styles', () => {
   beforeEach(() => {
     storageRoot = 'unused';
+  });
+
+  it('answers 401 without a key', async () => {
+    app = appWith({ db: healthy, queue: healthy });
+    const res = await app.raw('/v1/art-styles');
+    expect(res.status).toBe(401);
+  });
+
+  it('asks for the authenticated workspace catalog', async () => {
+    const listArtStyles = vi.fn(async (_workspaceId: string) => [rowOf()]);
+    app = appWith(
+      { db: healthy, queue: healthy },
+      { listArtStyles, readArtStyle: async () => null },
+    );
+
+    const res = await app.request('/v1/art-styles');
+    expect(res.status).toBe(200);
+    expect(listArtStyles).toHaveBeenCalledWith(WORKSPACE_ID);
   });
 
   it('lists only ready styles with public preview paths', async () => {
@@ -313,6 +347,24 @@ describe('GET /v1/art-styles', () => {
 describe('GET /v1/art-styles/:id/export', () => {
   beforeEach(() => {
     storageRoot = 'unused';
+  });
+
+  it('answers 401 without a key', async () => {
+    app = appWith({ db: healthy, queue: healthy }, catalogWith([rowOf()]));
+    const res = await app.raw(`/v1/art-styles/${STYLE_ID}/export`);
+    expect(res.status).toBe(401);
+  });
+
+  it('passes the authenticated workspace to the export lookup', async () => {
+    const readArtStyle = vi.fn(async (_workspaceId: string, _id: string) => rowOf());
+    app = appWith(
+      { db: healthy, queue: healthy },
+      { listArtStyles: async () => [], readArtStyle },
+    );
+
+    const res = await app.request(`/v1/art-styles/${STYLE_ID}/export`);
+    expect(res.status).toBe(200);
+    expect(readArtStyle).toHaveBeenCalledWith(WORKSPACE_ID, STYLE_ID);
   });
 
   it('exports the portable document without database-only fields', async () => {

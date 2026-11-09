@@ -42,7 +42,7 @@ expected definitions exist in the `pgboss` schema: five video steps, `build-art-
 `ping`. It fails before pg-boss has initialised the schema, but it does **not** prove a worker is
 actively consuming; `npm run ping` is that artifact check.
 
-**API keys.** Every `/v1/keys` route needs `Authorization: Bearer vp_…`, so the first key is
+**API keys.** Every `/v1` route needs `Authorization: Bearer vp_…`, so the first key is
 minted from the host:
 
 ```bash
@@ -52,8 +52,8 @@ npm run key:create -- --name "CI renderer" --workspace <uuid>
 
 The secret is printed once; only `sha256(key)` reaches Postgres. Rotate by creating a new key and
 revoking the old one, and remember that revocation is immediate and final. Create the replacement
-before revoking the last active key — otherwise `/v1/keys` is locked until `key:create` runs on
-the host again:
+before revoking the last active key — otherwise every `/v1` route is locked until `key:create`
+runs on the host again:
 
 ```bash
 curl -H "Authorization: Bearer $FACELESS_API_KEY" localhost:3001/v1/keys
@@ -63,7 +63,9 @@ curl -X DELETE -H "Authorization: Bearer $FACELESS_API_KEY" \
 
 With the api running and a key in `FACELESS_API_KEY`, `npm run e2e:keys` is the artifact check:
 it creates a key through HTTP, verifies the stored row is `sha256(token)`, revokes it twice
-(same timestamp), and proves the revoked token is `401`.
+(same timestamp), and proves the revoked token is `401`. `npm run e2e:auth` is the companion
+scoping check: it creates a second workspace and proves its key gets `404` for the first
+workspace's video and private art style, then proves a revoked key is `401` on the video route.
 
 **Minimum viable local setup, no keys, no GPU:** Postgres + api + worker + media. Images come
 from the procedural renderer when `IMAGE` is unset (or when every adapter named in `IMAGE` is
@@ -135,6 +137,7 @@ its visible provider watermark remains even when `nologo=true`.
 | Seam / click between voices | gap calibration or cross-fade length | re-run `sample:tts` and listen |
 | Webhook never arrives | `webhook_event` table | non-2xx or slow receiver; check `attempts`/`next_at` |
 | `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |
+| `404` for a video or style you know exists | the key belongs to a different workspace | use the owning workspace's key; cross-workspace ids are deliberately indistinguishable from missing ones |
 | `429 rate_limited` from `/v1` | `RATE_LIMIT_KEY_PER_MINUTE` / `RATE_LIMIT_WORKSPACE_PER_MINUTE` | wait for `Retry-After`; raise the limit for trusted automation, or split work across workspaces only when that is actually intended |
 | Render OOM at 4K | filter graph holding frames | raise `ffmpeg` memory, or render in scene chunks then concat |
 | Thumbnail missing after a completed render | ffprobe/ffmpeg stderr and `<thumbnail>.part` | source MP4 must verify first; retry extraction — `.part` is removed and only a signature/IHDR-verified PNG is published |

@@ -32,7 +32,8 @@
     "dev:api": "npm run dev --workspace @facelesspro/api",
     "dev:worker": "npm run dev --workspace @facelesspro/worker",
     "ping": "tsx scripts/ping.ts",
-    "e2e:keys": "tsx scripts/e2e-api-keys.ts"
+    "e2e:keys": "tsx scripts/e2e-api-keys.ts",
+    "e2e:auth": "tsx scripts/e2e-auth-scope.ts"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

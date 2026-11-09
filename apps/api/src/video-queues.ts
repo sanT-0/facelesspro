@@ -73,14 +73,14 @@ export function createQueueRetry(
   pool: Pool,
   getBoss: () => Promise<Boss>,
 ): QueueRetry {
-  return async (videoId) => {
+  return async (input) => {
     const boss = await getBoss();
     return withTransaction(pool, async (txDb, client) => {
-      const result = await beginRetry(txDb, videoId);
+      const result = await beginRetry(txDb, input.workspaceId, input.videoId);
       if (result.kind === 'queued') {
         await enqueueStep(
           boss,
-          { videoId, step: result.step },
+          { videoId: input.videoId, step: result.step },
           enqueueThrough(client),
         );
       }

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import {
   createAiVideoV3RequestSchema,
@@ -6,6 +6,7 @@ import {
 } from '@facelesspro/contracts';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
 
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
@@ -42,10 +43,11 @@ function row(overrides: Partial<VideoRow> = {}): VideoRow {
 }
 
 function appWith(
-  readVideo: (id: string) => Promise<VideoRow | null>,
+  readVideo: (workspaceId: string, id: string) => Promise<VideoRow | null>,
   publicBaseUrl = BASE,
+  workspaceId = WORKSPACE_ID,
 ) {
-  return createApp({
+  return testClient(createApp({
     probes: { db: async () => {}, queue: async () => {} },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
@@ -55,18 +57,34 @@ function appWith(
     readVideo,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(workspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl,
-  });
+  }));
 }
 
 describe('GET /v1/videos/:id', () => {
+  it('answers 401 and never reads a video without a key', async () => {
+    const readVideo = vi.fn(async () => row());
+    const response = await appWith(readVideo).raw(`/v1/videos/${VIDEO_ID}`);
+
+    expect(response.status).toBe(401);
+    expect(response.headers.get('www-authenticate')).toBe('Bearer');
+    expect(readVideo).not.toHaveBeenCalled();
+  });
+
+  it('scopes the read to the authenticated workspace', async () => {
+    const readVideo = vi.fn(async () => row());
+    const response = await appWith(readVideo).request(`/v1/videos/${VIDEO_ID}`);
+
+    expect(response.status).toBe(200);
+    expect(readVideo).toHaveBeenCalledWith(WORKSPACE_ID, VIDEO_ID);
+  });
+
   it('returns the completed video with a public render URL and no error', async () => {
     const response = await appWith(async () => row()).request(`/v1/videos/${VIDEO_ID}`);
 

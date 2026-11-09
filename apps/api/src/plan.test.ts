@@ -3,9 +3,12 @@ import { describe, expect, it } from 'vitest';
 import { apiErrorBodySchema, planVideoResponseSchema } from '@facelesspro/contracts';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
+
+const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
 function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }) {
-  return createApp({
+  return testClient(createApp({
     probes,
     now: () => new Date('2026-10-27T09:00:00.000Z'),
     storageRoot: '.data-test',
@@ -16,15 +19,14 @@ function appWith(probes: { db: () => Promise<void>; queue: () => Promise<void> }
     readVideo: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: 'http://api.test',
-  });
+  }));
 }
 
 const healthy = async () => {};
@@ -36,6 +38,18 @@ async function errorBody(res: Response) {
   return apiErrorBodySchema.parse(await res.json());
 }
 describe('POST /v1/videos/plan', () => {
+  it('requires an API key like every other /v1 route', async () => {
+    const res = await app.raw('/v1/videos/plan', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ script: baseScript }),
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: { code: 'unauthorized', message: 'missing or invalid API key' },
+    });
+  });
+
   it('returns 200 with an estimate that parses through the response schema', async () => {
     const res = await app.request('/v1/videos/plan', {
       method: 'POST',
@@ -81,7 +95,7 @@ describe('POST /v1/videos/plan', () => {
     expect(body.language.words.en).toBeGreaterThan(0);
   });
 
-  it('does not touch the database: a throwing probe still returns 200', async () => {
+  it('does not call the health probes: a throwing db probe still returns 200', async () => {
     const exploding = appWith({
       db: async () => {
         throw new Error('db is down');

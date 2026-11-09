@@ -34,6 +34,7 @@ import type PgBoss from 'pg-boss';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
 import { createQueueRetry } from './video-queues';
 
 const BASE = 'http://api.test';
@@ -53,26 +54,25 @@ const request = createAiVideoV3RequestSchema.parse({
   render: { resolution: 1080, frameRate: 30, format: 'standard' },
 });
 
-function app() {
-  return createApp({
+function app(authWorkspaceId = workspaceId) {
+  return testClient(createApp({
     probes: { db: async () => {}, queue: async () => {} },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
     listArtStyles: async () => [],
     readArtStyle: async () => null,
     listCaptionTemplates: async () => [],
-    readVideo: (id) => findVideo(db, id),
+    readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: createQueueRetry(pool, async () => boss),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(authWorkspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: BASE,
-  });
+  }));
 }
 
 async function retry(): Promise<Response> {
@@ -229,5 +229,25 @@ describe('POST /v1/videos/:id/retry (Postgres)', () => {
       error: { code: 'not_found', message: 'video not found' },
     });
     expect(await boss.getQueueSize(queueFor('create-images'))).toBe(0);
+  });
+
+  it('answers 404 for a video in another workspace and queues nothing', async () => {
+    const other = await db
+      .insert(workspace)
+      .values({ name: `video-retry-other-${randomUUID()}`, credits: null })
+      .returning({ id: workspace.id });
+    const otherId = other[0]!.id;
+    try {
+      const response = await app(otherId).request(
+        `/v1/videos/${videoId}/retry`,
+        { method: 'POST' },
+      );
+
+      expect(response.status).toBe(404);
+      expect(await boss.getQueueSize(queueFor('create-images'))).toBe(0);
+      expect((await stored()).status).toBe('failed');
+    } finally {
+      await db.delete(workspace).where(eq(workspace.id, otherId));
+    }
   });
 });

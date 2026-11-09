@@ -6,6 +6,7 @@ import {
 } from '@facelesspro/contracts';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
 import type { QueueRenderInput, QueueRenderResult } from './videos';
 
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
@@ -45,7 +46,7 @@ function row(overrides: Partial<VideoRow> = {}): VideoRow {
 function appWith(
   queueRender: (input: QueueRenderInput) => Promise<QueueRenderResult>,
 ) {
-  return createApp({
+  return testClient(createApp({
     probes: { db: async () => {}, queue: async () => {} },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
@@ -55,19 +56,18 @@ function appWith(
     readVideo: async () => null,
     queueRender,
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: BASE,
-  });
+  }));
 }
 
 async function post(
-  app: ReturnType<typeof createApp>,
+  app: ReturnType<typeof appWith>,
   payload?: unknown,
 ): Promise<Response> {
   return app.request(`/v1/videos/${VIDEO_ID}/render`, {
@@ -79,6 +79,18 @@ async function post(
 }
 
 describe('POST /v1/videos/:id/render', () => {
+  it('answers 401 without a key and never touches the queue', async () => {
+    const queueRender = vi.fn(async (): Promise<QueueRenderResult> => ({
+      kind: 'not_found',
+    }));
+    const response = await appWith(queueRender).raw(`/v1/videos/${VIDEO_ID}/render`, {
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(401);
+    expect(queueRender).not.toHaveBeenCalled();
+  });
+
   it('queues the requested 60 fps greenscreen profile and returns the rendering video', async () => {
     const queueRender = vi.fn(
       async (_input: QueueRenderInput): Promise<QueueRenderResult> => ({
@@ -101,6 +113,7 @@ describe('POST /v1/videos/:id/render', () => {
 
     expect(response.status).toBe(202);
     expect(queueRender).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
       videoId: VIDEO_ID,
       render: { resolution: 2160, frameRate: 60, format: 'greenscreen' },
     });
@@ -138,6 +151,7 @@ describe('POST /v1/videos/:id/render', () => {
 
     expect(response.status).toBe(202);
     expect(queueRender).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
       videoId: VIDEO_ID,
       render: { resolution: 1080, frameRate: 30, format: 'standard' },
     });
@@ -154,6 +168,7 @@ describe('POST /v1/videos/:id/render', () => {
 
     expect(response.status).toBe(202);
     expect(queueRender).toHaveBeenCalledWith({
+      workspaceId: WORKSPACE_ID,
       videoId: VIDEO_ID,
       render: { resolution: 1080, frameRate: 30, format: 'standard' },
       webhookUrl: WEBHOOK,

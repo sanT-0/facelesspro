@@ -19,6 +19,7 @@ import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
+import { testAuth, testClient } from './test-auth';
 
 const BASE = 'http://api.test';
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
@@ -36,26 +37,25 @@ const request = createAiVideoV3RequestSchema.parse({
   render: { resolution: 1080, frameRate: 30, format: 'standard' },
 });
 
-function app() {
-  return createApp({
+function app(authWorkspaceId = workspaceId) {
+  return testClient(createApp({
     probes: { db: async () => {}, queue: async () => {} },
     storageRoot: '.data-test',
     submitArtStyle: async () => {},
     listArtStyles: async () => [],
     readArtStyle: async () => null,
     listCaptionTemplates: async () => [],
-    readVideo: (id) => findVideo(db, id),
+    readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
-    authenticateApiKey: async () => null,
-    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
+    ...testAuth(authWorkspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },
     listApiKeys: async () => [],
     revokeApiKey: async () => null,
     publicBaseUrl: BASE,
-  });
+  }));
 }
 
 describe('GET /v1/videos/:id (Postgres)', () => {
@@ -122,5 +122,40 @@ describe('GET /v1/videos/:id (Postgres)', () => {
 
     const missing = await app().request(`/v1/videos/${randomUUID()}`);
     expect(missing.status).toBe(404);
+  });
+
+  it('answers 404 for a video owned by another workspace', async () => {
+    const workspaces = await db
+      .insert(workspace)
+      .values({ name: `videos-api-${randomUUID()}`, credits: null })
+      .returning({ id: workspace.id });
+    workspaceId = workspaces[0]!.id;
+
+    const videos = await db
+      .insert(video)
+      .values({
+        workspace_id: workspaceId,
+        kind: 'ai-video-v3',
+        status: 'processing',
+        step: 'create-scenes',
+        request: { kind: 'ai-video-v3', body: request },
+      })
+      .returning({ id: video.id });
+    videoId = videos[0]!.id;
+
+    const other = await db
+      .insert(workspace)
+      .values({ name: `videos-api-other-${randomUUID()}`, credits: null })
+      .returning({ id: workspace.id });
+    const otherId = other[0]!.id;
+    try {
+      const response = await app(otherId).request(`/v1/videos/${videoId}`);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toEqual({
+        error: { code: 'not_found', message: 'video not found' },
+      });
+    } finally {
+      await db.delete(workspace).where(eq(workspace.id, otherId));
+    }
   });
 });
