@@ -51,6 +51,7 @@ function app() {
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     authenticateApiKey: (token) => authenticateApiKey(db, token),
+    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
     createApiKey: (input) => createApiKeyRow(db, input),
     listApiKeys: (workspaceId) => listApiKeysRow(db, workspaceId),
     revokeApiKey: (workspaceId, id) => revokeApiKeyRow(db, workspaceId, id),

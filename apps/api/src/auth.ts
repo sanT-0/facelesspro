@@ -14,9 +14,13 @@ import type { ApiKeyRow } from '@facelesspro/contracts';
 import { apiError } from '@facelesspro/contracts';
 import { createMiddleware } from 'hono/factory';
 
+import type { RateLimiter } from './rate-limit';
+
 export interface AuthDeps {
   /** Resolve a bearer token; `null` when unknown, malformed or revoked. */
   readonly authenticateApiKey: (token: string) => Promise<ApiKeyRow | null>;
+  /** Per-key and per-workspace fixed windows, checked after authentication. */
+  readonly rateLimit: RateLimiter;
 }
 
 export interface WorkspaceVariables {
@@ -54,6 +58,13 @@ export function withWorkspace(deps: AuthDeps) {
     if (row === null) {
       return c.json(apiError('unauthorized', 'missing or invalid API key'), 401, {
         'WWW-Authenticate': 'Bearer',
+      });
+    }
+
+    const decision = deps.rateLimit.check(row.id, row.workspace_id);
+    if (!decision.allowed) {
+      return c.json(apiError('rate_limited', 'rate limit exceeded'), 429, {
+        'Retry-After': String(decision.retryAfterSeconds),
       });
     }
 

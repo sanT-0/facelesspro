@@ -1879,6 +1879,35 @@ file stays the single "what is actually true today" view.
       bootstrap path; the artefact script also caught an eager `response.text()` in its own
       failure message that consumed the body before `json()` could parse it.
 
+- [x] 2026-11-09 — **P6 step 2: per-key and per-workspace rate limits on `withWorkspace()`.**
+      `apps/api/src/rate-limit.ts` adds two fixed one-minute windows, checked after
+      authentication and before the route: `RATE_LIMIT_KEY_PER_MINUTE` (default 60) per key
+      and `RATE_LIMIT_WORKSPACE_PER_MINUTE` (default 300) per workspace. The middleware answers
+      `429 rate_limited` with `Retry-After`; a missing/revoked key is still `401` and never
+      consults the limiter. Both counters are read before either is written, so a request
+      rejected by the workspace limit is not charged to the key, and rejected retries do not
+      extend a window. `server.ts` builds the limiter from `process.env`; an invalid value is a
+      startup error rather than a silent default.
+      Tests: 11 limiter cases (key/workspace independence, retry-after rounding, no lockout
+      extension, env defaults/overrides/invalid values) + 3 middleware cases (real limiter
+      drains a window, fake limiter receives the key id + workspace id before the route, `401`
+      wins). `npm run gate` **98 files / 1,268 tests**; `npm run test:db` **11 files / 38 tests**;
+      typecheck and lint clean; ruff/pytest untouched (no Python change).
+      Artifact `.data/artifacts/p6-rate-limit/summary.json`, from a real server started with
+      `RATE_LIMIT_KEY_PER_MINUTE=2` and `RATE_LIMIT_WORKSPACE_PER_MINUTE=3`: key 1 got
+      `200, 200, 429 Retry-After: 60`; key 2 in the same workspace got `200`, then
+      `429 Retry-After: 60` from the workspace window. Both 429 bodies were
+      `{"error":{"code":"rate_limited",...}}`.
+      **Observed:** the key limit denies only that key, the workspace limit spans keys, and the
+      header carries the remaining window in whole seconds. **Assumed:** 60/300 are sane
+      self-host defaults, not a product promise; operators can tune them without a code change.
+      **Known limit:** counters are per api process, so horizontal scaling needs a shared
+      limiter first — documented in docs/07 §1.1 and docs/09.
+      **Surprise:** the first draft incremented the key counter before checking the workspace
+      counter, which would have charged a workspace-rejected request to the key; checking both
+      snapshots first is what makes "rejected requests do not extend the lockout" true for both
+      windows.
+
 ---
 
 ## Decisions log
@@ -1939,3 +1968,5 @@ file stays the single "what is actually true today" view.
 | 2026-11-08 | API-key revoke is idempotent `200` with the first `revokedAt`, not `409` | revocation is a desired end state; a retried `DELETE` after a timeout should confirm it, not fail, and the first timestamp is evidence of when the key died |
 | 2026-11-08 | The first key is minted by `npm run key:create`, not an unauthenticated route | `/v1/keys` must require a key; an anonymous bootstrap would be a second auth surface with different scoping rules |
 | 2026-11-08 | `last_used_at` is written at most once per 60 s | auth runs on every request; an unconditional update turns every read into a write on one row without making Settings more accurate |
+| 2026-11-09 | Rate limits are fixed one-minute windows, and rejected requests are not counted | a predictable `Retry-After` is easier to reason about than a token bucket, and a client that retries must not extend its own lockout |
+| 2026-11-09 | Rate-limit counters are in-process for v1 | a database write per request would make auth a write path; the interface stays small so a shared store can replace it before horizontal scaling |

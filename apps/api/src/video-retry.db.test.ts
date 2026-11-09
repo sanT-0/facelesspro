@@ -65,6 +65,7 @@ function app() {
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: createQueueRetry(pool, async () => boss),
     authenticateApiKey: async () => null,
+    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },

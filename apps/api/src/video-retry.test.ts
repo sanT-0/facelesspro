@@ -53,6 +53,7 @@ function appWith(queueRetry: (videoId: string) => Promise<QueueRetryResult>) {
     queueRender: async () => ({ kind: 'not_found' }),
     queueRetry,
     authenticateApiKey: async () => null,
+    rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');
     },

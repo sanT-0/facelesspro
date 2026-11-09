@@ -9,6 +9,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { createApp } from './app';
 import { readBearerToken } from './auth';
 import type { CreatedApiKey } from './api-keys';
+import { createRateLimiter } from './rate-limit';
+import type { RateLimiter } from './rate-limit';
 
 const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
 const KEY_ID = '22222222-2222-4222-8222-222222222222';
@@ -33,6 +35,7 @@ function row(overrides: Partial<ApiKeyRow> = {}): ApiKeyRow {
 
 function appWith(overrides: {
   authenticateApiKey?: (token: string) => Promise<ApiKeyRow | null>;
+  rateLimit?: RateLimiter;
   createApiKey?: (input: { workspaceId: string; name: string }) => Promise<CreatedApiKey>;
   listApiKeys?: (workspaceId: string) => Promise<ApiKeyRow[]>;
   revokeApiKey?: (workspaceId: string, id: string) => Promise<ApiKeyRow | null>;
@@ -50,6 +53,9 @@ function appWith(overrides: {
     authenticateApiKey:
       overrides.authenticateApiKey ??
       (async (token) => (token === TOKEN ? row() : null)),
+    rateLimit: overrides.rateLimit ?? {
+      check: () => ({ allowed: true, retryAfterSeconds: 0 }),
+    },
     createApiKey:
       overrides.createApiKey ??
       (async () => ({ key: NEW_TOKEN, apiKey: row({ id: MISSING_ID }) })),
@@ -112,6 +118,53 @@ describe('authentication guard', () => {
     expect(response.status).toBe(401);
     expect(response.headers.get('www-authenticate')).toBe('Bearer');
     expect(createApiKey).not.toHaveBeenCalled();
+  });
+});
+
+describe('rate limiting', () => {
+  it('returns 429 with Retry-After after the fixed window is exhausted', async () => {
+    const rateLimit = createRateLimiter({
+      keyPerMinute: 1,
+      workspacePerMinute: 100,
+      now: () => Date.parse('2026-11-09T00:00:00.000Z'),
+    });
+    const app = appWith({ rateLimit });
+
+    const first = await app.request('/v1/keys', { headers: auth() });
+    expect(first.status).toBe(200);
+
+    const second = await app.request('/v1/keys', { headers: auth() });
+    expect(second.status).toBe(429);
+    expect(second.headers.get('retry-after')).toBe('60');
+    expect(await second.json()).toEqual({
+      error: { code: 'rate_limited', message: 'rate limit exceeded' },
+    });
+  });
+
+  it('checks the authenticated key and workspace before the route runs', async () => {
+    const rateLimit = {
+      check: vi.fn(() => ({ allowed: false as const, retryAfterSeconds: 42 })),
+    };
+    const listApiKeys = vi.fn(async () => [row()]);
+
+    const response = await appWith({ rateLimit, listApiKeys }).request('/v1/keys', {
+      headers: auth(),
+    });
+
+    expect(response.status).toBe(429);
+    expect(response.headers.get('retry-after')).toBe('42');
+    expect(rateLimit.check).toHaveBeenCalledWith(KEY_ID, WORKSPACE_ID);
+    expect(listApiKeys).not.toHaveBeenCalled();
+  });
+
+  it('answers 401 before consulting the limiter when auth fails', async () => {
+    const rateLimit = {
+      check: vi.fn(() => ({ allowed: true as const, retryAfterSeconds: 0 })),
+    };
+
+    const response = await appWith({ rateLimit }).request('/v1/keys');
+    expect(response.status).toBe(401);
+    expect(rateLimit.check).not.toHaveBeenCalled();
   });
 });
 

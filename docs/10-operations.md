@@ -104,6 +104,8 @@ else can expire. Suggested retention: renders 90 days, intermediate frames 14 da
 | `TTS_CONCURRENCY` | 6 | edge-tts tolerates more; IndicF5 wants 1 |
 | `MAX_VIDEO_MINUTES` | 30 | caps render time and credit burn |
 | `MAX_SCENES` | 120 | caps image count per video |
+| `RATE_LIMIT_KEY_PER_MINUTE` | 60 | fixed one-minute window per API key; over the limit → `429` + `Retry-After` |
+| `RATE_LIMIT_WORKSPACE_PER_MINUTE` | 300 | fixed one-minute window shared by every key in a workspace |
 | `SUBTITLE_UNIT_COST` | 20 | one enabled caption track records one subtitles unit at the committed reference price; selfhost remains unlimited |
 | `RENDER_UNIT_COST` | 10 | per-minute render price at 30 fps; a 60 fps render bills double. Duration comes from the stitched narration, not the requested estimate; selfhost remains unlimited |
 | per-run TTS cache | on (`TTS_CACHE=0` disables) | retries and unchanged scenes cost nothing |
@@ -133,6 +135,7 @@ its visible provider watermark remains even when `nologo=true`.
 | Seam / click between voices | gap calibration or cross-fade length | re-run `sample:tts` and listen |
 | Webhook never arrives | `webhook_event` table | non-2xx or slow receiver; check `attempts`/`next_at` |
 | `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |
+| `429 rate_limited` from `/v1` | `RATE_LIMIT_KEY_PER_MINUTE` / `RATE_LIMIT_WORKSPACE_PER_MINUTE` | wait for `Retry-After`; raise the limit for trusted automation, or split work across workspaces only when that is actually intended |
 | Render OOM at 4K | filter graph holding frames | raise `ffmpeg` memory, or render in scene chunks then concat |
 | Thumbnail missing after a completed render | ffprobe/ffmpeg stderr and `<thumbnail>.part` | source MP4 must verify first; retry extraction — `.part` is removed and only a signature/IHDR-verified PNG is published |
 | MP4 has video but the voice is silent in a desktop player | `ffprobe` audio profile/channels, then play the extracted WAV/MP3 | renderer must emit AAC-LC, 48 kHz, stereo; mono AAC can decode in ffmpeg yet fail in a playback path — re-render with current profile |

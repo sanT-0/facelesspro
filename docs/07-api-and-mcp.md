@@ -21,6 +21,12 @@ Authorization: Bearer vp_<40 hex>
 - Revocation is irreversible; rotate by issuing a new key.
 - Middleware `withWorkspace()` resolves key → workspace and is the only place scoping happens.
 
+`withWorkspace()` also enforces two fixed one-minute windows: `RATE_LIMIT_KEY_PER_MINUTE`
+(default 60) per key and `RATE_LIMIT_WORKSPACE_PER_MINUTE` (default 300) per workspace. Either
+limit rejects with `429 rate_limited` and `Retry-After: <seconds>`; rejected requests do not
+extend the window. Counters live in the api process, so a multi-process deployment needs a shared
+limiter before it can rely on these numbers.
+
 ### 1.2 Errors `[P]`
 
 ```jsonc

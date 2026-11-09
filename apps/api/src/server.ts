@@ -32,6 +32,7 @@ import { serve } from '@hono/node-server';
 
 import { createApp } from './app';
 import type { ArtStyleSubmission } from './art-styles';
+import { createRateLimiter, rateLimitOptionsFromEnv } from './rate-limit';
 import { createQueueRender, createQueueRetry } from './video-queues';
 
 loadEnv();
@@ -106,6 +107,7 @@ async function main(): Promise<void> {
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
     authenticateApiKey: (token) => authenticateApiKey(db, token),
+    rateLimit: createRateLimiter(rateLimitOptionsFromEnv(process.env)),
     createApiKey: (input) => createApiKey(db, input),
     listApiKeys: (workspaceId) => listApiKeys(db, workspaceId),
     revokeApiKey: (workspaceId, id) => revokeApiKey(db, workspaceId, id),
