@@ -2014,6 +2014,27 @@ file stays the single "what is actually true today" view.
 - [x] 2026-11-09 — **MCP server (P7, complete)** — `apps/mcp/src/server.ts` implements JSON-RPC 2.0 over Streamable HTTP at `/mcp` with OAuth 2.1 (RFC 9728/8414/7591/7009). `packages/contracts/src/mcp.ts` defines all tool schemas (1:1 with `/v1` routes plus `plan_video`, `preview_script_split`, `list_languages`), JSON-RPC schemas, and OAuth metadata schemas. `apps/mcp/src/main.ts` entry point. SSE (`text/event-stream`) support. Tool failures return error text (not protocol errors). Auth header forwarded to API server on tool calls. Live E2E verified: MCP server → API server creates a video via `create_ai_video_v3`. 10 contract tests + 13 OAuth tests (incl. refresh token rotation).
       **Observed:** gate green at 108 files / 1,348 tests.
 
+- [x] 2026-11-09 — **P8 Web app scaffolding + landing page** — `apps/web/` package created with dev server (esbuild bundling + API proxy), client-side router, API client (`src/api.ts`), landing page (`src/views/home.ts`) that fetches art styles from `GET /v1/art-styles` and workspace info from `GET /v1/workspace`, and CSS (`src/styles.css`). Separate `apps/web/tsconfig.json` with DOM lib. Root tsconfig excludes web files from root typecheck; web typecheck runs separately.
+      **Observed:** gate green at 108 files / 1,348 tests; web app serves landing page with template gallery at http://127.0.0.1:3003/.
+
+- [x] 2026-11-09 — **P8 API keys page** — `apps/web/src/views/keys.ts` lists existing keys (GET /v1/keys), creates new keys (POST /v1/keys), and revokes keys (DELETE /v1/keys/:id). New key secret is shown once and can be copied to clipboard.
+
+- [x] 2026-11-09 — **P8 Studio page** — `apps/web/src/views/studio.ts` create video form with script/voiceover URL input, art style picker (GET /v1/art-styles), voice picker (GET /v1/voices), size/speed/captions/render options, webhook URL. Calls POST /v1/ai-videos-v3 and shows the created video with editor link.
+
+- [x] 2026-11-09 — **P8 Job view** — `apps/web/src/views/job.ts` shows video status with live polling (5s interval), step progress badges (create-scenes → create-vocal → create-images → create-captions → render), error panel with retry button (POST /v1/videos/:id/retry), and editor link.
+
+- [x] 2026-11-09 — **P8 Editor page** — `apps/web/src/views/editor.ts` shows scene list with script text and duration, render panel (resolution/fps/format), and render button. Fetches video details from GET /v1/videos/:id including scenes when available.
+
+- [x] 2026-11-10 — **P8 sign-in, shared chrome, live job result** — `views/sign-in.ts` validates a workspace API key against `GET /v1/workspace` before storing it; `session.ts` caches the workspace and discards a 401 key; `ui.ts` owns the header, nav binding and the single HTML escaper. `main.ts` guards studio/keys/videos/editor behind a key. The router now merges query params, so the contract's `editorUrl` (`/editor?id=<id>`) resolves; the editor render button now calls `POST /v1/videos/:id/render` instead of retry; the job view shows a download, a share-link copy button and a video preview.
+      **Fixed while wiring:** `createVideoV3` posted to `/v1/v1/ai-videos-v3` (double prefix); `.hidden` is a CSS class, so toggling the `hidden` attribute left the details/timeline/result cards invisible.
+      **Observed:** web typecheck and lint clean.
+
+- [x] 2026-11-10 — **P8 Playwright suite** — `apps/web/playwright.config.ts` runs a tagged desktop + mobile matrix against the esbuild dev server; specs intercept `/v1/**` with fixtures that match the contract shapes, so the suite needs no Postgres, Redis or worker. 9 tests green: sign-in redirect/reject/accept, Tamil script → create body, job polling → download, mobile 375 px overflow, editor scenes + render request, and axe on studio + editor (zero critical).
+      **Observed:** `npm run test:e2e` 9 passed; `npm run gate` green at 108 files / 1,348 tests, with `apps/web` typecheck now part of `npm run typecheck`.
+      **Not verified live:** no Postgres/Redis listener was available this session, so the browser suite ran against intercepted API responses only.
+
+- [ ] 2026-11-10 — **P8 editor interactions (blocked on API)** — redraw-one-scene and edit-script → selective-re-narrate need routes that do not exist yet; the dead `Redraw` button was removed rather than left appearing to work. Voice-plan inspector, caption preview, waveform timeline and a public pricing page are likewise open. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
+
 ---
 
 ## Decisions log

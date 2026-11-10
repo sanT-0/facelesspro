@@ -283,9 +283,14 @@ or the editor's inspector will lie.
 
 | Test | Asserts |
 |---|---|
-| Playwright `studio.spec` | paste script → pick style → create → poll → download works |
-| Playwright `editor.spec` | redraw one scene, edit script → only changed scenes re-narrate |
-| Playwright `a11y.spec` | axe: no critical violations on studio + editor |
+| Playwright `sign-in.spec` | a protected page redirects to `/sign-in`; a rejected key leaves nothing in localStorage; a valid key is stored, survives reload, and the studio opens |
+| Playwright `studio.spec` | Tamil script survives the form byte-for-byte; the create body carries `artStyleId`/`size`/`speed`/`captions`; the job view polls processing → completed and exposes the download href; the flow fits 375 px with no horizontal overflow (`@mobile`) |
+| Playwright `editor.spec` | scenes from `GET /v1/videos/:id` render; the render panel posts the selected `{resolution, frameRate, format}` to `POST /v1/videos/:id/render` |
+| Playwright `a11y.spec` | axe reports zero **critical** violations on studio and editor |
+
+Pending (blocked on API routes that do not exist yet): editor redraw-one-scene and
+edit-script → selective re-narrate. Those specs are written with the routes, not before, so
+the suite never asserts a control the product cannot honour.
 
 ---
 

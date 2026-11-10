@@ -1,0 +1,17 @@
+{
+  "name": "@facelesspro/web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "tsx src/dev.ts",
+    "build": "esbuild --config=esbuild.config.mjs",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@facelesspro/contracts": "*",
+    "esbuild": "^0.25.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0"
+  }
+}

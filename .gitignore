@@ -4,6 +4,11 @@ dist/
 .env
 storage/
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
 # local product-reference index (contains third-party names and hosts)
 docs/reference-products.local.md
 

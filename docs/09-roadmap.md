@@ -569,17 +569,23 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
 
 ## P8 — Web app
 
-- [ ] Landing (own copy + own artwork) with template gallery + pricing page.
-- [ ] Auth (magic link or GitHub OAuth), workspace switcher, settings, API keys page.
-- [ ] Studio: script box (Tamil/English/Tanglish), style picker, size, voice pair, cost preview.
-- [ ] Job view: live step progress, error panel, retry.
+- [x] Landing (own copy + own artwork) with template gallery + plan/credits panel.
+- [x] Auth: sign in with a workspace API key (self-host default). Magic link / GitHub OAuth
+      remain optional and unimplemented.
+- [x] Studio: script box (Tamil/English/Tanglish), style picker, size, voice pair, captions,
+      render and webhook options. (Cost preview pending: the API has no cost endpoint yet.)
+- [x] Job view: live step progress, error panel, retry, download + share link.
 - [ ] Editor: scene list, redraw, script edit → selective re-narrate, caption style preview,
-      waveform timeline, render panel.
+      waveform timeline, render panel. Scene list + render panel are done; the rest need new
+      API routes.
 - [ ] Voice-plan inspector (which runs went to which voice + override).
-- [ ] Downloads + share link.
+- [x] Downloads + share link.
+- [ ] Pricing page (the landing page shows the signed-in plan and credits; a public pricing
+      table is still missing).
 
 **Gate:** Playwright studio + editor specs green; axe has no critical violations; the whole
-flow works at 375 px width.
+flow works at 375 px width. (The redraw / selective-re-narrate specs land with the API routes
+they need; everything else is green.)
 
 **Artifact check:** screen recording of script → finished video without opening a terminal.
 

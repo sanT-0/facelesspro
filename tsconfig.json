@@ -22,7 +22,9 @@
   "include": [
     "packages/*/src/**/*.ts",
     "packages/*/drizzle.config.ts",
-    "apps/*/src/**/*.ts",
+    "apps/api/src/**/*.ts",
+    "apps/worker/src/**/*.ts",
+    "apps/mcp/src/**/*.ts",
     "vitest.config.ts",
     "vitest.db.config.ts"
   ]
