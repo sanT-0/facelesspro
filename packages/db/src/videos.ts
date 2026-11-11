@@ -7,8 +7,14 @@
  * the system does not understand must not reach a response.
  */
 
-import { narrationPlanSchema, sceneRowSchema, videoRowSchema } from '@facelesspro/contracts';
+import {
+  captionTrackRowSchema,
+  narrationPlanSchema,
+  sceneRowSchema,
+  videoRowSchema,
+} from '@facelesspro/contracts';
 import type {
+  CaptionTrackRow,
   NarrationPlan,
   RenderOptions,
   SceneRow,
@@ -21,7 +27,7 @@ import type {
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { Database } from './client';
-import { asset, narration, scene, video } from './schema';
+import { asset, captionTrack, narration, scene, video } from './schema';
 
 /**
  * One video by id **inside a workspace**, whatever its status, so the route can
@@ -94,6 +100,34 @@ export async function readVideoVoicePlan(
 
   const row = rows[0];
   return row === undefined ? null : narrationPlanSchema.parse(row.voicePlan);
+}
+
+/**
+ * The stored caption cue track for one video inside a workspace, or `null`
+ * before `create-captions` has committed. One track per video, so the primary
+ * key is the video id and there is nothing to order.
+ */
+export async function readVideoCaptions(
+  db: Database,
+  workspaceId: string,
+  videoId: string,
+): Promise<CaptionTrackRow | null> {
+  const rows = await db
+    .select({ templateId: captionTrack.template_id, cues: captionTrack.cues })
+    .from(captionTrack)
+    .innerJoin(video, eq(video.id, captionTrack.video_id))
+    .where(
+      and(eq(captionTrack.video_id, videoId), eq(video.workspace_id, workspaceId)),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  if (row === undefined) return null;
+  return captionTrackRowSchema.parse({
+    video_id: videoId,
+    template_id: row.templateId,
+    cues: row.cues,
+  });
 }
 
 export interface InsertVideoInput {

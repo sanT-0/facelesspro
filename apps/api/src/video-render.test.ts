@@ -67,6 +67,7 @@ function appWith(
     readVideo: async () => null,
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
+    readVideoCaptions: async () => null,
     queueRender,
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(WORKSPACE_ID),

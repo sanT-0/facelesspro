@@ -147,10 +147,16 @@ resumed step is the only work and owns its charge, so a retry writes no ledger r
 `processing`/`rendering`/`completed` → `409 conflict`, unknown id → `404`, non-UUID → `400` with
 `field: "id"`.
 
-`GET /v1/videos/:id/captions` will serve the stored sidecar selected by format. All four are
-serialized from one persisted cue track; JSON is the strict v1 document from
-`captionJsonExportSchema`, while the database-only cue shape is the same document without each
-cue's one-based export index. Paths, asset rows and storage keys never appear in JSON.
+`GET /v1/videos/:id/captions?format=srt|vtt|ass|json` (default `srt`) re-serializes the one
+persisted cue track. SRT/VTT/JSON cannot drift from the burned-in captions because they are built
+from the same rows, and JSON is exactly `captionJsonExportSchema`. An unknown `format` is `400
+invalid_request` with `field: "format"`; an unknown video is `404 not_found`; a video whose
+`create-captions` step has not committed is `404 not_found` with `captions not available`; a
+stored track that no longer validates is a fixed `500 internal`. Responses carry the sidecar
+`content-type`, an inline `captions.<format>` filename and `Cache-Control: private, max-age=300`
+(parity with caption templates). ASS is written on the same 1080p design canvas the worker used
+(libass scales it to 2K/4K) and takes the stored template's style when that template still
+exists; otherwise `buildAss` defaults apply. Paths, asset rows and storage keys never appear.
 
 ### 2.5 API keys
 

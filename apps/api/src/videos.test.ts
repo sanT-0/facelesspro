@@ -70,6 +70,7 @@ function appWith(
     readVideo,
     readVideoScenes: async () => artifacts.scenes ?? [],
     readVideoVoicePlan: async () => artifacts.voicePlan ?? null,
+    readVideoCaptions: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(workspaceId),

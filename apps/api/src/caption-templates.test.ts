@@ -70,6 +70,7 @@ function appWith(listCaptionTemplates: () => Promise<readonly CaptionTemplateRow
     readVideo: async () => null,
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
+    readVideoCaptions: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(WORKSPACE_ID),

@@ -9,15 +9,18 @@
 import { randomUUID } from 'node:crypto';
 
 import {
+  captionJsonExportSchema,
   createAiVideoV3RequestSchema,
   videoResponseSchema,
 } from '@facelesspro/contracts';
 import {
   asset,
+  captionTrack,
   createDb,
   findVideo,
   listVideoScenes,
   narration,
+  readVideoCaptions,
   readVideoVoicePlan,
   scene,
   video,
@@ -69,6 +72,7 @@ function app(authWorkspaceId = workspaceId) {
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     readVideoScenes: (workspaceId, id) => listVideoScenes(db, workspaceId, id),
     readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
+    readVideoCaptions: (workspaceId, id) => readVideoCaptions(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
@@ -201,6 +205,23 @@ describe('GET /v1/videos/:id (Postgres)', () => {
       voice_plan: voicePlan,
     });
 
+    await db.insert(captionTrack).values({
+      video_id: videoId,
+      template_id: -1,
+      cues: [
+        {
+          startMs: 0,
+          endMs: 1_200,
+          lines: ['தமிழ் முதல் காட்சி'],
+          words: [
+            { text: 'தமிழ்', startMs: 0, endMs: 600 },
+            { text: 'முதல்', startMs: 600, endMs: 900 },
+            { text: 'காட்சி', startMs: 900, endMs: 1_200 },
+          ],
+        },
+      ],
+    });
+
     const response = await app().request(`/v1/videos/${videoId}`);
     expect(response.status).toBe(200);
 
@@ -236,6 +257,12 @@ describe('GET /v1/videos/:id (Postgres)', () => {
     });
     expect(body.createdAt.endsWith('Z')).toBe(true);
     expect(body.updatedAt.endsWith('Z')).toBe(true);
+
+    const captions = await app().request(`/v1/videos/${videoId}/captions?format=json`);
+    expect(captions.status).toBe(200);
+    const document = captionJsonExportSchema.parse(await captions.json());
+    expect(document.durationMs).toBe(1_200);
+    expect(document.cues[0]?.lines).toEqual(['தமிழ் முதல் காட்சி']);
 
     const missing = await app().request(`/v1/videos/${randomUUID()}`);
     expect(missing.status).toBe(404);

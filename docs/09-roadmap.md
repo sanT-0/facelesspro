@@ -576,8 +576,10 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
       render and webhook options. (Cost preview pending: the API has no cost endpoint yet.)
 - [x] Job view: live step progress, error panel, retry, download + share link.
 - [ ] Editor: scene list, redraw, script edit → selective re-narrate, caption style preview,
-      waveform timeline, render panel. Scene list + render panel are done; the rest need new
-      API routes.
+      waveform timeline, render panel. Scene list + voice plan + render panel are done, and
+      `GET /v1/videos/:id/captions` now serves the stored track in all four formats, so the
+      preview has data; redraw, re-narrate, the preview UI and the waveform timeline still need
+      routes or data the API does not expose.
 - [x] Voice-plan inspector (which runs went to which voice + override). The plan is returned by
       `GET /v1/videos/:id` and rendered in the editor with per-run language, text and voice.
 - [x] Downloads + share link.

@@ -54,6 +54,7 @@ export {
   findVideo,
   insertVideo,
   listVideoScenes,
+  readVideoCaptions,
   readVideoVoicePlan,
 } from './videos';
 export type { VideoSceneArtifact } from './videos';

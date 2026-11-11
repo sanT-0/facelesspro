@@ -61,6 +61,7 @@ function app() {
     readVideo: async () => null,
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
+    readVideoCaptions: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     authenticateApiKey: (token) => authenticateApiKey(db, token),

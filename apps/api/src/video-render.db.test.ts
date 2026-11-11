@@ -72,6 +72,7 @@ function app(authWorkspaceId = workspaceId) {
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
+    readVideoCaptions: async () => null,
     queueRender: createQueueRender(pool, async () => boss),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
