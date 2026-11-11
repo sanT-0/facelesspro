@@ -90,7 +90,10 @@ stored render key is rewritten to an absolute URL through `PUBLIC_BASE_URL` + th
 fails, `step` then names the resume point, and `editorUrl` is `<base>/editor?id=<id>`. `videoUrl`
 is mandatory once `status=completed`: a completed row without a render is a `500`, not a video the
 client can never download. `thumbnailUrl` is not populated yet because the pipeline has no
-video→thumbnail link; `scenes` stays absent here (the inspector uses `/v1/videos/:id/plan`).
+video→thumbnail link. `scenes` and `voicePlan` are populated once their steps have committed —
+`scenes` ordered by `idx` with each still's public `imageUrl`, and `voicePlan` the stored
+narration plan (`runs` name the Tamil vs English routing). Both keys stay absent before that, so
+an editor can poll the one endpoint and does not need a second inspector route.
 
 `POST /v1/videos/:id/render` accepts `{}` (render with the documented defaults: 1080p / 30 fps /
 `standard`), any subset of `resolution`, `frameRate`, `format`, and an optional https `webhookUrl`.

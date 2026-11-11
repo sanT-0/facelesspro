@@ -104,6 +104,19 @@ export interface Video {
     startMs: number;
     endMs: number;
   }>;
+  /** Present once `create-vocal` has committed; which runs went Tamil vs English. */
+  voicePlan?: {
+    script: string;
+    spokenText: string;
+    runs: Array<{
+      text: string;
+      lang: 'ta' | 'en';
+      voice: string;
+      script: 'tamil' | 'latin' | 'tanglish';
+    }>;
+    overrides: Array<{ start: number; end: number; lang: 'ta' | 'en' }>;
+    pair: string | null;
+  };
 }
 
 export async function getVideo(id: string): Promise<Video> {

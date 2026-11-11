@@ -32,6 +32,7 @@ import {
   urlOrPathSchema,
 } from './common';
 import { apiErrorBodySchema } from './errors';
+import { narrationPlanSchema } from './media';
 import { plannerAdapterSchema } from './planner';
 import { styleProfileSchema } from './style-profile';
 
@@ -79,6 +80,8 @@ export const videoResponseSchema = z.strictObject({
   durationMs: z.int().min(0).optional(),
   error: nestedErrorSchema.nullable().optional(),
   scenes: z.array(sceneResponseSchema).optional(),
+  /** Which runs were routed to Tamil vs English; set once narration exists. */
+  voicePlan: narrationPlanSchema.optional(),
   editorUrl: z.url(),
   createdAt: isoDateTimeSchema,
   updatedAt: isoDateTimeSchema,

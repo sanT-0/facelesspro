@@ -45,6 +45,8 @@ function appWith(options: {
         voiceId: 'edge:ta-IN-ValluvarNeural',
       }),
       readVideo: async () => null,
+      readVideoScenes: async () => [],
+      readVideoVoicePlan: async () => null,
       queueRender: async () => ({ kind: 'not_found' as const }),
       queueRetry: async () => ({ kind: 'not_found' as const }),
       submitVideo: async () => {

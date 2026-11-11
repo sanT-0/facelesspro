@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 import { API_KEY, VIDEO_ID, installFakeApi, signInAs } from './helpers';
 
-test('editor lists scenes, exposes a voice-plan slot, and queues a render', async ({ page }) => {
+test('editor lists scenes and the voice plan, then queues a render', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1 });
   await signInAs(page, API_KEY);
 
@@ -12,6 +12,14 @@ test('editor lists scenes, exposes a voice-plan slot, and queues a render', asyn
   await expect(page.getByText('தமிழ் முதல் காட்சி')).toBeVisible();
   await expect(page.getByText('இரண்டாவது காட்சி')).toBeVisible();
   await expect(page.locator('.scene-item')).toHaveCount(2);
+
+  // The voice plan shows which runs went to Tamil vs English.
+  await expect(page.locator('.voice-run')).toHaveCount(2);
+  await expect(page.locator('.voice-run').nth(0)).toContainText('TA');
+  await expect(page.locator('.voice-run').nth(0)).toContainText('ta-IN-ValluvarNeural');
+  await expect(page.locator('.voice-run').nth(1)).toContainText('EN');
+  await expect(page.locator('.voice-run').nth(1)).toContainText('Today fire!');
+  await expect(page.getByText('2 runs')).toBeVisible();
 
   await page.locator('#render-resolution').selectOption('2160');
   await page.locator('#render-fps').selectOption('60');

@@ -88,6 +88,27 @@ const SCENES = [
   },
 ];
 
+const VOICE_PLAN = {
+  script: 'வணக்கம் நண்பர்களே. Today fire!',
+  spokenText: 'வணக்கம் நண்பர்களே. Today fire!',
+  runs: [
+    {
+      text: 'வணக்கம் நண்பர்களே.',
+      lang: 'ta',
+      voice: 'ta-IN-ValluvarNeural',
+      script: 'tamil',
+    },
+    {
+      text: 'Today fire!',
+      lang: 'en',
+      voice: 'en-IN-NeerjaNeural',
+      script: 'latin',
+    },
+  ],
+  overrides: [],
+  pair: null,
+};
+
 export async function installFakeApi(
   page: Page,
   options: FakeApiOptions = {},
@@ -108,6 +129,7 @@ export async function installFakeApi(
           thumbnailUrl: 'https://cdn.example.com/videos/facelesspro.jpg',
           durationMs: 6400,
           scenes: SCENES,
+          voicePlan: VOICE_PLAN,
         }
       : {}),
     error: null,

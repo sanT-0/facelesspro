@@ -1,9 +1,12 @@
 /**
- * Editor view — edit a video project.
+ * Editor view — inspect a video project.
  *
- * Shows scene list with script text and duration, redraw per scene,
- * script edit → selective re-narrate, caption style preview, render panel.
+ * Shows the scene list with script text and duration, the narration voice plan
+ * (which runs went to Tamil vs English), and the render panel.
  * Fetches video details from GET /v1/videos/:id.
+ *
+ * Redraw and selective re-narrate are deliberately absent: neither route
+ * exists yet, and a button that cannot work is worse than no button.
  */
 
 import { getVideo, renderVideo, type Video } from '../api';
@@ -33,6 +36,13 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <h2 class="card-title">Scenes</h2>
         <div id="scenes-list" class="mt-2">
           <div class="text-muted">Loading scenes…</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Voice plan</h2>
+        <div id="voice-plan" class="mt-2">
+          <div class="text-muted">No narration yet.</div>
         </div>
       </section>
 
@@ -72,6 +82,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
 
   const editorStatus = container.querySelector('#editor-status')!;
   const scenesList = container.querySelector('#scenes-list') as HTMLElement;
+  const voicePlanEl = container.querySelector('#voice-plan') as HTMLElement;
   const renderBtn = container.querySelector('#render-btn') as HTMLButtonElement;
   const renderResult = container.querySelector('#render-result') as HTMLDivElement;
 
@@ -96,7 +107,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
       editorStatus.innerHTML += ` <span style="color:var(--color-danger); font-size:0.875rem;">Error: ${v.error.message}</span>`;
     }
 
-    // Render scenes (placeholder since scenes may not be in the API response yet).
+    // The API serves scenes once `create-scenes` has committed.
     const scenes = v.scenes;
     if (scenes && scenes.length > 0) {
       scenesList.innerHTML = scenes.map((s, _idx) => `
@@ -114,6 +125,32 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     } else {
       scenesList.innerHTML = '<div class="text-muted">No scenes available yet.</div>';
     }
+
+    renderVoicePlan(v.voicePlan);
+  }
+
+  function renderVoicePlan(plan: Video['voicePlan']): void {
+    // `voicePlan` is present only after `create-vocal` has committed.
+    if (!plan) {
+      voicePlanEl.innerHTML = '<div class="text-muted">No narration yet.</div>';
+      return;
+    }
+
+    voicePlanEl.innerHTML = `
+      <div class="voice-runs">
+        ${plan.runs.map((run) => `
+          <div class="voice-run">
+            <span class="badge">${run.lang.toUpperCase()}</span>
+            <span class="voice-run-text">${escapeHtml(run.text)}</span>
+            <span class="text-muted">${escapeHtml(run.voice)}</span>
+          </div>
+        `).join('')}
+      </div>
+      <div class="scene-meta mt-2">
+        <span>${plan.runs.length} run${plan.runs.length === 1 ? '' : 's'}</span>
+        <span>${plan.overrides.length} override${plan.overrides.length === 1 ? '' : 's'}</span>
+      </div>
+    `;
   }
 
   renderBtn.addEventListener('click', async () => {

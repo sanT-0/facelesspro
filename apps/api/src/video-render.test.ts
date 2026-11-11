@@ -65,6 +65,8 @@ function appWith(
 
     listBalanceLogs: async () => [],
     readVideo: async () => null,
+    readVideoScenes: async () => [],
+    readVideoVoicePlan: async () => null,
     queueRender,
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(WORKSPACE_ID),

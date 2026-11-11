@@ -15,7 +15,12 @@
  */
 
 import { apiErrorBodySchema } from '@facelesspro/contracts';
-import type { VideoResponse, VideoRow } from '@facelesspro/contracts';
+import type {
+  NarrationPlan,
+  SceneRow,
+  VideoResponse,
+  VideoRow,
+} from '@facelesspro/contracts';
 
 const ABSOLUTE_URL = /^[a-z][a-z0-9+.-]*:\/\//i;
 
@@ -50,7 +55,20 @@ function renderRequested(row: VideoRow): boolean {
   return value !== undefined && value !== null;
 }
 
-export function toVideoResponse(row: VideoRow, base: string): VideoResponse {
+/** Extra artifacts loaded for the editor; both are absent until a step commits. */
+export interface VideoArtifacts {
+  readonly scenes?: readonly {
+    readonly scene: SceneRow;
+    readonly imageKey: string | null;
+  }[];
+  readonly voicePlan?: NarrationPlan;
+}
+
+export function toVideoResponse(
+  row: VideoRow,
+  base: string,
+  artifacts: VideoArtifacts = {},
+): VideoResponse {
   const key = storedRenderKey(row);
   // Committed behaviour: a completed video has a public, stable `videoUrl`.
   if (row.status === 'completed' && key === null) {
@@ -67,6 +85,16 @@ export function toVideoResponse(row: VideoRow, base: string): VideoResponse {
     error = parsed.data;
   }
 
+  const scenes = artifacts.scenes?.map(({ scene, imageKey }) => ({
+    id: scene.id,
+    idx: scene.idx,
+    text: scene.text,
+    ...(imageKey === null ? {} : { imageUrl: absoluteFileUrl(imageKey, base) }),
+    ...(Object.keys(scene.motion).length === 0 ? {} : { motion: scene.motion }),
+    startMs: scene.start_ms,
+    endMs: scene.end_ms,
+  }));
+
   return {
     id: row.id,
     kind: row.kind,
@@ -78,6 +106,8 @@ export function toVideoResponse(row: VideoRow, base: string): VideoResponse {
       ? {}
       : { durationMs: row.duration_ms }),
     error,
+    ...(scenes === undefined || scenes.length === 0 ? {} : { scenes }),
+    ...(artifacts.voicePlan === undefined ? {} : { voicePlan: artifacts.voicePlan }),
     editorUrl: `${base}/editor?id=${encodeURIComponent(row.id)}`,
     createdAt: row.created_at,
     updatedAt: row.updated_at,

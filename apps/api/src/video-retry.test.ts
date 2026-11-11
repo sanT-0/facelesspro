@@ -62,6 +62,8 @@ function appWith(queueRetry: (input: QueueRetryInput) => Promise<QueueRetryResul
 
     listBalanceLogs: async () => [],
     readVideo: async () => null,
+    readVideoScenes: async () => [],
+    readVideoVoicePlan: async () => null,
     queueRender: async () => ({ kind: 'not_found' }),
     queueRetry,
     ...testAuth(WORKSPACE_ID),

@@ -459,6 +459,26 @@ a:hover {
   color: var(--color-text-muted);
 }
 
+/* Voice plan runs */
+
+.voice-runs {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.voice-run {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+}
+
+.voice-run-text {
+  flex: 1;
+  color: var(--color-text);
+}
+
 /* Toast notifications */
 
 .toast-container {

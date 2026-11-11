@@ -30,7 +30,9 @@ import {
   videoRowSchema,
 } from '@facelesspro/contracts';
 import type {
+  NarrationPlan,
   RenderOptions,
+  SceneRow,
   VideoResponse,
   VideoRow,
   VideoStatus,
@@ -40,6 +42,7 @@ import type {
 import { withWorkspace } from './auth';
 import type { AuthDeps, WorkspaceEnv } from './auth';
 import { toVideoResponse, UnpublishableVideo } from './video-response';
+import type { VideoArtifacts } from './video-response';
 
 export interface QueueRenderInput {
   /** The authenticated workspace; the guard is scoped to it. */
@@ -81,6 +84,18 @@ export interface VideoRouteDeps extends AuthDeps {
   readonly queueRender: QueueRender;
   /** Guarded failed-step resume + enqueue in one Postgres transaction. */
   readonly queueRetry: QueueRetry;
+  /** Scene rows + still keys, ordered by `idx`, scoped to the workspace. */
+  readonly readVideoScenes: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<
+    readonly { readonly scene: SceneRow; readonly imageKey: string | null }[]
+  >;
+  /** The stored narration plan, or `null` before `create-vocal` commits. */
+  readonly readVideoVoicePlan: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<NarrationPlan | null>;
   /** Absolute origin that serves `/files/*`, e.g. `http://127.0.0.1:3001`. */
   readonly publicBaseUrl: string;
 }
@@ -89,13 +104,22 @@ type MappedVideo =
   | { readonly ok: true; readonly body: VideoResponse }
   | { readonly ok: false; readonly message: string };
 
-function mapStoredVideo(stored: VideoRow, base: string): MappedVideo {
+function mapStoredVideo(
+  stored: VideoRow,
+  base: string,
+  artifacts: VideoArtifacts = {},
+): MappedVideo {
   const row = videoRowSchema.safeParse(stored);
   if (!row.success) {
     return { ok: false, message: 'stored video row is invalid' };
   }
   try {
-    return { ok: true, body: videoResponseSchema.parse(toVideoResponse(row.data, base)) };
+    return {
+      ok: true,
+      body: videoResponseSchema.parse(
+        toVideoResponse(row.data, base, artifacts),
+      ),
+    };
   } catch (failure) {
     if (failure instanceof UnpublishableVideo) {
       return { ok: false, message: failure.message };
@@ -130,7 +154,16 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
       return c.json(apiError('not_found', 'video not found'), 404);
     }
 
-    const mapped = mapStoredVideo(stored, base);
+    const workspaceId = c.get('workspaceId');
+    const [scenes, voicePlan] = await Promise.all([
+      deps.readVideoScenes(workspaceId, id),
+      deps.readVideoVoicePlan(workspaceId, id),
+    ]);
+
+    const mapped = mapStoredVideo(stored, base, {
+      scenes,
+      ...(voicePlan === null ? {} : { voicePlan }),
+    });
     if (!mapped.ok) return c.json(apiError('internal', mapped.message), 500);
     return c.json(mapped.body, 200);
   });

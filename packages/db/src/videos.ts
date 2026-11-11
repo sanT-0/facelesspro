@@ -7,9 +7,11 @@
  * the system does not understand must not reach a response.
  */
 
-import { videoRowSchema } from '@facelesspro/contracts';
+import { narrationPlanSchema, sceneRowSchema, videoRowSchema } from '@facelesspro/contracts';
 import type {
+  NarrationPlan,
   RenderOptions,
+  SceneRow,
   VideoKind,
   VideoRequestRow,
   VideoRow,
@@ -19,7 +21,7 @@ import type {
 import { and, eq, sql } from 'drizzle-orm';
 
 import type { Database } from './client';
-import { video } from './schema';
+import { asset, narration, scene, video } from './schema';
 
 /**
  * One video by id **inside a workspace**, whatever its status, so the route can
@@ -38,6 +40,60 @@ export async function findVideo(
     .limit(1);
   const row = rows[0];
   return row === undefined ? null : videoRowSchema.parse(row);
+}
+
+/** One scene plus the storage key of its still, when the image step wrote one. */
+export interface VideoSceneArtifact {
+  readonly scene: SceneRow;
+  readonly imageKey: string | null;
+}
+
+/**
+ * Scenes for one video inside a workspace, in playback order.
+ *
+ * The workspace is part of the join rather than a post-fetch check, matching
+ * `findVideo`: a foreign video id yields an empty list, never another
+ * workspace's scenes.
+ */
+export async function listVideoScenes(
+  db: Database,
+  workspaceId: string,
+  videoId: string,
+): Promise<VideoSceneArtifact[]> {
+  const rows = await db
+    .select({ scene, imageKey: asset.key })
+    .from(scene)
+    .innerJoin(video, eq(video.id, scene.video_id))
+    .leftJoin(asset, eq(asset.id, scene.image_asset_id))
+    .where(and(eq(scene.video_id, videoId), eq(video.workspace_id, workspaceId)))
+    .orderBy(scene.idx);
+
+  return rows.map((row) => ({
+    scene: sceneRowSchema.parse(row.scene),
+    imageKey: row.imageKey ?? null,
+  }));
+}
+
+/**
+ * The stored narration plan (which runs went to Tamil vs English) for one video
+ * inside a workspace, or `null` before `create-vocal` has committed.
+ */
+export async function readVideoVoicePlan(
+  db: Database,
+  workspaceId: string,
+  videoId: string,
+): Promise<NarrationPlan | null> {
+  const rows = await db
+    .select({ voicePlan: narration.voice_plan })
+    .from(narration)
+    .innerJoin(video, eq(video.id, narration.video_id))
+    .where(
+      and(eq(narration.video_id, videoId), eq(video.workspace_id, workspaceId)),
+    )
+    .limit(1);
+
+  const row = rows[0];
+  return row === undefined ? null : narrationPlanSchema.parse(row.voicePlan);
 }
 
 export interface InsertVideoInput {

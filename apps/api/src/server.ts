@@ -27,8 +27,10 @@ import {
   listCreditLogs,
   listSoundEffects,
   listVisibleArtStyles,
+  listVideoScenes,
   listVoices,
   loadEnv,
+  readVideoVoicePlan,
   revokeApiKey,
 } from '@facelesspro/db';
 import {
@@ -205,6 +207,8 @@ async function main(): Promise<void> {
     listCreditLogs: (workspaceId) => listCreditLogs(db, workspaceId),
     listBalanceLogs: (workspaceId) => listBalanceLogs(db, workspaceId),
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
+    readVideoScenes: (workspaceId, id) => listVideoScenes(db, workspaceId, id),
+    readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
     authenticateApiKey: (token) => authenticateApiKey(db, token),

@@ -47,7 +47,15 @@ export type {
   CreatedApiKey,
   GeneratedApiKey,
 } from './api-keys';
-export { beginRender, beginRetry, findVideo, insertVideo } from './videos';
+export {
+  beginRender,
+  beginRetry,
+  findVideo,
+  insertVideo,
+  listVideoScenes,
+  readVideoVoicePlan,
+} from './videos';
+export type { VideoSceneArtifact } from './videos';
 export type {
   BeginRenderInput,
   BeginRenderResult,

@@ -12,7 +12,17 @@ import {
   createAiVideoV3RequestSchema,
   videoResponseSchema,
 } from '@facelesspro/contracts';
-import { createDb, findVideo, video, workspace } from '@facelesspro/db';
+import {
+  asset,
+  createDb,
+  findVideo,
+  listVideoScenes,
+  narration,
+  readVideoVoicePlan,
+  scene,
+  video,
+  workspace,
+} from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
@@ -57,6 +67,8 @@ function app(authWorkspaceId = workspaceId) {
 
     listBalanceLogs: async () => [],
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
+    readVideoScenes: (workspaceId, id) => listVideoScenes(db, workspaceId, id),
+    readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
@@ -122,6 +134,73 @@ describe('GET /v1/videos/:id (Postgres)', () => {
       })
       .where(eq(video.id, videoId));
 
+    const assets = await db
+      .insert(asset)
+      .values([
+        {
+          workspace_id: workspaceId,
+          kind: 'image',
+          key: `ws/${workspaceId}/images/first.png`,
+          mime: 'image/png',
+        },
+        {
+          workspace_id: workspaceId,
+          kind: 'audio',
+          key: `ws/${workspaceId}/audio/voice.mp3`,
+          mime: 'audio/mpeg',
+        },
+      ])
+      .returning({ id: asset.id });
+    const imageAssetId = assets[0]!.id;
+    const audioAssetId = assets[1]!.id;
+
+    await db.insert(scene).values([
+      {
+        video_id: videoId,
+        idx: 0,
+        text: 'தமிழ் முதல் காட்சி',
+        image_asset_id: imageAssetId,
+        start_ms: 0,
+        end_ms: 1_200,
+      },
+      {
+        video_id: videoId,
+        idx: 1,
+        text: 'இரண்டாவது காட்சி',
+        image_asset_id: null,
+        start_ms: 1_200,
+        end_ms: 2_400,
+      },
+    ]);
+
+    const voicePlan = {
+      script: 'வணக்கம் நண்பர்களே. Today fire!',
+      spokenText: 'வணக்கம் நண்பர்களே. Today fire!',
+      runs: [
+        {
+          text: 'வணக்கம் நண்பர்களே.',
+          lang: 'ta' as const,
+          voice: 'ta-IN-ValluvarNeural',
+          script: 'tamil' as const,
+        },
+        {
+          text: 'Today fire!',
+          lang: 'en' as const,
+          voice: 'en-IN-NeerjaNeural',
+          script: 'latin' as const,
+        },
+      ],
+      overrides: [],
+      pair: null,
+    };
+    await db.insert(narration).values({
+      video_id: videoId,
+      asset_id: audioAssetId,
+      duration_ms: 2_400,
+      word_timings: [{ text: 'வணக்கம்', start_ms: 0, end_ms: 400 }],
+      voice_plan: voicePlan,
+    });
+
     const response = await app().request(`/v1/videos/${videoId}`);
     expect(response.status).toBe(200);
 
@@ -136,6 +215,24 @@ describe('GET /v1/videos/:id (Postgres)', () => {
       error: null,
       videoUrl: `${BASE}/files/ws/${workspaceId}/videos/${videoId}/render-1080p-30-standard.mp4`,
       editorUrl: `${BASE}/editor?id=${videoId}`,
+      scenes: [
+        {
+          id: expect.any(String),
+          idx: 0,
+          text: 'தமிழ் முதல் காட்சி',
+          imageUrl: `${BASE}/files/ws/${workspaceId}/images/first.png`,
+          startMs: 0,
+          endMs: 1_200,
+        },
+        {
+          id: expect.any(String),
+          idx: 1,
+          text: 'இரண்டாவது காட்சி',
+          startMs: 1_200,
+          endMs: 2_400,
+        },
+      ],
+      voicePlan,
     });
     expect(body.createdAt.endsWith('Z')).toBe(true);
     expect(body.updatedAt.endsWith('Z')).toBe(true);
