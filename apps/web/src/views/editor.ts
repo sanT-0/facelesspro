@@ -2,16 +2,33 @@
  * Editor view — inspect a video project.
  *
  * Shows the scene list with script text and duration, the narration voice plan
- * (which runs went to Tamil vs English), and the render panel.
+ * (which runs went to Tamil vs English), the stored caption cues with a sidecar
+ * preview/download for each format, and the render panel.
  * Fetches video details from GET /v1/videos/:id.
  *
  * Redraw and selective re-narrate are deliberately absent: neither route
  * exists yet, and a button that cannot work is worse than no button.
  */
 
-import { getVideo, renderVideo, type Video } from '../api';
+import {
+  getCaptionDocument,
+  getCaptionSidecar,
+  getVideo,
+  renderVideo,
+  type CaptionDocument,
+  type CaptionSidecarFormat,
+  type Video,
+} from '../api';
 import { loadSession } from '../session';
 import { bindChrome, escapeHtml, headerHtml } from '../ui';
+
+const CAPTION_FORMATS: readonly CaptionSidecarFormat[] = ['srt', 'vtt', 'ass', 'json'];
+
+function formatCaptionTime(milliseconds: number): string {
+  const minutes = Math.floor(milliseconds / 60_000);
+  const seconds = ((milliseconds % 60_000) / 1000).toFixed(1).padStart(4, '0');
+  return `${minutes}:${seconds}`;
+}
 
 export async function renderEditor(params: Record<string, string>): Promise<HTMLElement> {
   const videoId = params.id!;
@@ -43,6 +60,13 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <h2 class="card-title">Voice plan</h2>
         <div id="voice-plan" class="mt-2">
           <div class="text-muted">No narration yet.</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Captions</h2>
+        <div id="captions-panel" class="mt-2">
+          <div class="text-muted">Loading captions…</div>
         </div>
       </section>
 
@@ -83,6 +107,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
   const editorStatus = container.querySelector('#editor-status')!;
   const scenesList = container.querySelector('#scenes-list') as HTMLElement;
   const voicePlanEl = container.querySelector('#voice-plan') as HTMLElement;
+  const captionsPanel = container.querySelector('#captions-panel') as HTMLElement;
   const renderBtn = container.querySelector('#render-btn') as HTMLButtonElement;
   const renderResult = container.querySelector('#render-result') as HTMLDivElement;
 
@@ -92,6 +117,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     try {
       video = await getVideo(videoId);
       renderVideoDetails(video);
+      await loadCaptions();
     } catch (err) {
       editorStatus.innerHTML = `<span style="color:var(--color-danger);">Failed to load: ${(err as Error).message}</span>`;
     }
@@ -151,6 +177,79 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <span>${plan.overrides.length} override${plan.overrides.length === 1 ? '' : 's'}</span>
       </div>
     `;
+  }
+
+  async function loadCaptions(): Promise<void> {
+    try {
+      const document = await getCaptionDocument(videoId);
+      renderCaptionCues(document);
+    } catch (err) {
+      if ((err as { status?: number }).status === 404) {
+        captionsPanel.innerHTML =
+          '<div class="text-muted">Captions are not ready yet.</div>';
+        return;
+      }
+      captionsPanel.innerHTML = `<div style="color:var(--color-danger);">Failed to load captions: ${escapeHtml((err as Error).message)}</div>`;
+    }
+  }
+
+  function renderCaptionCues(document: CaptionDocument): void {
+    captionsPanel.innerHTML = `
+      <div class="caption-cues">
+        ${document.cues.map((cue) => `
+          <div class="caption-cue">
+            <div class="caption-time">${formatCaptionTime(cue.startMs)} → ${formatCaptionTime(cue.endMs)}</div>
+            <div class="caption-text">${escapeHtml(cue.lines.join(' '))}</div>
+          </div>
+        `).join('')}
+      </div>
+      <div class="caption-actions mt-2">
+        ${CAPTION_FORMATS.map((format) => `
+          <button class="btn btn-secondary" type="button" data-caption-format="${format}">${format.toUpperCase()}</button>
+        `).join('')}
+      </div>
+      <div id="caption-raw-wrap" class="mt-2" hidden>
+        <div class="caption-raw-head">
+          <span class="form-label" id="caption-raw-name"></span>
+          <a class="btn btn-secondary" id="caption-download" download>Download</a>
+        </div>
+        <pre class="caption-raw" id="caption-raw"></pre>
+      </div>
+    `;
+
+    const rawWrap = captionsPanel.querySelector('#caption-raw-wrap') as HTMLElement;
+    const raw = captionsPanel.querySelector('#caption-raw') as HTMLElement;
+    const rawName = captionsPanel.querySelector('#caption-raw-name') as HTMLElement;
+    const download = captionsPanel.querySelector('#caption-download') as HTMLAnchorElement;
+    let downloadUrl: string | null = null;
+
+    captionsPanel
+      .querySelectorAll<HTMLButtonElement>('[data-caption-format]')
+      .forEach((button) => {
+        button.addEventListener('click', async () => {
+          const format = button.dataset.captionFormat as CaptionSidecarFormat;
+          button.disabled = true;
+          try {
+            const sidecar = await getCaptionSidecar(videoId, format);
+            rawWrap.hidden = false;
+            rawName.textContent = `${format.toUpperCase()} · ${sidecar.mime}`;
+            raw.textContent = sidecar.contents;
+
+            if (downloadUrl !== null) URL.revokeObjectURL(downloadUrl);
+            downloadUrl = URL.createObjectURL(
+              new Blob([sidecar.contents], { type: sidecar.mime.split(';')[0] }),
+            );
+            download.href = downloadUrl;
+            download.download = `captions.${format}`;
+          } catch (err) {
+            rawWrap.hidden = false;
+            rawName.textContent = `${format.toUpperCase()} · failed`;
+            raw.textContent = (err as Error).message;
+          } finally {
+            button.disabled = false;
+          }
+        });
+      });
   }
 
   renderBtn.addEventListener('click', async () => {

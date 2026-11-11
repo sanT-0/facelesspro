@@ -479,6 +479,53 @@ a:hover {
   color: var(--color-text);
 }
 
+/* Caption inspector */
+
+.caption-cues {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.caption-cue {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.5rem;
+}
+
+.caption-time {
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.caption-text {
+  font-size: 0.875rem;
+  color: var(--color-text);
+}
+
+.caption-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.caption-raw-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.caption-raw {
+  margin-top: 0.5rem;
+  padding: 0.75rem;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  white-space: pre-wrap;
+  overflow-x: auto;
+}
+
 /* Pricing */
 
 .pricing-grid {

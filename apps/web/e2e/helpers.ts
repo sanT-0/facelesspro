@@ -31,6 +31,8 @@ export interface FakeApiOptions {
   readonly completeAfter?: number;
   /** Video status returned for the create response. */
   readonly createStatus?: string;
+  /** Whether the caption track exists; default true. */
+  readonly captions?: boolean;
 }
 
 export interface FakeApi {
@@ -107,6 +109,53 @@ const VOICE_PLAN = {
   ],
   overrides: [],
   pair: null,
+};
+
+const CAPTION_DOCUMENT = {
+  version: 1,
+  durationMs: 6400,
+  cues: [
+    {
+      index: 1,
+      startMs: 0,
+      endMs: 3200,
+      lines: ['தமிழ் முதல் காட்சி'],
+      words: [
+        { text: 'தமிழ்', startMs: 0, endMs: 1000 },
+        { text: 'முதல்', startMs: 1000, endMs: 2000 },
+        { text: 'காட்சி', startMs: 2000, endMs: 3200 },
+      ],
+    },
+    {
+      index: 2,
+      startMs: 3200,
+      endMs: 6400,
+      lines: ['இரண்டாவது காட்சி'],
+      words: [
+        { text: 'இரண்டாவது', startMs: 3200, endMs: 4800 },
+        { text: 'காட்சி', startMs: 4800, endMs: 6400 },
+      ],
+    },
+  ],
+};
+
+const CAPTION_SIDECARS: Record<string, { mime: string; body: string }> = {
+  srt: {
+    mime: 'application/x-subrip; charset=utf-8',
+    body: '1\n00:00:00,000 --> 00:00:03,200\nதமிழ் முதல் காட்சி\n\n2\n00:00:03,200 --> 00:00:06,400\nஇரண்டாவது காட்சி\n',
+  },
+  vtt: {
+    mime: 'text/vtt; charset=utf-8',
+    body: 'WEBVTT\n\n00:00:00.000 --> 00:00:03.200\nதமிழ் முதல் காட்சி\n',
+  },
+  ass: {
+    mime: 'text/x-ssa; charset=utf-8',
+    body: '[Script Info]\nPlayResX: 1920\nPlayResY: 1080\n',
+  },
+  json: {
+    mime: 'application/json; charset=utf-8',
+    body: JSON.stringify(CAPTION_DOCUMENT),
+  },
 };
 
 export async function installFakeApi(
@@ -200,6 +249,29 @@ export async function installFakeApi(
     if (method === 'GET' && path === `/v1/videos/${VIDEO_ID}`) {
       videoReads += 1;
       await json(route, 200, video(videoReads >= completeAfter ? 'completed' : 'processing'));
+      return;
+    }
+
+    if (method === 'GET' && path === `/v1/videos/${VIDEO_ID}/captions`) {
+      if (options.captions === false) {
+        await json(route, 404, {
+          error: { code: 'not_found', message: 'captions not available' },
+        });
+        return;
+      }
+      const format = new URL(request.url()).searchParams.get('format') ?? 'srt';
+      const sidecar = CAPTION_SIDECARS[format];
+      if (sidecar === undefined) {
+        await json(route, 400, {
+          error: { code: 'invalid_request', message: 'format must be srt, vtt, ass or json', field: 'format' },
+        });
+        return;
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: sidecar.mime,
+        body: sidecar.body,
+      });
       return;
     }
 

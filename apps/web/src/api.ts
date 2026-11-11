@@ -343,6 +343,52 @@ export async function getCaptionTemplates(): Promise<CaptionTemplate[]> {
   ).then((r) => r.templates);
 }
 
+export type CaptionSidecarFormat = 'srt' | 'vtt' | 'ass' | 'json';
+
+export interface CaptionCue {
+  index: number;
+  startMs: number;
+  endMs: number;
+  lines: string[];
+  words: Array<{ text: string; startMs: number; endMs: number }>;
+  emoji?: string;
+}
+
+/** Versioned `captions.json` document (docs/07 §2.4). */
+export interface CaptionDocument {
+  version: 1;
+  durationMs: number;
+  cues: CaptionCue[];
+}
+
+export async function getCaptionDocument(id: string): Promise<CaptionDocument> {
+  return apiJson<CaptionDocument>(
+    `/videos/${encodeURIComponent(id)}/captions?format=json`,
+  );
+}
+
+/** One sidecar as text, for previewing or downloading. */
+export async function getCaptionSidecar(
+  id: string,
+  format: CaptionSidecarFormat,
+): Promise<{ contents: string; mime: string }> {
+  const res = await apiRequest(
+    `/videos/${encodeURIComponent(id)}/captions?format=${format}`,
+  );
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    const err = new Error(
+      `API ${res.status}: ${errText || res.statusText}`,
+    ) as Error & { status?: number };
+    err.status = res.status;
+    throw err;
+  }
+  return {
+    contents: await res.text(),
+    mime: res.headers.get('content-type') ?? 'text/plain',
+  };
+}
+
 export async function uploadFile(file: File): Promise<{
   key: string;
   url: string;
