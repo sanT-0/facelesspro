@@ -83,13 +83,29 @@ interface StoredToken extends TokenRecord {
   readonly expiresAt: number;
 }
 
+/** Hard caps so unauthenticated DCR cannot grow memory without limit. */
+const DEFAULT_MAX_CLIENTS = 10_000;
+const DEFAULT_MAX_CODES = 10_000;
+const DEFAULT_MAX_TOKENS = 100_000;
+
 export interface MemoryOAuthStoreOptions {
   /** Injectable clock (Unix epoch ms). Defaults to `Date.now`. */
   readonly now?: () => number;
+  /** Maximum registered clients; the oldest is evicted past this. */
+  readonly maxClients?: number;
+  /** Maximum live authorization codes; the oldest is evicted past this. */
+  readonly maxCodes?: number;
+  /** Maximum access tokens and, separately, refresh tokens. */
+  readonly maxTokens?: number;
 }
 
 /**
  * Single-process OAuth store. Not shared between replicas; see the file note.
+ *
+ * Expired codes and tokens are swept on every write, and each map has a cap.
+ * When a cap is reached the oldest entry is evicted: a client can cheaply
+ * re-register, and an issued token stays valid until it is evicted or expires,
+ * so eviction never leaves a half-broken session.
  */
 export class MemoryOAuthStore implements OAuthStore {
   private readonly clients = new Map<string, RegisteredClient>();
@@ -97,12 +113,21 @@ export class MemoryOAuthStore implements OAuthStore {
   private readonly accessTokens = new Map<string, StoredToken>();
   private readonly refreshTokens = new Map<string, StoredToken>();
   private readonly now: () => number;
+  private readonly maxClients: number;
+  private readonly maxCodes: number;
+  private readonly maxTokens: number;
 
   constructor(options: MemoryOAuthStoreOptions = {}) {
     this.now = options.now ?? Date.now;
+    this.maxClients = options.maxClients ?? DEFAULT_MAX_CLIENTS;
+    this.maxCodes = options.maxCodes ?? DEFAULT_MAX_CODES;
+    this.maxTokens = options.maxTokens ?? DEFAULT_MAX_TOKENS;
   }
 
   async registerClient(input: RegisteredClient): Promise<void> {
+    if (!this.clients.has(input.clientId)) {
+      this.makeRoom(this.clients, this.maxClients);
+    }
     this.clients.set(input.clientId, {
       clientId: input.clientId,
       redirectUris: [...input.redirectUris],
@@ -114,6 +139,8 @@ export class MemoryOAuthStore implements OAuthStore {
   }
 
   async createAuthorizationCode(input: AuthorizationCodeRecord): Promise<void> {
+    this.pruneExpired();
+    this.makeRoom(this.codes, this.maxCodes);
     this.codes.set(input.code, { ...input });
   }
 
@@ -136,6 +163,10 @@ export class MemoryOAuthStore implements OAuthStore {
   }
 
   async createTokens(input: CreateTokensInput): Promise<void> {
+    this.pruneExpired();
+    this.makeRoom(this.accessTokens, this.maxTokens);
+    this.makeRoom(this.refreshTokens, this.maxTokens);
+
     const base: TokenRecord = {
       sessionId: input.sessionId,
       workspaceId: input.workspaceId,
@@ -196,5 +227,28 @@ export class MemoryOAuthStore implements OAuthStore {
       workspaceId: stored.workspaceId,
       apiKey: stored.apiKey,
     };
+  }
+
+  /** Keep a map below its cap by dropping the oldest insertion. */
+  private makeRoom<T>(map: Map<string, T>, max: number): void {
+    while (map.size >= max) {
+      const oldest = map.keys().next();
+      if (oldest.done === true) return;
+      map.delete(oldest.value);
+    }
+  }
+
+  /** Drop expired codes and tokens. Called on writes, so memory tracks use. */
+  private pruneExpired(): void {
+    const at = this.now();
+    for (const [key, code] of this.codes) {
+      if (code.expiresAt <= at) this.codes.delete(key);
+    }
+    for (const [key, token] of this.accessTokens) {
+      if (token.expiresAt <= at) this.accessTokens.delete(key);
+    }
+    for (const [key, token] of this.refreshTokens) {
+      if (token.expiresAt <= at) this.refreshTokens.delete(key);
+    }
   }
 }

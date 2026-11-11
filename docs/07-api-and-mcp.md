@@ -279,6 +279,9 @@ POST /oauth/revoke                                RFC 7009, both halves die toge
   not maintain its own key list.
 - OAuth state (clients, codes, tokens) is **in memory** for now. A restart invalidates
   it; clients re-run DCR + consent. Postgres persistence is a follow-up.
+- The in-memory store is bounded: expired codes and tokens are swept on every write,
+  and the client/code/token maps evict their oldest entry at 10k/10k/100k
+  (configurable). Unauthenticated DCR therefore cannot grow memory without limit.
 
 
 ### 4.4 Example

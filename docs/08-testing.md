@@ -298,6 +298,7 @@ the suite never asserts a control the product cannot honour.
 |---|---|
 | `oauth.test.ts` | DCR redirect allow-list, consent requires a workspace API key, S256 PKCE, single-use codes, `code_verifier` mismatch burns the code, refresh rotation, revoke-by-session, `at_` resolution on `/mcp`, and that tool calls forward the underlying `vp_` key rather than the OAuth token |
 | `oauth-gate.test.ts` | the same flow end to end against the running Hono app with an in-memory store: register → consent (state echoed) → code (10 min) → token (12 h) → refresh (90 d) → revoke, plus access-token expiry, cross-client code rejection and the static-bearer fallback |
+| `store.test.ts` | client/code/token caps evict the oldest entry, re-registering an existing client evicts nothing, and below-cap entries survive |
 
 Both suites stub the outbound `fetch`, so no API, Postgres, Redis or network is needed.
 `main.ts` is the only place that turns a `vp_` key into a workspace, via
