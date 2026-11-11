@@ -106,6 +106,7 @@ monotonic, gap-respecting, non-overlapping timeline.
 | `image.test.ts` | image adapter vocabulary pinned; capabilities require unique non-empty sizes, profile styling and caller seed; request requires final prompt, negative, seed, size and valid `StyleProfile`; generated result requires non-empty PNG bytes, provenance, ≤4096 geometry and orientation matching `landscape|portrait`; unknown keys rejected |
 | `art-style.test.ts` | request side: formats default to `["landscape"]`, `published` defaults false, empty/unknown formats and unknown keys rejected, only `status: "building"` accepted on create. Response side: a list entry requires `previewUrl`, non-empty `formats` and echoes `status`; a full `StyleProfile` round-trips through the export document and a profile missing `source` or a `version ≠ 1` is rejected |
 | `responses.test.ts` | caption-template responses accept negative built-in and positive custom IDs but reject reserved ID `0`; strict caption JSON v1 accepts raw timed lines/words + one-cluster emoji, rejects unknown/path fields, newline/multi-emoji content, non-sequential indexes, cue overlap and a duration that differs from the last cue end |
+| `plans.test.ts` | every `PLAN_DEFINITIONS` entry parses through `planSchema`; the catalog covers each `planIdSchema` member exactly once in display order and `PLANS` follows that order; `selfhost` has `null` minutes/credits while every paid tier is numeric; `planFor` resolves and rejects an unknown id |
 
 Because these schemas are the single shape source, a red contract test blocks api, worker, web
 and mcp at once — that is the point.
@@ -286,7 +287,8 @@ or the editor's inspector will lie.
 | Playwright `sign-in.spec` | a protected page redirects to `/sign-in`; a rejected key leaves nothing in localStorage; a valid key is stored, survives reload, and the studio opens |
 | Playwright `studio.spec` | Tamil script survives the form byte-for-byte; the create body carries `artStyleId`/`size`/`speed`/`captions`; the job view polls processing → completed and exposes the download href; the flow fits 375 px with no horizontal overflow (`@mobile`) |
 | Playwright `editor.spec` | scenes from `GET /v1/videos/:id` render; the voice plan lists each run's language, text and voice plus its run/override counts; the render panel posts the selected `{resolution, frameRate, format}` to `POST /v1/videos/:id/render` |
-| Playwright `a11y.spec` | axe reports zero **critical** violations on studio and editor |
+| Playwright `a11y.spec` | axe reports zero **critical** violations on studio, editor and pricing |
+| Playwright `pricing.spec` | `/pricing` renders all six plan cards from the shared catalog without a key, shows `Unlimited` for self-hosted, states that this build ships no price list, and the header link plus signed-in CTA navigate correctly |
 
 Pending (blocked on API routes that do not exist yet): editor redraw-one-scene and
 edit-script → selective re-narrate. Those specs are written with the routes, not before, so

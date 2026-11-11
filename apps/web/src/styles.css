@@ -479,6 +479,39 @@ a:hover {
   color: var(--color-text);
 }
 
+/* Pricing */
+
+.pricing-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 1rem;
+}
+
+.plan-card {
+  margin: 0;
+}
+
+.plan-tagline {
+  font-size: 0.875rem;
+  min-height: 2.5rem;
+}
+
+.plan-limits {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin: 0;
+}
+
+.plan-limits dd {
+  margin: 0;
+}
+
+.plan-note {
+  font-size: 0.75rem;
+  margin-top: 0.75rem;
+}
+
 /* Toast notifications */
 
 .toast-container {

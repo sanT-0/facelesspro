@@ -10,6 +10,7 @@ import { Router } from './router';
 import type { ViewRender } from './router';
 import { getAuthToken } from './api';
 import { renderHome } from './views/home';
+import { renderPricing } from './views/pricing';
 import { renderSignIn } from './views/sign-in';
 import { renderKeys } from './views/keys';
 import { renderStudio } from './views/studio';
@@ -36,6 +37,7 @@ function requireAuth(render: ViewRender): ViewRender {
 
 // Public routes.
 router.add({ path: '/', render: renderHome, exact: true });
+router.add({ path: '/pricing', render: renderPricing, exact: true });
 router.add({ path: '/sign-in', render: renderSignIn, exact: true });
 
 // Workspace routes.

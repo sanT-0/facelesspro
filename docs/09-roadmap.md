@@ -578,10 +578,12 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
 - [ ] Editor: scene list, redraw, script edit → selective re-narrate, caption style preview,
       waveform timeline, render panel. Scene list + render panel are done; the rest need new
       API routes.
-- [ ] Voice-plan inspector (which runs went to which voice + override).
+- [x] Voice-plan inspector (which runs went to which voice + override). The plan is returned by
+      `GET /v1/videos/:id` and rendered in the editor with per-run language, text and voice.
 - [x] Downloads + share link.
-- [ ] Pricing page (the landing page shows the signed-in plan and credits; a public pricing
-      table is still missing).
+- [x] Pricing page (public; the plan catalog lives in `@facelesspro/contracts` so the page and the
+      API enforce the same limits; this build ships no prices because billing is
+      deployment-specific).
 
 **Gate:** Playwright studio + editor specs green; axe has no critical violations; the whole
 flow works at 375 px width. (The redraw / selective-re-narrate specs land with the API routes

@@ -29,6 +29,7 @@ export type {
   VoiceEntry,
 } from './workspaces';
 export {
+  PLAN_DEFINITIONS,
   planFor,
   PLANS,
 } from './plans';

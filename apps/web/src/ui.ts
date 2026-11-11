@@ -17,6 +17,7 @@ export interface HeaderOptions {
 
 const LINKS: ReadonlyArray<{ path: string; label: string }> = [
   { path: '/', label: 'Home' },
+  { path: '/pricing', label: 'Pricing' },
   { path: '/studio', label: 'Create Video' },
   { path: '/keys', label: 'API Keys' },
 ];
