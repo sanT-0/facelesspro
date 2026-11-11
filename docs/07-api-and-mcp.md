@@ -254,7 +254,7 @@ list_languages             read    narration languages + whether a mixed pair ex
 GET  /.well-known/oauth-protected-resource        RFC 9728
 GET  /.well-known/oauth-authorization-server      RFC 8414
 POST /oauth/register                              RFC 7591 DCR, no secret, https or localhost redirect
-GET  /oauth/authorize                             consent + workspace pick, PKCE S256 required
+GET  /oauth/authorize                             consent (workspace API key), PKCE S256 required
 POST /oauth/token                                 code → access (12 h) + refresh (90 d, rotating)
 POST /oauth/revoke                                RFC 7009, both halves die together
 ```
@@ -262,7 +262,24 @@ POST /oauth/revoke                                RFC 7009, both halves die toge
 - `401` on `/mcp` includes
   `WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource"`.
 - Static-header clients may send `Authorization: Bearer vp_…` instead of OAuth.
-- Token scope = one workspace, chosen at consent.
+- **Consent proves the workspace with an API key.** The consent form asks for a
+  `vp_…` key; the MCP server validates it through the API (`GET /v1/workspace`) and
+  stores the workspace id from the response. A client-supplied workspace id is never
+  trusted, and there is no workspace picker.
+- **Token scope = one workspace.** The pair records the validated `vp_…` key; a tool
+  call forwards that key to `/v1`, never the `at_…` token.
+- Authorization codes are server-generated, single-use and expire in 10 minutes.
+  A failed PKCE check burns the code.
+- PKCE is S256 only; `code_challenge` is required on authorize and `code_verifier`
+  is required on exchange. The verifier is compared in constant time.
+- Refresh rotation replaces the whole session: the old access token dies with the
+  old refresh token.
+- Revocation by either the access or refresh token kills the session's other half.
+- Static `vp_…` keys are validated against `GET /v1/workspace`; the MCP server does
+  not maintain its own key list.
+- OAuth state (clients, codes, tokens) is **in memory** for now. A restart invalidates
+  it; clients re-run DCR + consent. Postgres persistence is a follow-up.
+
 
 ### 4.4 Example
 

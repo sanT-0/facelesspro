@@ -21,7 +21,8 @@ export type JsonRpcRequest = z.infer<typeof jsonRpcRequestSchema>;
 
 export const jsonRpcResponseSchema = z.strictObject({
   jsonrpc: jsonrpcSchema,
-  id: z.union([z.string(), z.number()]),
+  // JSON-RPC 2.0: an error raised before the request id is known uses `null`.
+  id: z.union([z.string(), z.number(), z.null()]),
   result: z.unknown().optional(),
   error: z
     .strictObject({

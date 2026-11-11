@@ -3,40 +3,47 @@
  *
  * Starts the MCP server over Streamable HTTP. The server makes internal HTTP
  * calls to the API server's `/v1` routes to execute tools.
+ *
+ * Auth is delegated to the API: a `vp_` key is only accepted if
+ * `GET /v1/workspace` answers with that key's workspace. Both the static
+ * bearer path and OAuth consent use this same check, so the MCP server never
+ * has its own notion of which tokens are valid.
  */
 
-import { createDb, loadEnv } from '@facelesspro/db';
+import { workspaceSchema } from '@facelesspro/contracts';
+import { loadEnv } from '@facelesspro/db';
 import { serve } from '@hono/node-server';
 
 import { createMcpApp } from './server';
+import { MemoryOAuthStore } from './store';
 
 loadEnv();
 
 async function main(): Promise<void> {
   const port = Number(process.env.MCP_PORT ?? 3002);
-
-  const { db } = createDb();
+  const apiBaseUrl =
+    process.env.API_BASE_URL?.replace(/\/+$/, '') || 'http://127.0.0.1:3001';
 
   const app = createMcpApp({
-    apiBaseUrl:
-      process.env.API_BASE_URL?.replace(/\/+$/, '') || 'http://127.0.0.1:3001',
+    apiBaseUrl,
     authenticateApiKey: async (token) => {
-      // Static bearer token auth: validate against the API server's keys.
-      // In a full implementation, this would call the API server's key
-      // validation endpoint. For now, we accept any vp_ token and derive the
-      // workspace from a shared secret or a pre-registered mapping.
-      if (!token.startsWith('vp_')) return null;
-      return { workspaceId: process.env.MCP_WORKSPACE_ID ?? 'default' };
+      if (!/^vp_[0-9a-f]{40}$/.test(token)) return null;
+
+      try {
+        const response = await fetch(`${apiBaseUrl}/v1/workspace`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        if (!response.ok) return null;
+
+        const parsed = workspaceSchema.safeParse(await response.json());
+        if (!parsed.success) return null;
+        return { workspaceId: parsed.data.id };
+      } catch {
+        // API unreachable: fail closed, never invent a workspace.
+        return null;
+      }
     },
-    db,
-    findClient: async () => null,
-    createAuthorizationCode: async () => {},
-    readAuthorizationCode: async () => null,
-    deleteAuthorizationCode: async () => {},
-    readRefreshToken: async () => null,
-    deleteRefreshToken: async () => {},
-    createTokens: async () => {},
-    revokeToken: async () => {},
+    oauth: new MemoryOAuthStore(),
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {

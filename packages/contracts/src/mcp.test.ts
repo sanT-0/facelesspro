@@ -97,6 +97,13 @@ describe('MCP contracts', () => {
       error: { code: -32601, message: 'Method not found' },
     });
     expect(error.error?.code).toBe(-32601);
+
+    const parseError = jsonRpcResponseSchema.parse({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32700, message: 'Parse error' },
+    });
+    expect(parseError.id).toBeNull();
   });
 
   it('validates tool list result', () => {

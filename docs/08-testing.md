@@ -292,6 +292,18 @@ Pending (blocked on API routes that do not exist yet): editor redraw-one-scene a
 edit-script → selective re-narrate. Those specs are written with the routes, not before, so
 the suite never asserts a control the product cannot honour.
 
+### 3.11 `apps/mcp`
+
+| Test | Asserts |
+|---|---|
+| `oauth.test.ts` | DCR redirect allow-list, consent requires a workspace API key, S256 PKCE, single-use codes, `code_verifier` mismatch burns the code, refresh rotation, revoke-by-session, `at_` resolution on `/mcp`, and that tool calls forward the underlying `vp_` key rather than the OAuth token |
+| `oauth-gate.test.ts` | the same flow end to end against the running Hono app with an in-memory store: register → consent (state echoed) → code (10 min) → token (12 h) → refresh (90 d) → revoke, plus access-token expiry, cross-client code rejection and the static-bearer fallback |
+
+Both suites stub the outbound `fetch`, so no API, Postgres, Redis or network is needed.
+`main.ts` is the only place that turns a `vp_` key into a workspace, via
+`GET /v1/workspace`; that adapter is intentionally not unit-tested and is the thing a
+live gate must exercise.
+
 ---
 
 ## 4. Fakes
