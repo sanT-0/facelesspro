@@ -100,6 +100,7 @@ function appWith(options: {
     readVideo,
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
+    readVideoNarrationKey: async () => null,
     readVideoCaptions,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),

@@ -71,6 +71,7 @@ function appWith(
     readVideoScenes: async () => artifacts.scenes ?? [],
     readVideoVoicePlan: async () => artifacts.voicePlan ?? null,
     readVideoCaptions: async () => null,
+    readVideoNarrationKey: async () => artifacts.narrationKey ?? null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(workspaceId),
@@ -128,7 +129,7 @@ describe('GET /v1/videos/:id', () => {
     });
   });
 
-  it('returns scenes with public still URLs and the stored voice plan', async () => {
+  it('returns scenes, the voice plan and the narration URL', async () => {
     const scene = (idx: number, imageAssetId: string | null) => ({
       id: `aaaaaaaa-aaaa-4aaa-8aaa-00000000000${idx}`,
       video_id: VIDEO_ID,
@@ -155,12 +156,14 @@ describe('GET /v1/videos/:id', () => {
         overrides: [],
         pair: null,
       },
+      narrationKey: `ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/audio/narration.mp3`,
     }).request(`/v1/videos/${VIDEO_ID}`);
 
     expect(response.status).toBe(200);
     const parsed = (await response.json()) as {
       scenes: unknown[];
       voicePlan: unknown;
+      narrationUrl: unknown;
     };
     expect(parsed.scenes).toEqual([
       {
@@ -185,9 +188,12 @@ describe('GET /v1/videos/:id', () => {
         { text: 'Today fire!', lang: 'en' },
       ],
     });
+    expect(parsed.narrationUrl).toBe(
+      `${BASE}/files/ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/audio/narration.mp3`,
+    );
   });
 
-  it('omits scenes and the voice plan until the steps commit', async () => {
+  it('omits scenes, the voice plan and the narration URL until the steps commit', async () => {
     const response = await appWith(async () =>
       row({ status: 'processing', step: 'create-vocal', video_url: null, duration_ms: null }),
     ).request(`/v1/videos/${VIDEO_ID}`);
@@ -196,6 +202,7 @@ describe('GET /v1/videos/:id', () => {
     const parsed = await response.json();
     expect(parsed).not.toHaveProperty('scenes');
     expect(parsed).not.toHaveProperty('voicePlan');
+    expect(parsed).not.toHaveProperty('narrationUrl');
   });
 
   it('keeps a failed step as the resume point and returns its error', async () => {

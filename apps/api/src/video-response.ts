@@ -62,6 +62,8 @@ export interface VideoArtifacts {
     readonly imageKey: string | null;
   }[];
   readonly voicePlan?: NarrationPlan;
+  /** Storage key of the narration master, once `create-vocal` has committed. */
+  readonly narrationKey?: string;
 }
 
 export function toVideoResponse(
@@ -102,6 +104,9 @@ export function toVideoResponse(
     step: row.step ?? null,
     render: renderRequested(row),
     ...(key === null ? {} : { videoUrl: absoluteFileUrl(key, base) }),
+    ...(artifacts.narrationKey === undefined
+      ? {}
+      : { narrationUrl: absoluteFileUrl(artifacts.narrationKey, base) }),
     ...(row.duration_ms === null || row.duration_ms === undefined
       ? {}
       : { durationMs: row.duration_ms }),

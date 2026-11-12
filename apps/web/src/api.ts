@@ -117,6 +117,8 @@ export interface Video {
     overrides: Array<{ start: number; end: number; lang: 'ta' | 'en' }>;
     pair: string | null;
   };
+  /** Public narration master, present once `create-vocal` has committed. */
+  narrationUrl?: string;
 }
 
 export async function getVideo(id: string): Promise<Video> {

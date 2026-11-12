@@ -103,6 +103,30 @@ export async function readVideoVoicePlan(
 }
 
 /**
+ * Storage key of one video's narration master, or `null` before
+ * `create-vocal` has committed. The key is relative to `DATA_DIR`; the route
+ * turns it into `<base>/files/<key>`. Workspace scoping is part of the join so
+ * a foreign UUID is indistinguishable from a video without narration.
+ */
+export async function readVideoNarrationKey(
+  db: Database,
+  workspaceId: string,
+  videoId: string,
+): Promise<string | null> {
+  const rows = await db
+    .select({ key: asset.key })
+    .from(narration)
+    .innerJoin(video, eq(video.id, narration.video_id))
+    .innerJoin(asset, eq(asset.id, narration.asset_id))
+    .where(
+      and(eq(narration.video_id, videoId), eq(video.workspace_id, workspaceId)),
+    )
+    .limit(1);
+
+  return rows[0]?.key ?? null;
+}
+
+/**
  * The stored caption cue track for one video inside a workspace, or `null`
  * before `create-captions` has committed. One track per video, so the primary
  * key is the video id and there is nothing to order.

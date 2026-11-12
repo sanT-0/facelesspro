@@ -76,6 +76,8 @@ export const videoResponseSchema = z.strictObject({
   render: z.boolean(),
   /** Public, unauthenticated, stable once completed (parity). */
   videoUrl: z.url().optional(),
+  /** Public URL of the narration master, set once `create-vocal` commits. */
+  narrationUrl: z.url().optional(),
   thumbnailUrl: z.url().optional(),
   durationMs: z.int().min(0).optional(),
   error: nestedErrorSchema.nullable().optional(),

@@ -21,6 +21,7 @@ import {
   listVideoScenes,
   narration,
   readVideoCaptions,
+  readVideoNarrationKey,
   readVideoVoicePlan,
   scene,
   video,
@@ -73,6 +74,7 @@ function app(authWorkspaceId = workspaceId) {
     readVideoScenes: (workspaceId, id) => listVideoScenes(db, workspaceId, id),
     readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
     readVideoCaptions: (workspaceId, id) => readVideoCaptions(db, workspaceId, id),
+    readVideoNarrationKey: (workspaceId, id) => readVideoNarrationKey(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
@@ -236,6 +238,7 @@ describe('GET /v1/videos/:id (Postgres)', () => {
       error: null,
       videoUrl: `${BASE}/files/ws/${workspaceId}/videos/${videoId}/render-1080p-30-standard.mp4`,
       editorUrl: `${BASE}/editor?id=${videoId}`,
+      narrationUrl: `${BASE}/files/ws/${workspaceId}/audio/voice.mp3`,
       scenes: [
         {
           id: expect.any(String),

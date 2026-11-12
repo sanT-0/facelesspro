@@ -50,6 +50,38 @@ test('editor lists scenes, voice plan and captions, then queues a render', async
   await expect(page.getByText('2160p · 60 fps · greenscreen')).toBeVisible();
 });
 
+test('editor draws the narration waveform and scrubs the playhead', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  const canvas = page.locator('#waveform');
+  await expect(canvas).toBeVisible();
+  await expect(canvas).toHaveAttribute('data-ready', 'true');
+
+  // A real decode + draw leaves blue waveform pixels, not just the dark canvas.
+  const waveformPixels = await canvas.evaluate((element) => {
+    const target = element as HTMLCanvasElement;
+    const data = target
+      .getContext('2d')!
+      .getImageData(0, 0, target.width, target.height).data;
+    let painted = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      if ((data[i + 1] ?? 0) > 80) painted += 1;
+    }
+    return painted;
+  });
+  expect(waveformPixels).toBeGreaterThan(500);
+
+  const box = await canvas.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.click(box!.x + box!.width / 2, box!.y + box!.height / 2);
+
+  // 6.4 s fixture: the midpoint is 3.2 s.
+  await expect(page.locator('#playhead-time')).toHaveText('0:03.2');
+});
+
 test('editor says when the caption track is not ready yet', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1, captions: false });
   await signInAs(page, API_KEY);

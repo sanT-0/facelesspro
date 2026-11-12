@@ -139,8 +139,45 @@ const CAPTION_DOCUMENT = {
   ],
 };
 
-const CAPTION_SIDECARS: Record<string, { mime: string; body: string }> = {
-  srt: {
+export const NARRATION_URL = `/files/ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/audio/narration.wav`;
+export const NARRATION_DURATION_MS = 6400;
+
+/**
+ * A real 16-bit PCM WAV, so the editor's `decodeAudioData` path runs instead of
+ * being stubbed. The amplitude is modulated so the drawn envelope is not a
+ * flat block a blank canvas could accidentally match.
+ */
+function buildNarrationWav(): Buffer {
+  const sampleRate = 8_000;
+  const sampleCount = Math.round((NARRATION_DURATION_MS / 1000) * sampleRate);
+  const dataSize = sampleCount * 2;
+  const buffer = Buffer.alloc(44 + dataSize);
+
+  buffer.write('RIFF', 0);
+  buffer.writeUInt32LE(36 + dataSize, 4);
+  buffer.write('WAVE', 8);
+  buffer.write('fmt ', 12);
+  buffer.writeUInt32LE(16, 16);
+  buffer.writeUInt16LE(1, 20); // PCM
+  buffer.writeUInt16LE(1, 22); // mono
+  buffer.writeUInt32LE(sampleRate, 24);
+  buffer.writeUInt32LE(sampleRate * 2, 28);
+  buffer.writeUInt16LE(2, 32);
+  buffer.writeUInt16LE(16, 34);
+  buffer.write('data', 36);
+  buffer.writeUInt32LE(dataSize, 40);
+
+  for (let i = 0; i < sampleCount; i += 1) {
+    const seconds = i / sampleRate;
+    const envelope = 0.25 + 0.2 * Math.sin(2 * Math.PI * 1.5 * seconds);
+    const sample = Math.sin(2 * Math.PI * 220 * seconds) * envelope;
+    buffer.writeInt16LE(Math.round(sample * 32767), 44 + i * 2);
+  }
+
+  return buffer;
+}
+
+const CAPTION_SIDECARS: Record<string, { mime: string; body: string }> = {  srt: {
     mime: 'application/x-subrip; charset=utf-8',
     body: '1\n00:00:00,000 --> 00:00:03,200\nதமிழ் முதல் காட்சி\n\n2\n00:00:03,200 --> 00:00:06,400\nஇரண்டாவது காட்சி\n',
   },
@@ -179,12 +216,26 @@ export async function installFakeApi(
           durationMs: 6400,
           scenes: SCENES,
           voicePlan: VOICE_PLAN,
+          narrationUrl: NARRATION_URL,
         }
       : {}),
     error: null,
     editorUrl: `http://127.0.0.1:3103/editor?id=${VIDEO_ID}`,
     createdAt: CREATED_AT,
     updatedAt: UPDATED_AT,
+  });
+
+  await page.route('**/files/**', async (route) => {
+    const path = new URL(route.request().url()).pathname;
+    if (path === NARRATION_URL) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'audio/wav',
+        body: buildNarrationWav(),
+      });
+      return;
+    }
+    await route.fulfill({ status: 404, body: '' });
   });
 
   await page.route(/\/v1\//, async (route) => {

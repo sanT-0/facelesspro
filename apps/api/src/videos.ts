@@ -104,6 +104,11 @@ export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
     workspaceId: string,
     id: string,
   ) => Promise<NarrationPlan | null>;
+  /** Storage key of the narration master, or `null` before `create-vocal` commits. */
+  readonly readVideoNarrationKey: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<string | null>;
   /** The stored cue track, or `null` before `create-captions` commits. */
   readonly readVideoCaptions: (
     workspaceId: string,
@@ -180,14 +185,16 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
     }
 
     const workspaceId = c.get('workspaceId');
-    const [scenes, voicePlan] = await Promise.all([
+    const [scenes, voicePlan, narrationKey] = await Promise.all([
       deps.readVideoScenes(workspaceId, id),
       deps.readVideoVoicePlan(workspaceId, id),
+      deps.readVideoNarrationKey(workspaceId, id),
     ]);
 
     const mapped = mapStoredVideo(stored, base, {
       scenes,
       ...(voicePlan === null ? {} : { voicePlan }),
+      ...(narrationKey === null ? {} : { narrationKey }),
     });
     if (!mapped.ok) return c.json(apiError('internal', mapped.message), 500);
     return c.json(mapped.body, 200);

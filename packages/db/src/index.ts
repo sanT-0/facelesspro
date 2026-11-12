@@ -55,6 +55,7 @@ export {
   insertVideo,
   listVideoScenes,
   readVideoCaptions,
+  readVideoNarrationKey,
   readVideoVoicePlan,
 } from './videos';
 export type { VideoSceneArtifact } from './videos';

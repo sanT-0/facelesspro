@@ -1,10 +1,10 @@
 /**
  * Editor view — inspect a video project.
  *
- * Shows the scene list with script text and duration, the narration voice plan
- * (which runs went to Tamil vs English), the stored caption cues with a sidecar
- * preview/download for each format, and the render panel.
- * Fetches video details from GET /v1/videos/:id.
+ * Shows the scene list with script text and duration, a narration waveform with
+ * a scrub playhead, the voice plan (which runs went to Tamil vs English), the
+ * stored caption cues with a sidecar preview/download for each format, and the
+ * render panel. Fetches video details from GET /v1/videos/:id.
  *
  * Redraw and selective re-narrate are deliberately absent: neither route
  * exists yet, and a button that cannot work is worse than no button.
@@ -24,10 +24,76 @@ import { bindChrome, escapeHtml, headerHtml } from '../ui';
 
 const CAPTION_FORMATS: readonly CaptionSidecarFormat[] = ['srt', 'vtt', 'ass', 'json'];
 
+const WAVEFORM_WIDTH = 800;
+const WAVEFORM_HEIGHT = 96;
+
 function formatCaptionTime(milliseconds: number): string {
   const minutes = Math.floor(milliseconds / 60_000);
   const seconds = ((milliseconds % 60_000) / 1000).toFixed(1).padStart(4, '0');
   return `${minutes}:${seconds}`;
+}
+
+/** Minimal structural type so the view does not depend on a vendor-prefixed ctor. */
+type AudioContextConstructor = new () => AudioContext;
+
+function audioContextConstructor(): AudioContextConstructor | null {
+  const scoped = window as unknown as {
+    AudioContext?: AudioContextConstructor;
+    webkitAudioContext?: AudioContextConstructor;
+  };
+  return scoped.AudioContext ?? scoped.webkitAudioContext ?? null;
+}
+
+/**
+ * Draw the peak envelope of one decoded channel, plus scene boundaries, then
+ * overlay the playhead. Redrawing from the buffer (instead of compositing)
+ * keeps the waveform clean after a scrub.
+ */
+function paintWaveform(
+  canvas: HTMLCanvasElement,
+  buffer: AudioBuffer,
+  sceneStartsMs: readonly number[],
+  playheadFraction: number,
+): void {
+  const context = canvas.getContext('2d');
+  if (context === null) return;
+
+  const width = canvas.width;
+  const height = canvas.height;
+  const middle = height / 2;
+  const channel = buffer.getChannelData(0);
+  const samplesPerColumn = Math.max(1, Math.floor(channel.length / width));
+
+  context.fillStyle = '#0f172a';
+  context.fillRect(0, 0, width, height);
+
+  context.fillStyle = '#60a5fa';
+  for (let x = 0; x < width; x += 1) {
+    let peak = 0;
+    const start = x * samplesPerColumn;
+    const end = Math.min(start + samplesPerColumn, channel.length);
+    for (let i = start; i < end; i += 1) {
+      const value = Math.abs(channel[i] ?? 0);
+      if (value > peak) peak = value;
+    }
+    const barHeight = Math.max(1, Math.round(peak * (height - 8)));
+    context.fillRect(x, Math.round(middle - barHeight / 2), 1, barHeight);
+  }
+
+  // Scene boundaries: a cachet on the timeline, not a caption line-break point.
+  context.fillStyle = '#f59e0b';
+  const durationMs = buffer.duration * 1000;
+  for (const startMs of sceneStartsMs) {
+    if (startMs <= 0 || startMs >= durationMs) continue;
+    const x = Math.round((startMs / durationMs) * width);
+    context.fillRect(x, 0, 1, height);
+  }
+
+  const playheadX = Math.round(playheadFraction * width);
+  context.fillStyle = '#f8fafc';
+  context.fillRect(playheadX, 0, 2, height);
+
+  canvas.dataset.ready = 'true';
 }
 
 export async function renderEditor(params: Record<string, string>): Promise<HTMLElement> {
@@ -53,6 +119,13 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <h2 class="card-title">Scenes</h2>
         <div id="scenes-list" class="mt-2">
           <div class="text-muted">Loading scenes…</div>
+        </div>
+      </section>
+
+      <section class="card">
+        <h2 class="card-title">Timeline</h2>
+        <div id="timeline" class="mt-2">
+          <div class="text-muted">Loading narration…</div>
         </div>
       </section>
 
@@ -106,6 +179,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
 
   const editorStatus = container.querySelector('#editor-status')!;
   const scenesList = container.querySelector('#scenes-list') as HTMLElement;
+  const timelineEl = container.querySelector('#timeline') as HTMLElement;
   const voicePlanEl = container.querySelector('#voice-plan') as HTMLElement;
   const captionsPanel = container.querySelector('#captions-panel') as HTMLElement;
   const renderBtn = container.querySelector('#render-btn') as HTMLButtonElement;
@@ -117,6 +191,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     try {
       video = await getVideo(videoId);
       renderVideoDetails(video);
+      await loadTimeline();
       await loadCaptions();
     } catch (err) {
       editorStatus.innerHTML = `<span style="color:var(--color-danger);">Failed to load: ${(err as Error).message}</span>`;
@@ -177,6 +252,70 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <span>${plan.overrides.length} override${plan.overrides.length === 1 ? '' : 's'}</span>
       </div>
     `;
+  }
+
+  async function loadTimeline(): Promise<void> {
+    const url = video?.narrationUrl;
+    if (url === undefined) {
+      timelineEl.innerHTML =
+        '<div class="text-muted">Narration is not ready yet.</div>';
+      return;
+    }
+
+    timelineEl.innerHTML = `
+      <canvas id="waveform" class="waveform" width="${WAVEFORM_WIDTH}" height="${WAVEFORM_HEIGHT}"
+        tabindex="0" role="img"
+        aria-label="Narration waveform. Click or use the arrow keys to scrub."></canvas>
+      <div class="scene-meta mt-2">
+        <span id="playhead-time">0:00.0</span>
+        <span class="text-muted">Click the waveform or use the arrow keys to scrub</span>
+      </div>
+    `;
+
+    const canvas = timelineEl.querySelector('#waveform') as HTMLCanvasElement | null;
+    const label = timelineEl.querySelector('#playhead-time') as HTMLElement | null;
+    if (canvas === null || label === null) return;
+
+    try {
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`narration ${response.status}`);
+      const AudioCtor = audioContextConstructor();
+      if (AudioCtor === null) throw new Error('Web Audio is unavailable');
+      const context = new AudioCtor();
+      let buffer: AudioBuffer;
+      try {
+        buffer = await context.decodeAudioData(await response.arrayBuffer());
+      } finally {
+        void context.close();
+      }
+
+      const durationMs = Math.round(buffer.duration * 1000);
+      const sceneStarts = (video?.scenes ?? []).map((scene) => scene.startMs);
+      let fraction = 0;
+
+      const paint = (next: number): void => {
+        fraction = Math.min(Math.max(next, 0), 1);
+        paintWaveform(canvas, buffer, sceneStarts, fraction);
+        label.textContent = formatCaptionTime(Math.round(fraction * durationMs));
+      };
+
+      paint(0);
+
+      canvas.addEventListener('click', (event) => {
+        const rect = canvas.getBoundingClientRect();
+        if (rect.width === 0) return;
+        paint((event.clientX - rect.left) / rect.width);
+      });
+
+      canvas.addEventListener('keydown', (event) => {
+        if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+        event.preventDefault();
+        paint(fraction + (event.key === 'ArrowRight' ? 0.02 : -0.02));
+      });
+    } catch {
+      timelineEl.innerHTML =
+        '<div class="text-muted">Waveform unavailable.</div>';
+    }
   }
 
   async function loadCaptions(): Promise<void> {
