@@ -23,6 +23,7 @@ import {
   readVideoCaptions,
   readVideoNarrationKey,
   readVideoVoicePlan,
+  readVideoWordTimings,
   scene,
   video,
   workspace,
@@ -75,6 +76,7 @@ function app(authWorkspaceId = workspaceId) {
     readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
     readVideoCaptions: (workspaceId, id) => readVideoCaptions(db, workspaceId, id),
     readVideoNarrationKey: (workspaceId, id) => readVideoNarrationKey(db, workspaceId, id),
+    readVideoWordTimings: (workspaceId, id) => readVideoWordTimings(db, workspaceId, id),
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
@@ -266,6 +268,20 @@ describe('GET /v1/videos/:id (Postgres)', () => {
     const document = captionJsonExportSchema.parse(await captions.json());
     expect(document.durationMs).toBe(1_200);
     expect(document.cues[0]?.lines).toEqual(['தமிழ் முதல் காட்சி']);
+
+    const preview = await app().request(
+      `/v1/videos/${videoId}/captions/preview`,
+      {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ spec: { wordLimit: 2 } }),
+      },
+    );
+    expect(preview.status).toBe(200);
+    const previewed = captionJsonExportSchema.parse(await preview.json());
+    expect(previewed.cues).toHaveLength(1);
+    expect(previewed.cues[0]?.words.map((word) => word.text)).toEqual(['வணக்கம்']);
+    expect(previewed.durationMs).toBe(400);
 
     const missing = await app().request(`/v1/videos/${randomUUID()}`);
     expect(missing.status).toBe(404);

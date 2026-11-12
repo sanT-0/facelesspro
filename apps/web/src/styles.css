@@ -495,7 +495,40 @@ a:hover {
   outline-offset: 2px;
 }
 
-/* Caption inspector */.caption-cues {
+/* Caption inspector */
+.caption-controls {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 0.75rem;
+  align-items: end;
+  margin-bottom: 0.5rem;
+}
+
+.caption-emoji-toggle {
+  padding-bottom: 0.5rem;
+}
+
+.caption-preview-note {
+  font-size: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+
+.caption-preview-status {
+  min-height: 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+  margin-bottom: 0.5rem;
+}
+
+.caption-preview-status[data-state='error'] {
+  color: var(--color-danger);
+}
+
+.caption-emoji {
+  margin-left: 0.25rem;
+}
+
+.caption-cues {
   display: flex;
   flex-direction: column;
   gap: 0.5rem;

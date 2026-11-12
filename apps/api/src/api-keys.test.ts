@@ -63,6 +63,7 @@ function appWith(overrides: {
     readVideoVoicePlan: async () => null,
     readVideoCaptions: async () => null,
     readVideoNarrationKey: async () => null,
+    readVideoWordTimings: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     authenticateApiKey:

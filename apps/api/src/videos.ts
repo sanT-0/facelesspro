@@ -26,10 +26,19 @@
 
 import { Hono } from 'hono';
 
-import { exportCaptions, renderDimensions } from '@facelesspro/core';
+import {
+  CAPTION_MAX_CHARS_PER_LINE,
+  DEFAULT_CAPTION_TEMPLATE_ID,
+  buildCaptionJsonDocument,
+  buildCaptionTrack,
+  exportCaptions,
+  renderDimensions,
+} from '@facelesspro/core';
 import {
   apiError,
   captionExportFormatSchema,
+  captionJsonExportSchema,
+  captionPreviewRequestSchema,
   idSchema,
   renderRequestSchema,
   videoResponseSchema,
@@ -44,6 +53,7 @@ import type {
   VideoRow,
   VideoStatus,
   VideoStep,
+  WordTiming,
 } from '@facelesspro/contracts';
 
 import { withWorkspace } from './auth';
@@ -114,6 +124,11 @@ export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
     workspaceId: string,
     id: string,
   ) => Promise<CaptionTrackRow | null>;
+  /** The stored narration word timings, or `null` before `create-vocal` commits. */
+  readonly readVideoWordTimings: (
+    workspaceId: string,
+    id: string,
+  ) => Promise<readonly WordTiming[] | null>;
   /** Absolute origin that serves `/files/*`, e.g. `http://127.0.0.1:3001`. */
   readonly publicBaseUrl: string;
 }
@@ -248,6 +263,92 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
       return c.body(exported.contents, 200);
     } catch {
       return c.json(apiError('internal', 'stored caption track is invalid'), 500);
+    }
+  });
+
+  /**
+   * Re-group the stored word timings with another template or spec, without
+   * writing anything. The words are the narrator's global timings (`run.start +
+   * word.local`), so a preview cannot invent a timing the render would not use.
+   */
+  app.post('/:id/captions/preview', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await readRenderBody(c.req.raw);
+    } catch {
+      return c.json(apiError('invalid_request', 'request body must be JSON'), 400);
+    }
+
+    const parsed = captionPreviewRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      let field: string | undefined;
+      if (issue !== undefined) {
+        if (issue.path.length > 0) {
+          field = issue.path.join('.');
+        } else if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+          field = issue.keys[0];
+        }
+      }
+      return c.json(
+        apiError('invalid_request', issue?.message ?? 'invalid request', field),
+        400,
+      );
+    }
+
+    const workspaceId = c.get('workspaceId');
+    const stored = await deps.readVideo(workspaceId, id);
+    if (stored === null) {
+      return c.json(apiError('not_found', 'video not found'), 404);
+    }
+
+    const words = await deps.readVideoWordTimings(workspaceId, id);
+    if (words === null) {
+      return c.json(apiError('not_found', 'captions not available'), 404);
+    }
+
+    const requestedTemplateId = parsed.data.templateId;
+    const templateId = requestedTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
+    const templates = await deps.listCaptionTemplates();
+    const template = templates.find((candidate) => candidate.id === templateId);
+    if (template === undefined && requestedTemplateId !== undefined) {
+      return c.json(
+        apiError('invalid_request', 'unknown caption template', 'templateId'),
+        400,
+      );
+    }
+
+    const spec = { ...(template?.spec ?? {}), ...(parsed.data.spec ?? {}) };
+    const size = storedSize(stored.request.body);
+
+    try {
+      const cues = buildCaptionTrack(
+        words.map((word) => ({
+          text: word.text,
+          startMs: word.start_ms,
+          endMs: word.end_ms,
+        })),
+        {
+          wordLimit: spec.wordLimit,
+          maxLines: spec.maxLines,
+          maxCharsPerLine: CAPTION_MAX_CHARS_PER_LINE[size],
+          emoji: spec.emoji ?? false,
+        },
+      );
+      const document = captionJsonExportSchema.parse(
+        buildCaptionJsonDocument(cues),
+      );
+      return c.json(document, 200);
+    } catch {
+      return c.json(
+        apiError('internal', 'stored narration timings are invalid'),
+        500,
+      );
     }
   });
 

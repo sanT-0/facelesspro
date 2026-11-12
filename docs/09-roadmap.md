@@ -579,8 +579,10 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
 - [ ] Editor: scene list, redraw, script edit → selective re-narrate, caption style preview,
       waveform timeline, render panel. Scene list + voice plan + render panel are done, the
       caption inspector shows the stored cues and previews/downloads all four sidecars, and the
-      waveform timeline decodes `narrationUrl` with Web Audio and scrubs by click or arrow keys;
-      the style/word-limit/emoji editing preview, redraw and re-narrate still need routes.
+      waveform timeline decodes `narrationUrl` with Web Audio and scrubs by click or arrow keys.
+      `POST /v1/videos/:id/captions/preview` lets the editor try a template, a words-per-cue value
+      and emoji emphasis against the stored timings without saving; persisting that choice or
+      re-rendering with it still needs a route. Redraw and re-narrate still have no routes.
 - [x] Voice-plan inspector (which runs went to which voice + override). The plan is returned by
       `GET /v1/videos/:id` and rendered in the editor with per-run language, text and voice.
 - [x] Downloads + share link.

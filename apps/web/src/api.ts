@@ -369,6 +369,28 @@ export async function getCaptionDocument(id: string): Promise<CaptionDocument> {
   );
 }
 
+/** The fields the preview endpoint reads; other style fields do not move cues. */
+export interface CaptionSpec {
+  wordLimit?: number;
+  maxLines?: number;
+  emoji?: boolean;
+}
+
+/**
+ * Regroup the stored word timings without persisting anything. The response is
+ * the same versioned document as `?format=json`, so the inspector can reuse its
+ * renderer.
+ */
+export async function previewCaptions(
+  id: string,
+  body: { templateId?: number; spec?: CaptionSpec },
+): Promise<CaptionDocument> {
+  return apiJson<CaptionDocument>(
+    `/videos/${encodeURIComponent(id)}/captions/preview`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
 /** One sidecar as text, for previewing or downloading. */
 export async function getCaptionSidecar(
   id: string,

@@ -13,10 +13,13 @@
 import {
   getCaptionDocument,
   getCaptionSidecar,
+  getCaptionTemplates,
   getVideo,
+  previewCaptions,
   renderVideo,
   type CaptionDocument,
   type CaptionSidecarFormat,
+  type CaptionTemplate,
   type Video,
 } from '../api';
 import { loadSession } from '../session';
@@ -318,9 +321,15 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     }
   }
 
+  let captionTemplates: CaptionTemplate[] = [];
+
   async function loadCaptions(): Promise<void> {
     try {
-      const document = await getCaptionDocument(videoId);
+      const [document, templates] = await Promise.all([
+        getCaptionDocument(videoId),
+        getCaptionTemplates().catch(() => [] as CaptionTemplate[]),
+      ]);
+      captionTemplates = templates;
       renderCaptionCues(document);
     } catch (err) {
       if ((err as { status?: number }).status === 404) {
@@ -332,16 +341,65 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     }
   }
 
-  function renderCaptionCues(document: CaptionDocument): void {
-    captionsPanel.innerHTML = `
-      <div class="caption-cues">
-        ${document.cues.map((cue) => `
+  function cueListHtml(document: CaptionDocument): string {
+    return document.cues
+      .map((cue) => {
+        const emoji =
+          cue.emoji === undefined
+            ? ''
+            : ` <span class="caption-emoji" aria-hidden="true">${escapeHtml(cue.emoji)}</span>`;
+        return `
           <div class="caption-cue">
             <div class="caption-time">${formatCaptionTime(cue.startMs)} → ${formatCaptionTime(cue.endMs)}</div>
-            <div class="caption-text">${escapeHtml(cue.lines.join(' '))}</div>
+            <div class="caption-text">${escapeHtml(cue.lines.join(' '))}${emoji}</div>
           </div>
-        `).join('')}
+        `;
+      })
+      .join('');
+  }
+
+  function renderCaptionCues(document: CaptionDocument): void {
+    const selectedTemplate =
+      captionTemplates.find((template) => template.id === -1) ?? captionTemplates[0];
+    const templateControl =
+      selectedTemplate === undefined
+        ? ''
+        : `
+          <div class="form-group">
+            <label class="form-label" for="caption-template">Template</label>
+            <select id="caption-template" class="form-select">
+              ${captionTemplates
+                .map(
+                  (template) =>
+                    `<option value="${template.id}"${template.id === selectedTemplate.id ? ' selected' : ''}>${escapeHtml(template.name)}</option>`,
+                )
+                .join('')}
+            </select>
+          </div>
+        `;
+
+    captionsPanel.innerHTML = `
+      <div class="caption-controls">
+        ${templateControl}
+        <div class="form-group">
+          <label class="form-label" for="caption-word-limit">Words per cue</label>
+          <input id="caption-word-limit" class="form-input" type="number" min="1" max="10" step="1" value="6" />
+        </div>
+        <div class="form-group caption-emoji-toggle">
+          <label class="form-check-label" for="caption-emoji">
+            <input id="caption-emoji" type="checkbox" />
+            Emoji emphasis
+          </label>
+        </div>
+        <div class="form-group">
+          <button class="btn btn-secondary" type="button" id="caption-preview-btn">Preview</button>
+        </div>
       </div>
+      <p class="text-muted caption-preview-note">
+        Preview only — the stored captions and any render are unchanged.
+      </p>
+      <div id="caption-preview-status" class="caption-preview-status" role="status"></div>
+      <div class="caption-cues" id="caption-cues">${cueListHtml(document)}</div>
       <div class="caption-actions mt-2">
         ${CAPTION_FORMATS.map((format) => `
           <button class="btn btn-secondary" type="button" data-caption-format="${format}">${format.toUpperCase()}</button>
@@ -355,6 +413,52 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <pre class="caption-raw" id="caption-raw"></pre>
       </div>
     `;
+
+    const templateSelect = captionsPanel.querySelector(
+      '#caption-template',
+    ) as HTMLSelectElement | null;
+    const wordLimitInput = captionsPanel.querySelector(
+      '#caption-word-limit',
+    ) as HTMLInputElement;
+    const emojiInput = captionsPanel.querySelector(
+      '#caption-emoji',
+    ) as HTMLInputElement;
+    const previewButton = captionsPanel.querySelector(
+      '#caption-preview-btn',
+    ) as HTMLButtonElement;
+    const previewStatus = captionsPanel.querySelector(
+      '#caption-preview-status',
+    ) as HTMLElement;
+    const cueList = captionsPanel.querySelector('#caption-cues') as HTMLElement;
+
+    previewButton.addEventListener('click', async () => {
+      const wordLimit = Number(wordLimitInput.value);
+      if (!Number.isInteger(wordLimit) || wordLimit < 1 || wordLimit > 10) {
+        previewStatus.textContent = 'Words per cue must be a whole number from 1 to 10.';
+        previewStatus.dataset.state = 'error';
+        return;
+      }
+
+      previewButton.disabled = true;
+      previewStatus.textContent = 'Regrouping…';
+      delete previewStatus.dataset.state;
+      try {
+        const group = {
+          spec: { wordLimit, emoji: emojiInput.checked },
+          ...(templateSelect === null
+            ? {}
+            : { templateId: Number(templateSelect.value) }),
+        };
+        const preview = await previewCaptions(videoId, group);
+        cueList.innerHTML = cueListHtml(preview);
+        previewStatus.textContent = `Preview: ${preview.cues.length} cue${preview.cues.length === 1 ? '' : 's'}.`;
+      } catch (err) {
+        previewStatus.textContent = (err as Error).message;
+        previewStatus.dataset.state = 'error';
+      } finally {
+        previewButton.disabled = false;
+      }
+    });
 
     const rawWrap = captionsPanel.querySelector('#caption-raw-wrap') as HTMLElement;
     const raw = captionsPanel.querySelector('#caption-raw') as HTMLElement;

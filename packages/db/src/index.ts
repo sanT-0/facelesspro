@@ -57,6 +57,7 @@ export {
   readVideoCaptions,
   readVideoNarrationKey,
   readVideoVoicePlan,
+  readVideoWordTimings,
 } from './videos';
 export type { VideoSceneArtifact } from './videos';
 export type {

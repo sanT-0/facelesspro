@@ -50,6 +50,42 @@ test('editor lists scenes, voice plan and captions, then queues a render', async
   await expect(page.getByText('2160p · 60 fps · greenscreen')).toBeVisible();
 });
 
+test('editor previews another caption grouping without persisting it', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  await expect(page.locator('.caption-cue')).toHaveCount(2);
+  await expect(page.getByText('Preview only', { exact: false })).toBeVisible();
+
+  await page.locator('#caption-template').selectOption('7');
+  await page.locator('#caption-word-limit').fill('2');
+  await page.locator('#caption-emoji').check();
+
+  const previewRequest = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/v1/videos/${VIDEO_ID}/captions/preview`),
+  );
+  await page.getByRole('button', { name: 'Preview' }).click();
+
+  const body = JSON.parse((await previewRequest).postData() ?? '{}') as Record<
+    string,
+    unknown
+  >;
+  expect(body).toEqual({
+    templateId: 7,
+    spec: { wordLimit: 2, emoji: true },
+  });
+
+  // The panel re-renders the preview's three cues, not the stored two.
+  await expect(page.locator('.caption-cue')).toHaveCount(3);
+  await expect(page.locator('#caption-preview-status')).toContainText('Preview: 3 cues');
+  await expect(page.locator('.caption-cue').first()).toContainText('தமிழ் முதல்');
+  await expect(page.locator('.caption-cue').first()).toContainText('🔥');
+});
+
 test('editor draws the narration waveform and scrubs the playhead', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1 });
   await signInAs(page, API_KEY);

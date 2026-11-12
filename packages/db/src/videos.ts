@@ -12,6 +12,7 @@ import {
   narrationPlanSchema,
   sceneRowSchema,
   videoRowSchema,
+  wordTimingSchema,
 } from '@facelesspro/contracts';
 import type {
   CaptionTrackRow,
@@ -23,6 +24,7 @@ import type {
   VideoRow,
   VideoStatus,
   VideoStep,
+  WordTiming,
 } from '@facelesspro/contracts';
 import { and, eq, sql } from 'drizzle-orm';
 
@@ -124,6 +126,29 @@ export async function readVideoNarrationKey(
     .limit(1);
 
   return rows[0]?.key ?? null;
+}
+
+/**
+ * The stored narration word timings for one video inside a workspace, or `null`
+ * before `create-vocal` has committed. The preview route regroups exactly these
+ * words, so a preview cannot disagree with the timings a render used.
+ */
+export async function readVideoWordTimings(
+  db: Database,
+  workspaceId: string,
+  videoId: string,
+): Promise<WordTiming[] | null> {
+  const rows = await db
+    .select({ timings: narration.word_timings })
+    .from(narration)
+    .innerJoin(video, eq(video.id, narration.video_id))
+    .where(
+      and(eq(narration.video_id, videoId), eq(video.workspace_id, workspaceId)),
+    )
+    .limit(1);
+
+  const timings = rows[0]?.timings;
+  return timings === undefined ? null : wordTimingSchema.array().parse(timings);
 }
 
 /**

@@ -72,6 +72,7 @@ function appWith(
     readVideoVoicePlan: async () => artifacts.voicePlan ?? null,
     readVideoCaptions: async () => null,
     readVideoNarrationKey: async () => artifacts.narrationKey ?? null,
+    readVideoWordTimings: async () => null,
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     ...testAuth(workspaceId),

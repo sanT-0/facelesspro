@@ -57,6 +57,14 @@ export type {
   CaptionCueOptions,
   CaptionWord,
 } from './captions';
+export {
+  CAPTION_MAX_CHARS_PER_LINE,
+  DEFAULT_CAPTION_MAX_LINES,
+  DEFAULT_CAPTION_TEMPLATE_ID,
+  DEFAULT_CAPTION_WORD_LIMIT,
+  buildCaptionTrack,
+} from './caption-track';
+export type { CaptionTrackOptions } from './caption-track';
 export { assColour, buildAss, toAssTimecode } from './ass';
 export type { AssDimensions, AssStyleSpec } from './ass';
 export {

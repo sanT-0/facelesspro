@@ -319,6 +319,17 @@ export const captionTemplateListSchema = z.strictObject({
 });
 export type CaptionTemplateList = z.infer<typeof captionTemplateListSchema>;
 
+/**
+ * `POST /v1/videos/:id/captions/preview` — regroup the stored word timings with
+ * another template or spec. Strict: an unknown key is a client bug, and the
+ * preview must be computable without touching a video row or a ledger.
+ */
+export const captionPreviewRequestSchema = z.strictObject({
+  templateId: captionTemplateIdSchema.optional(),
+  spec: captionSpecSchema.optional(),
+});
+export type CaptionPreviewRequest = z.infer<typeof captionPreviewRequestSchema>;
+
 const captionSingleLineTextSchema = z
   .string()
   .min(1)

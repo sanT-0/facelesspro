@@ -27,10 +27,11 @@ import type {
 } from '@facelesspro/contracts';
 import {
   CAPTION_EXPORT_FORMATS,
-  buildCaptionCues,
+  CAPTION_MAX_CHARS_PER_LINE,
+  DEFAULT_CAPTION_TEMPLATE_ID,
+  buildCaptionTrack,
   exportCaptions,
   renderDimensions,
-  sprinkleEmoji,
 } from '@facelesspro/core';
 import type {
   AssStyleSpec,
@@ -62,15 +63,7 @@ import {
   storageKey,
 } from '../art-style/storage';
 
-/** Until workspace preferences land, omitted V3 selectors use the first built-in. */
-export const DEFAULT_CAPTION_TEMPLATE_ID = -1;
-export const DEFAULT_CAPTION_WORD_LIMIT = 6;
-export const DEFAULT_CAPTION_MAX_LINES = 2;
-/** Grapheme cells at the stable 1080p ASS design canvas. */
-export const CAPTION_MAX_CHARS_PER_LINE = {
-  landscape: 32,
-  portrait: 18,
-} as const satisfies Record<Size, number>;
+export { DEFAULT_CAPTION_TEMPLATE_ID } from '@facelesspro/core';
 export const DEFAULT_SUBTITLE_UNIT_COST = 20;
 
 export type FindCaptionTemplate = (
@@ -390,13 +383,12 @@ function buildCues(
   size: Size,
 ): CaptionCue[] {
   try {
-    const grouped = buildCaptionCues(words, {
-      wordLimit: spec.wordLimit ?? DEFAULT_CAPTION_WORD_LIMIT,
-      maxLines: spec.maxLines ?? DEFAULT_CAPTION_MAX_LINES,
+    return buildCaptionTrack(words, {
+      wordLimit: spec.wordLimit,
+      maxLines: spec.maxLines,
       maxCharsPerLine: CAPTION_MAX_CHARS_PER_LINE[size],
-    });
-    const decorated = sprinkleEmoji(grouped, { enabled: spec.emoji ?? false });
-    return decorated.map((cue) => captionCueSchema.parse(cue));
+      emoji: spec.emoji ?? false,
+    }).map((cue) => captionCueSchema.parse(cue));
   } catch (error) {
     throw new StepFailure(
       'unprocessable',

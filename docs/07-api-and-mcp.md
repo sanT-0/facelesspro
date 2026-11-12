@@ -147,6 +147,7 @@ before every video.
 | POST | `/v1/videos/:id/scenes/:idx/redraw` | redraw one scene with an optional prompt nudge |
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
+| POST | `/v1/videos/:id/captions/preview` | regroup the stored word timings with `{templateId?, spec?}` → the same versioned JSON document; no write, no charge |
 | POST | `/v1/videos/:id/retry` | re-enqueue the step recorded on a `failed` video; `409` unless `failed`; no charge of its own |
 | POST | `/v1/art-styles` | upload reference video (multipart) → ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row `status='building'`, returns `202 {id, status, createdAt}`. Build job enqueued asynchronously. |
 | GET | `/v1/art-styles/:id/export` | portable style JSON `{version: 1, name, formats[], profile}` — the full `StyleProfile`, no ids/keys/timestamps; `409 conflict` while building, `404 not_found`, `400 invalid_request` (`field: "id"`), `500 internal` if the stored profile fails validation |
@@ -171,6 +172,14 @@ stored track that no longer validates is a fixed `500 internal`. Responses carry
 (parity with caption templates). ASS is written on the same 1080p design canvas the worker used
 (libass scales it to 2K/4K) and takes the stored template's style when that template still
 exists; otherwise `buildAss` defaults apply. Paths, asset rows and storage keys never appear.
+
+`POST /v1/videos/:id/captions/preview` accepts `{templateId?, spec?}` and returns the same
+`captionJsonExportSchema` document for the **stored** narration word timings regrouped with the
+given template/spec. The request spec is merged over the template spec, so the editor can try a
+word limit or emoji without saving a template. Nothing is written and no ledger row exists — a
+preview is free. An unknown explicit `templateId` is `400 invalid_request` (`field:
+"templateId"`), an unknown video is `404 not_found`, and a video whose `create-vocal` step has not
+committed is `404 not_found` with `captions not available`.
 
 ### 2.5 API keys
 

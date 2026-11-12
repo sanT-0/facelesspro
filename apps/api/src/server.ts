@@ -33,6 +33,7 @@ import {
   readVideoCaptions,
   readVideoNarrationKey,
   readVideoVoicePlan,
+  readVideoWordTimings,
   revokeApiKey,
 } from '@facelesspro/db';
 import {
@@ -214,6 +215,7 @@ async function main(): Promise<void> {
     readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),
     readVideoCaptions: (workspaceId, id) => readVideoCaptions(db, workspaceId, id),
     readVideoNarrationKey: (workspaceId, id) => readVideoNarrationKey(db, workspaceId, id),
+    readVideoWordTimings: (workspaceId, id) => readVideoWordTimings(db, workspaceId, id),
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
     authenticateApiKey: (token) => authenticateApiKey(db, token),

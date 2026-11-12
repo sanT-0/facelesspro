@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   captionJsonExportSchema,
+  captionPreviewRequestSchema,
   captionTemplateListSchema,
 } from './responses';
 
@@ -84,6 +85,30 @@ describe('caption JSON export responses', () => {
           },
         ],
       }).success,
+    ).toBe(false);
+  });
+});
+
+describe('caption preview request', () => {
+  it('accepts a template id, a spec override, or both', () => {
+    expect(captionPreviewRequestSchema.parse({})).toEqual({});
+    expect(captionPreviewRequestSchema.parse({ templateId: -1 })).toEqual({
+      templateId: -1,
+    });
+    expect(
+      captionPreviewRequestSchema.parse({ spec: { wordLimit: 3, emoji: true } }),
+    ).toEqual({ spec: { wordLimit: 3, emoji: true } });
+  });
+
+  it('rejects an unknown key and an out-of-range word limit', () => {
+    expect(
+      captionPreviewRequestSchema.safeParse({ wordLimit: 3 }).success,
+    ).toBe(false);
+    expect(
+      captionPreviewRequestSchema.safeParse({ spec: { wordLimit: 11 } }).success,
+    ).toBe(false);
+    expect(
+      captionPreviewRequestSchema.safeParse({ templateId: 0 }).success,
     ).toBe(false);
   });
 });

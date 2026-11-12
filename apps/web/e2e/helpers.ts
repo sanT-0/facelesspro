@@ -142,6 +142,55 @@ const CAPTION_DOCUMENT = {
 export const NARRATION_URL = `/files/ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/audio/narration.wav`;
 export const NARRATION_DURATION_MS = 6400;
 
+export const CAPTION_TEMPLATES = [
+  {
+    id: -1,
+    name: 'Built-in',
+    spec: { fontFamily: 'Noto Sans Tamil', fontSize: 64 },
+  },
+  {
+    id: 7,
+    name: 'One word',
+    spec: { wordLimit: 1, maxLines: 1 },
+  },
+];
+
+/** A deliberately different grouping, so a preview cannot look like the stored track. */
+const CAPTION_PREVIEW_DOCUMENT = {
+  version: 1,
+  durationMs: 6400,
+  cues: [
+    {
+      index: 1,
+      startMs: 0,
+      endMs: 2000,
+      lines: ['தமிழ் முதல்'],
+      words: [
+        { text: 'தமிழ்', startMs: 0, endMs: 1000 },
+        { text: 'முதல்', startMs: 1000, endMs: 2000 },
+      ],
+      emoji: '🔥',
+    },
+    {
+      index: 2,
+      startMs: 2000,
+      endMs: 4800,
+      lines: ['காட்சி இரண்டாவது'],
+      words: [
+        { text: 'காட்சி', startMs: 2000, endMs: 3200 },
+        { text: 'இரண்டாவது', startMs: 3200, endMs: 4800 },
+      ],
+    },
+    {
+      index: 3,
+      startMs: 4800,
+      endMs: 6400,
+      lines: ['காட்சி'],
+      words: [{ text: 'காட்சி', startMs: 4800, endMs: 6400 }],
+    },
+  ],
+};
+
 /**
  * A real 16-bit PCM WAV, so the editor's `decodeAudioData` path runs instead of
  * being stubbed. The amplitude is modulated so the drawn envelope is not a
@@ -276,6 +325,11 @@ export async function installFakeApi(
       return;
     }
 
+    if (method === 'GET' && path === '/v1/caption-templates') {
+      await json(route, 200, { templates: CAPTION_TEMPLATES });
+      return;
+    }
+
     if (method === 'GET' && path === '/v1/art-styles') {
       await json(route, 200, { styles: [ART_STYLE] });
       return;
@@ -323,6 +377,11 @@ export async function installFakeApi(
         contentType: sidecar.mime,
         body: sidecar.body,
       });
+      return;
+    }
+
+    if (method === 'POST' && path === `/v1/videos/${VIDEO_ID}/captions/preview`) {
+      await json(route, 200, CAPTION_PREVIEW_DOCUMENT);
       return;
     }
 
