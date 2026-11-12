@@ -495,6 +495,53 @@ a:hover {
   outline-offset: 2px;
 }
 
+/* Plan inspector */
+.plan-summary {
+  margin-bottom: 0.5rem;
+}
+
+.plan-scenes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.plan-scene {
+  border-left: 2px solid var(--color-border);
+  padding-left: 0.5rem;
+}
+
+.plan-scene p {
+  font-size: 0.875rem;
+  margin-top: 0.25rem;
+}
+
+.plan-motion {
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--color-accent);
+}
+
+.plan-emphasis {
+  display: flex;
+  gap: 0.25rem;
+  flex-wrap: wrap;
+  margin-top: 0.25rem;
+}
+
+.plan-chip {
+  padding: 0 0.4rem;
+  border: 1px solid var(--color-border);
+  border-radius: 999px;
+  font-size: 0.75rem;
+  color: var(--color-text-muted);
+}
+
+.plan-prompt {
+  font-size: 0.75rem;
+  font-family: var(--font-mono);
+}
+
 /* Caption inspector */
 .caption-controls {
   display: grid;

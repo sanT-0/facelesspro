@@ -15,6 +15,7 @@ import {
   getCaptionSidecar,
   getCaptionTemplates,
   getVideo,
+  getVideoPlan,
   previewCaptions,
   renderVideo,
   type CaptionDocument,
@@ -133,6 +134,13 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
       </section>
 
       <section class="card">
+        <h2 class="card-title">Plan</h2>
+        <div id="plan-panel" class="mt-2">
+          <div class="text-muted">Loading plan…</div>
+        </div>
+      </section>
+
+      <section class="card">
         <h2 class="card-title">Voice plan</h2>
         <div id="voice-plan" class="mt-2">
           <div class="text-muted">No narration yet.</div>
@@ -183,6 +191,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
   const editorStatus = container.querySelector('#editor-status')!;
   const scenesList = container.querySelector('#scenes-list') as HTMLElement;
   const timelineEl = container.querySelector('#timeline') as HTMLElement;
+  const planPanel = container.querySelector('#plan-panel') as HTMLElement;
   const voicePlanEl = container.querySelector('#voice-plan') as HTMLElement;
   const captionsPanel = container.querySelector('#captions-panel') as HTMLElement;
   const renderBtn = container.querySelector('#render-btn') as HTMLButtonElement;
@@ -195,6 +204,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
       video = await getVideo(videoId);
       renderVideoDetails(video);
       await loadTimeline();
+      await loadPlan();
       await loadCaptions();
     } catch (err) {
       editorStatus.innerHTML = `<span style="color:var(--color-danger);">Failed to load: ${(err as Error).message}</span>`;
@@ -322,6 +332,54 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
   }
 
   let captionTemplates: CaptionTemplate[] = [];
+
+  async function loadPlan(): Promise<void> {
+    try {
+      const { plan } = await getVideoPlan(videoId);
+      const degraded =
+        plan.degradedFrom.length === 0
+          ? ''
+          : ` <span class="text-muted">(after ${plan.degradedFrom.join(', ')})</span>`;
+      planPanel.innerHTML = `
+        <div class="scene-meta plan-summary">
+          <span class="plan-adapter">Adapter: ${escapeHtml(plan.adapter)}${degraded}</span>
+          <span>${(plan.totalMs / 1000).toFixed(1)}s</span>
+          <span>${plan.scenes.length} scene${plan.scenes.length === 1 ? '' : 's'}</span>
+        </div>
+        <div class="plan-scenes">
+          ${plan.scenes
+            .map(
+              (scene, index) => `
+                <div class="plan-scene">
+                  <div class="scene-meta">
+                    <span>Scene ${index + 1}</span>
+                    <span>${formatCaptionTime(scene.startMs)} → ${formatCaptionTime(scene.endMs)}</span>
+                    <span class="plan-motion">${escapeHtml(scene.motion)}</span>
+                  </div>
+                  <p>${escapeHtml(scene.text)}</p>
+                  ${
+                    scene.emphasis.length === 0
+                      ? ''
+                      : `<div class="plan-emphasis">${scene.emphasis
+                          .map((word) => `<span class="plan-chip">${escapeHtml(word)}</span>`)
+                          .join('')}</div>`
+                  }
+                  <p class="plan-prompt text-muted">${escapeHtml(scene.imagePrompt)}</p>
+                </div>
+              `,
+            )
+            .join('')}
+        </div>
+      `;
+    } catch (err) {
+      if ((err as { status?: number }).status === 404) {
+        planPanel.innerHTML =
+          '<div class="text-muted">Plan is not ready yet.</div>';
+        return;
+      }
+      planPanel.innerHTML = `<div style="color:var(--color-danger);">Failed to load plan: ${escapeHtml((err as Error).message)}</div>`;
+    }
+  }
 
   async function loadCaptions(): Promise<void> {
     try {

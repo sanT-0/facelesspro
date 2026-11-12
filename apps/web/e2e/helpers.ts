@@ -90,8 +90,31 @@ const SCENES = [
   },
 ];
 
-const VOICE_PLAN = {
-  script: 'வணக்கம் நண்பர்களே. Today fire!',
+const PLAN = {
+  scenes: [
+    {
+      text: 'தமிழ் முதல் காட்சி',
+      imagePrompt: 'a Tamil street at dawn, cinematic',
+      motion: 'kenburns-in',
+      emphasis: ['தமிழ்'],
+      startMs: 0,
+      endMs: 3200,
+    },
+    {
+      text: 'இரண்டாவது காட்சி',
+      imagePrompt: 'a second Tamil street, warm light',
+      motion: 'pan-left',
+      emphasis: [],
+      startMs: 3200,
+      endMs: 6400,
+    },
+  ],
+  adapter: 'heuristic',
+  degradedFrom: [],
+  totalMs: 6400,
+};
+
+const VOICE_PLAN = {  script: 'வணக்கம் நண்பர்களே. Today fire!',
   spokenText: 'வணக்கம் நண்பர்களே. Today fire!',
   runs: [
     {
@@ -348,6 +371,11 @@ export async function installFakeApi(
         createdAt: CREATED_AT,
         editorUrl: `http://127.0.0.1:3103/editor?id=${VIDEO_ID}`,
       });
+      return;
+    }
+
+    if (method === 'GET' && path === `/v1/videos/${VIDEO_ID}/plan`) {
+      await json(route, 200, { plan: PLAN, voicePlan: VOICE_PLAN });
       return;
     }
 

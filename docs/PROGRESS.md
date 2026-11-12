@@ -2035,6 +2035,10 @@ file stays the single "what is actually true today" view.
 
 - [ ] 2026-11-10 — **P8 editor interactions (blocked on API)** — redraw-one-scene and edit-script → selective-re-narrate need routes that do not exist yet; the dead `Redraw` button was removed rather than left appearing to work. Caption preview and waveform timeline are likewise open. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
 
+- [x] 2026-11-12 — **P8 plan inspector** — the editor's new Plan card reads `GET /v1/videos/:id/plan` and shows the planner adapter (with `degradedFrom` when it fell back), the total duration, and each planned scene's timecode, motion preset, emphasis words and image prompt. A video before `create-scenes` shows "Plan is not ready yet." rather than an error.
+      **Observed:** Playwright asserts the adapter, both scenes, `kenburns-in`/`pan-left`, the Tamil emphasis chip and the image prompt; axe still clean; `tsc` and eslint clean.
+      **Not verified live:** no running API/Postgres this session; the fixture serves a contract-shaped plan.
+
 - [x] 2026-11-12 — **`GET /v1/videos/:id/plan`** — returns `{plan, voicePlan}` so an inspector can read the split `create-scenes` committed (including `adapter`/`degradedFrom`) without re-deriving it from scene rows. `voicePlan` is `null` until `create-vocal`, then the same routing `GET /v1/videos/:id` exposes. The plan is re-validated through `scenePlanSchema` on read, so a corrupt jsonb column is a fixed `500` rather than a half-trusted response; a video before `create-scenes` is `404 plan not available`. The shape lives in `@facelesspro/contracts` as `videoPlanResponseSchema` so the route and any future MCP tool share it.
       **Observed:** 6 hermetic route tests (401 before read, plan with null voice plan, routed voice plan, unknown video/no plan, corrupt plan, non-UUID), 2 contract tests and a real-Postgres assertion in `videos.db.test.ts` (not run here: no Postgres). `npx tsc --noEmit` clean.
       **Not verified live:** no Postgres or running api this session; the DB read path is typechecked and exercised only against fakes.

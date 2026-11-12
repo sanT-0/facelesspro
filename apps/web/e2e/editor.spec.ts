@@ -50,6 +50,23 @@ test('editor lists scenes, voice plan and captions, then queues a render', async
   await expect(page.getByText('2160p · 60 fps · greenscreen')).toBeVisible();
 });
 
+test('editor inspects the committed plan and its planner adapter', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  await expect(page.getByRole('heading', { name: 'Plan', exact: true })).toBeVisible();
+  await expect(page.locator('.plan-adapter')).toContainText('heuristic');
+  await expect(page.locator('.plan-scene')).toHaveCount(2);
+  await expect(page.locator('.plan-scene').first()).toContainText('kenburns-in');
+  await expect(page.locator('.plan-scene').first()).toContainText('தமிழ்');
+  await expect(page.locator('.plan-scene').first()).toContainText(
+    'a Tamil street at dawn, cinematic',
+  );
+  await expect(page.locator('.plan-scene').nth(1)).toContainText('pan-left');
+});
+
 test('editor previews another caption grouping without persisting it', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1 });
   await signInAs(page, API_KEY);

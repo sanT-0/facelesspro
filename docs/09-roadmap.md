@@ -582,7 +582,9 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
       waveform timeline decodes `narrationUrl` with Web Audio and scrubs by click or arrow keys.
       `POST /v1/videos/:id/captions/preview` lets the editor try a template, a words-per-cue value
       and emoji emphasis against the stored timings without saving; persisting that choice or
-      re-rendering with it still needs a route. Redraw and re-narrate still have no routes.
+      re-rendering with it still needs a route. The plan card reads `GET /v1/videos/:id/plan` and
+      shows the planner adapter plus each scene's motion, emphasis and image prompt. Redraw and
+      re-narrate still have no routes.
 - [x] Voice-plan inspector (which runs went to which voice + override). The plan is returned by
       `GET /v1/videos/:id` and rendered in the editor with per-run language, text and voice.
 - [x] Downloads + share link.

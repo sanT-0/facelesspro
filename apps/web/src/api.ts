@@ -125,6 +125,33 @@ export async function getVideo(id: string): Promise<Video> {
   return apiJson<Video>(`/videos/${encodeURIComponent(id)}`);
 }
 
+/** What `create-scenes` committed, including which planner adapter produced it. */
+export interface PlannedScene {
+  text: string;
+  imagePrompt: string;
+  motion: 'kenburns-in' | 'kenburns-out' | 'pan-left' | 'pan-right' | 'none';
+  emphasis: string[];
+  startMs: number;
+  endMs: number;
+}
+
+export interface ScenePlan {
+  scenes: PlannedScene[];
+  adapter: 'cloudflare' | 'groq' | 'ollama' | 'heuristic';
+  degradedFrom: Array<'cloudflare' | 'groq' | 'ollama' | 'heuristic'>;
+  totalMs: number;
+}
+
+export interface VideoPlan {
+  plan: ScenePlan;
+  /** The same routing `GET /v1/videos/:id` returns, or null before narration. */
+  voicePlan: NonNullable<Video['voicePlan']> | null;
+}
+
+export async function getVideoPlan(id: string): Promise<VideoPlan> {
+  return apiJson<VideoPlan>(`/videos/${encodeURIComponent(id)}/plan`);
+}
+
 export async function listArtStyles(): Promise<ArtStyle[]> {
   return apiJson<{ styles: ArtStyle[] }>('/art-styles').then((r) => r.styles);
 }
