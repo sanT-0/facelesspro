@@ -4,6 +4,7 @@ import {
   captionJsonExportSchema,
   captionPreviewRequestSchema,
   captionTemplateListSchema,
+  videoPlanResponseSchema,
 } from './responses';
 
 describe('caption template responses', () => {
@@ -109,6 +110,62 @@ describe('caption preview request', () => {
     ).toBe(false);
     expect(
       captionPreviewRequestSchema.safeParse({ templateId: 0 }).success,
+    ).toBe(false);
+  });
+});
+
+describe('video plan response', () => {
+  const plan = {
+    scenes: [
+      {
+        text: 'தமிழ் முதல் காட்சி',
+        imagePrompt: 'a Tamil street at dawn',
+        motion: 'kenburns-in',
+        emphasis: ['தமிழ்'],
+        startMs: 0,
+        endMs: 2_400,
+      },
+    ],
+    adapter: 'heuristic',
+    degradedFrom: [],
+    totalMs: 2_400,
+  };
+  const voicePlan = {
+    script: 'தமிழ் முதல் காட்சி',
+    spokenText: 'தமிழ் முதல் காட்சி',
+    runs: [
+      {
+        text: 'தமிழ் முதல் காட்சி',
+        lang: 'ta',
+        voice: 'ta-IN-ValluvarNeural',
+        script: 'tamil',
+      },
+    ],
+    overrides: [],
+    pair: null,
+  };
+
+  it('carries the stored plan and a nullable voice plan', () => {
+    expect(videoPlanResponseSchema.parse({ plan, voicePlan: null })).toEqual({
+      plan,
+      voicePlan: null,
+    });
+    expect(videoPlanResponseSchema.parse({ plan, voicePlan })).toEqual({
+      plan,
+      voicePlan,
+    });
+  });
+
+  it('rejects an incomplete plan or an unknown key', () => {
+    expect(
+      videoPlanResponseSchema.safeParse({
+        plan: { ...plan, totalMs: 1 },
+        voicePlan: null,
+      }).success,
+    ).toBe(false);
+    expect(
+      videoPlanResponseSchema.safeParse({ plan, voicePlan: null, extra: true })
+        .success,
     ).toBe(false);
   });
 });

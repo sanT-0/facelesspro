@@ -41,6 +41,8 @@ import {
   captionPreviewRequestSchema,
   idSchema,
   renderRequestSchema,
+  scenePlanSchema,
+  videoPlanResponseSchema,
   videoResponseSchema,
   videoRowSchema,
 } from '@facelesspro/contracts';
@@ -187,6 +189,34 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
 
   // The key resolves the workspace once; every handler below is scoped by it.
   app.use('*', withWorkspace(deps));
+
+  app.get('/:id/plan', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    const workspaceId = c.get('workspaceId');
+    const stored = await deps.readVideo(workspaceId, id);
+    if (stored === null) {
+      return c.json(apiError('not_found', 'video not found'), 404);
+    }
+
+    if (stored.plan === null || stored.plan === undefined) {
+      return c.json(apiError('not_found', 'plan not available'), 404);
+    }
+
+    const plan = scenePlanSchema.safeParse(stored.plan);
+    if (!plan.success) {
+      return c.json(apiError('internal', 'stored plan is invalid'), 500);
+    }
+
+    const voicePlan = await deps.readVideoVoicePlan(workspaceId, id);
+    return c.json(
+      videoPlanResponseSchema.parse({ plan: plan.data, voicePlan }),
+      200,
+    );
+  });
 
   app.get('/:id', async (c) => {
     const id = c.req.param('id');

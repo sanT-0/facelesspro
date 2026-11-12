@@ -33,7 +33,7 @@ import {
 } from './common';
 import { apiErrorBodySchema } from './errors';
 import { narrationPlanSchema } from './media';
-import { plannerAdapterSchema } from './planner';
+import { plannerAdapterSchema, scenePlanSchema } from './planner';
 import { styleProfileSchema } from './style-profile';
 
 // --- errors -----------------------------------------------------------------
@@ -89,6 +89,17 @@ export const videoResponseSchema = z.strictObject({
   updatedAt: isoDateTimeSchema,
 });
 export type VideoResponse = z.infer<typeof videoResponseSchema>;
+
+/**
+ * `GET /v1/videos/:id/plan` — the stored scene plan plus the narration routing.
+ * `voicePlan` is `null` until `create-vocal` commits; the plan itself exists
+ * from `create-scenes` onward, so a caller can inspect the split before audio.
+ */
+export const videoPlanResponseSchema = z.strictObject({
+  plan: scenePlanSchema,
+  voicePlan: narrationPlanSchema.nullable(),
+});
+export type VideoPlanResponse = z.infer<typeof videoPlanResponseSchema>;
 
 /** A row of `render`: one mp4 variant, not the video itself. */
 export const renderResponseSchema = z.strictObject({

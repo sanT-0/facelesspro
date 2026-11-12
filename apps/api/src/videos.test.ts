@@ -323,3 +323,113 @@ describe('GET /v1/videos/:id', () => {
     });
   });
 });
+
+describe('GET /v1/videos/:id/plan', () => {
+  const plan = {
+    scenes: [
+      {
+        text: 'தமிழ் முதல் காட்சி',
+        imagePrompt: 'a Tamil street at dawn',
+        motion: 'kenburns-in',
+        emphasis: ['தமிழ்'],
+        startMs: 0,
+        endMs: 2_400,
+      },
+    ],
+    adapter: 'heuristic',
+    degradedFrom: [],
+    totalMs: 2_400,
+  };
+
+  it('answers 401 and never reads a video without a key', async () => {
+    const readVideo = vi.fn(async () => row({ plan }));
+    const response = await appWith(readVideo).raw(`/v1/videos/${VIDEO_ID}/plan`);
+
+    expect(response.status).toBe(401);
+    expect(readVideo).not.toHaveBeenCalled();
+  });
+
+  it('returns the stored plan and a null voice plan before narration', async () => {
+    const readVideo = vi.fn(async () => row({ plan }));
+    const response = await appWith(readVideo).request(
+      `/v1/videos/${VIDEO_ID}/plan`,
+    );
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ plan, voicePlan: null });
+    expect(readVideo).toHaveBeenCalledWith(WORKSPACE_ID, VIDEO_ID);
+  });
+
+  it('returns the voice plan once the runs are routed', async () => {
+    const voicePlan = {
+      script: 'தமிழ் முதல் காட்சி. Today fire!',
+      spokenText: 'தமிழ் முதல் காட்சி. Today fire!',
+      runs: [
+        {
+          text: 'தமிழ் முதல் காட்சி.',
+          lang: 'ta' as const,
+          voice: 'ta-IN-ValluvarNeural',
+          script: 'tamil' as const,
+        },
+        {
+          text: 'Today fire!',
+          lang: 'en' as const,
+          voice: 'en-IN-NeerjaNeural',
+          script: 'latin' as const,
+        },
+      ],
+      overrides: [],
+      pair: null,
+    };
+
+    const response = await appWith(
+      async () => row({ plan }),
+      BASE,
+      WORKSPACE_ID,
+      { voicePlan },
+    ).request(`/v1/videos/${VIDEO_ID}/plan`);
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ plan, voicePlan });
+  });
+
+  it('answers 404 for an unknown video or before create-scenes commits', async () => {
+    const missingVideo = await appWith(async () => null).request(
+      `/v1/videos/${VIDEO_ID}/plan`,
+    );
+    expect(missingVideo.status).toBe(404);
+    expect(await missingVideo.json()).toEqual({
+      error: { code: 'not_found', message: 'video not found' },
+    });
+
+    const missingPlan = await appWith(async () => row({ plan: null })).request(
+      `/v1/videos/${VIDEO_ID}/plan`,
+    );
+    expect(missingPlan.status).toBe(404);
+    expect(await missingPlan.json()).toEqual({
+      error: { code: 'not_found', message: 'plan not available' },
+    });
+  });
+
+  it('answers 500 instead of serving a corrupt plan', async () => {
+    const response = await appWith(async () =>
+      row({ plan: { ...plan, totalMs: plan.totalMs + 1 } }),
+    ).request(`/v1/videos/${VIDEO_ID}/plan`);
+
+    expect(response.status).toBe(500);
+    expect(await response.json()).toEqual({
+      error: { code: 'internal', message: 'stored plan is invalid' },
+    });
+  });
+
+  it('rejects a non-UUID id', async () => {
+    const response = await appWith(async () => row()).request(
+      '/v1/videos/not-a-uuid/plan',
+    );
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({
+      error: { code: 'invalid_request', message: 'id must be a UUID', field: 'id' },
+    });
+  });
+});

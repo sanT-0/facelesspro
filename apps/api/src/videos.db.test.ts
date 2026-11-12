@@ -11,6 +11,7 @@ import { randomUUID } from 'node:crypto';
 import {
   captionJsonExportSchema,
   createAiVideoV3RequestSchema,
+  videoPlanResponseSchema,
   videoResponseSchema,
 } from '@facelesspro/contracts';
 import {
@@ -129,6 +130,29 @@ describe('GET /v1/videos/:id (Postgres)', () => {
         status: 'completed',
         step: null,
         request: { kind: 'ai-video-v3', body: request },
+        plan: {
+          scenes: [
+            {
+              text: 'தமிழ் முதல் காட்சி',
+              imagePrompt: 'a Tamil street at dawn',
+              motion: 'kenburns-in',
+              emphasis: [],
+              startMs: 0,
+              endMs: 1_200,
+            },
+            {
+              text: 'இரண்டாவது காட்சி',
+              imagePrompt: 'a second Tamil street',
+              motion: 'pan-left',
+              emphasis: [],
+              startMs: 1_200,
+              endMs: 2_400,
+            },
+          ],
+          adapter: 'heuristic',
+          degradedFrom: [],
+          totalMs: 2_400,
+        },
         duration_ms: 2_400,
       })
       .returning({ id: video.id });
@@ -282,6 +306,15 @@ describe('GET /v1/videos/:id (Postgres)', () => {
     expect(previewed.cues).toHaveLength(1);
     expect(previewed.cues[0]?.words.map((word) => word.text)).toEqual(['வணக்கம்']);
     expect(previewed.durationMs).toBe(400);
+
+    const plan = await app().request(`/v1/videos/${videoId}/plan`);
+    expect(plan.status).toBe(200);
+    const storedPlan = videoPlanResponseSchema.parse(await plan.json());
+    expect(storedPlan.plan.scenes.map((scene) => scene.text)).toEqual([
+      'தமிழ் முதல் காட்சி',
+      'இரண்டாவது காட்சி',
+    ]);
+    expect(storedPlan.voicePlan).toEqual(voicePlan);
 
     const missing = await app().request(`/v1/videos/${randomUUID()}`);
     expect(missing.status).toBe(404);

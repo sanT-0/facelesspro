@@ -143,7 +143,7 @@ before every video.
 | Method | Path | Why |
 |---|---|---|
 | POST | `/v1/videos/plan` | dry-run: scene split, est. duration, language plan. **No charge, no model call, no video row.** `adapter: "heuristic"`; `cost` lands with P6 (credits). |
-| GET | `/v1/videos/:id/plan` | the stored plan + voice plan, for the editor inspector |
+| GET | `/v1/videos/:id/plan` | `{plan, voicePlan}` — the stored split + narration routing, for the editor inspector |
 | POST | `/v1/videos/:id/scenes/:idx/redraw` | redraw one scene with an optional prompt nudge |
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
@@ -180,6 +180,12 @@ word limit or emoji without saving a template. Nothing is written and no ledger 
 preview is free. An unknown explicit `templateId` is `400 invalid_request` (`field:
 "templateId"`), an unknown video is `404 not_found`, and a video whose `create-vocal` step has not
 committed is `404 not_found` with `captions not available`.
+
+`GET /v1/videos/:id/plan` returns `{plan, voicePlan}`. `plan` is the stored `scenePlanSchema`
+document: the split `create-scenes` committed, including `adapter`/`degradedFrom`. `voicePlan` is
+the same narration routing `GET /v1/videos/:id` returns, or `null` until `create-vocal`. An
+unknown video is `404 not_found`; a video before `create-scenes` is `404 not_found` with `plan not
+available`; a stored plan that no longer validates is a fixed `500 internal`.
 
 ### 2.5 API keys
 
