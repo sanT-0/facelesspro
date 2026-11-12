@@ -160,11 +160,13 @@ async function main(): Promise<void> {
     submitArtStyle,
     submitVideo,
     storeFile: async (file) => {
-      const key = `files/${randomUUID()}`;
-      const dir = join(storageRoot, 'files');
+      // One public prefix (`/files/*`) for every artifact: the key is relative
+      // to `DATA_DIR` and `files.ts` appends it to `<base>/files/`.
+      const key = `uploads/${randomUUID()}`;
+      const dir = join(storageRoot, 'uploads');
       await mkdir(dir, { recursive: true });
       const buf = Buffer.from(await file.arrayBuffer());
-      await writeFile(join(dir, key), buf);
+      await writeFile(join(storageRoot, key), buf);
       return { key, bytes: buf.byteLength, mime: file.type };
     },
     synthesizeTts: async (input) => {
@@ -189,11 +191,10 @@ async function main(): Promise<void> {
       }
       const audioBuf = Buffer.from(await audioResp.arrayBuffer());
       const key = `tts/${randomUUID()}.mp3`;
-      const dir = join(storageRoot, 'tts');
-      await mkdir(dir, { recursive: true });
-      await writeFile(join(dir, key), audioBuf);
+      await mkdir(join(storageRoot, 'tts'), { recursive: true });
+      await writeFile(join(storageRoot, key), audioBuf);
       return {
-        audioUrl: `${process.env.PUBLIC_BASE_URL?.replace(/\/+$/, '') || 'http://127.0.0.1:3001'}/${key}`,
+        audioUrl: `${(process.env.PUBLIC_BASE_URL?.replace(/\/+$/, '') || 'http://127.0.0.1:3001')}/files/${key}`,
         durationMs: Number(body.total_duration_ms) ?? 0,
         voiceId: input.voiceId ?? 'default',
       };

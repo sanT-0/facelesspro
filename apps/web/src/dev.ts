@@ -90,8 +90,8 @@ async function startDevServer(): Promise<void> {
     const url = new URL(req.url ?? '', `http://localhost:${PORT}`);
     const pathname = url.pathname;
 
-    // Proxy API requests to the backend.
-    if (pathname.startsWith('/v1/') || pathname === '/health') {
+    // Proxy API requests to the backend and public artifacts.
+    if (pathname.startsWith('/v1/') || pathname.startsWith('/files/') || pathname === '/health') {
       await proxyToApi(req, res, pathname);
       return;
     }

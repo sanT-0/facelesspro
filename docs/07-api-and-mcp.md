@@ -33,6 +33,18 @@ and transitions are scoped to the key's workspace, and an id from another worksp
 lookups follow the same rule — published styles are global, unpublished rows are visible only to
 their workspace.
 
+### 1.1a Public artifacts `[P]`
+
+`GET /files/<key>` serves one stored artifact without a key. It is the **only** unauthenticated
+prefix: renders, stills, art-style previews and TTS clips all resolve to it, and the key is a
+server-generated path relative to `DATA_DIR` — a client filename never enters the URL. The
+response carries the artifact's real `Content-Type`, supports `HEAD` and a single `Range`
+(`206` + `Content-Range`, so a `<video>` can seek), and `404` for a missing key. The handler
+rejects `..`, `//` and backslashes before touching the filesystem, so a traversal cannot name a
+file outside the root. Because these bytes are byte-identical to whatever a workspace produced,
+a private deployment may sit this prefix behind its own access proxy; the building blocks are a
+bucket/CDN swap (docs/10), not extra auth.
+
 ### 1.2 Errors `[P]`
 
 ```jsonc

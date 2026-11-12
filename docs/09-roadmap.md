@@ -434,8 +434,9 @@ every model down → heuristic still produces a valid plan.
       file can move between machines; `409 conflict` while building, `404 not_found`,
       `400 invalid_request` + `field: "id"`, `500 internal` for a corrupt profile. 4 contract +
       8 api tests, offline (fake catalog, no Postgres). Observed only through unit/route tests:
-      the two SQL statements are typechecked, not executed, because no local Postgres exists;
-      `/files/*` itself is still the P6 Libraries item, so the returned paths 404 until then.
+      the two SQL statements are typechecked, not executed, because no local Postgres exists.
+      The returned paths now resolve: `GET /files/*` serves `DATA_DIR` (no key, MIME, `HEAD`,
+      `Range`) as of 2026-11-12, and `POST /v1/files`/TTS write keys under that same root.
       Artifact (real Hono server on 127.0.0.1:3199, real HTTP): list `200` with both previews and
       the sample clip rewritten to `/files/...`, export `200` with an 868-byte portable profile,
       and `409`/`404`/`400` envelopes for building/unknown/malformed ids. The artifact caught two

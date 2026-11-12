@@ -132,7 +132,7 @@ describe('POST /v1/files', () => {
     }) => {
       const buf = Buffer.from(await file.arrayBuffer());
       return {
-        key: `files/test-key-123`,
+        key: 'test-key-123',
         bytes: buf.byteLength,
         mime: file.type,
       };
@@ -149,7 +149,7 @@ describe('POST /v1/files', () => {
     expect(response.status).toBe(200);
 
     const body = fileUploadResponseSchema.parse(await response.json());
-    expect(body.key).toBe('files/test-key-123');
+    expect(body.key).toBe('test-key-123');
     expect(body.url).toBe(`${BASE}/files/test-key-123`);
     expect(body.bytes).toBe(fileContent.length);
     expect(body.mime).toBe('text/plain');
@@ -195,6 +195,6 @@ describe('POST /v1/files', () => {
 
     expect(response.status).toBe(200);
     const body = fileUploadResponseSchema.parse(await response.json());
-    expect(body.url).toBe(`${BASE}/uploads/abc-123.png`);
+    expect(body.url).toBe(`${BASE}/files/uploads/abc-123.png`);
   });
 });

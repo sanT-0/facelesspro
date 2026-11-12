@@ -68,7 +68,7 @@ export function createFilesRoutes(deps: FilesRouteDeps): Hono<WorkspaceEnv> {
 
     const response = fileUploadResponseSchema.parse({
       key: result.key,
-      url: `${base}/${result.key}`,
+      url: `${base}/files/${result.key}`,
       bytes: result.bytes,
       mime: result.mime,
     });

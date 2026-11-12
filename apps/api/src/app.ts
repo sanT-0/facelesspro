@@ -1,4 +1,8 @@
+import { mkdirSync } from 'node:fs';
+
+import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
+import type { MiddlewareHandler } from 'hono';
 
 import { apiError } from '@facelesspro/contracts';
 import { readHealth } from './health';
@@ -100,8 +104,34 @@ export interface ApiDeps
   }>;
 }
 
+/**
+ * Public, unauthenticated artifact serving (docs/10).
+ *
+ * Every `videoUrl`/`imageUrl`/preview URL the api emits is `<base>/files/<key>`,
+ * and a key is relative to `storageRoot`. `serveStatic` handles MIME types,
+ * HEAD and single byte ranges (video seeking); it rejects `..`, `//` and `\`
+ * before touching the filesystem. The handler is built lazily so a fresh
+ * install does not fail at boot when nothing has been written yet.
+ */
+function serveFiles(storageRoot: string): MiddlewareHandler {
+  let handler: MiddlewareHandler | undefined;
+  return async (c, next) => {
+    if (handler === undefined) {
+      mkdirSync(storageRoot, { recursive: true });
+      handler = serveStatic({
+        root: storageRoot,
+        rewriteRequestPath: (path) => path.replace(/^\/files/, ''),
+      });
+    }
+    return handler(c, next);
+  };
+}
+
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
+
+  // Public artifacts stay reachable without a key; `/v1` keeps its own auth.
+  app.use('/files/*', serveFiles(deps.storageRoot));
 
   /**
    * Last line of defence: an unexpected throw still returns the documented
