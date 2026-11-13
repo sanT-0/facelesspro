@@ -13,6 +13,6 @@
     "@facelesspro/db": "*",
     "@facelesspro/queue": "*",
     "@hono/node-server": "^2.1.8",
-    "hono": "^4.13.14"
+    "hono": "^4.13.18"
   }
 }
