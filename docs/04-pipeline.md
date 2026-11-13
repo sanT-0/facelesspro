@@ -371,6 +371,24 @@ still an outlier is accepted — the guard never retries twice, so it cannot spi
 provider that keeps answering. The accepted prompt and the `regenerated` flag are what
 `frames/manifest.json` records.
 
+**Redraw branch.** `POST /v1/videos/:id/scenes/:idx/redraw` (docs/07 §2.4) sets
+`video.redraw = {sceneIdx, prompt?}` and enqueues this step on a `completed` video. The marker is
+on the row because a job payload is only `{videoId}`; it is cleared by the same commit that
+finishes the redraw, so a redelivered job cannot draw twice. When the marker is present the step
+validates the plan and scene rows exactly as above, then draws **one** scene: the stored
+`imagePrompt` plus `, <nudge>` (cut at the prompt ceiling), the same `sceneSeedFor(videoId, idx)`,
+the style's negative terms and the palette correction. The quality guard's references are the
+**other** scenes' histograms, decoded from their stored stills, so the new still is compared with
+the set it joins rather than with itself.
+
+The new frame replaces that scene's `frames/manifest.json` entry (the file keeps one frame per
+scene, contiguous by `idx`) and the old asset row stays for audit. The commit inserts one `image`
+asset, re-links `scene.image_asset_id`, charges `units=1`, clears `redraw`, and sets
+`status='rendering'`, `step='render'` and enqueues `render` instead of advancing to
+`create-captions`. Narration, caption rows, `concat(scenes.text)` and the word timings are
+untouched: a redraw changes pixels only. A manifest whose frame count does not match the plan, or
+a scene index outside it, is a fixed `internal` failure and commits nothing.
+
 ---
 
 ## 4. Art-style cloning (the "template" step)

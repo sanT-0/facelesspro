@@ -537,6 +537,15 @@ Format: `[x] date — note`. Anything surprising goes in the note.
 - [x] 2026-11-02 — Python 3.12 runner pin observed for the first time: the `python 3.12` CI
       check on PR #26 ✅, closing the "not observed on the runner" note from 2026-10-31
       (all four pinned deps installed remotely, ruff/pytest green there).
+- [x] **2026-11-12 — Editor plan inspector (GET /v1/videos/:id/plan).**
+       The editor now has a dedicated Plan card that fetches the committed scene
+       split through GET /v1/videos/:id/plan and shows the planner adapter, both scenes,
+       motion presets, the Tamil emphasis chip and the image prompt. A 404 from the plan
+       endpoint yields "Plan is not ready yet" rather than an error, matching the stance
+       taken for captions and narration. Covered by a Playwright test that asserts the
+       adapter, both scenes, motion presets, the Tamil emphasis chip and the image prompt.
+       typecheck and lint are clean; the plan route has fixture and test; everything is ready
+       for gate+e2e and commit.
 - [ ] 2026-10-27 — `rate` joins the cache key if it is adopted (key is `(engine, voice, text)`
       today; the same text at a different rate is different audio). Not adopted yet: the verdict
       named gaps and timbre, and `rate=+12%` was only a prototype.
@@ -2033,7 +2042,7 @@ file stays the single "what is actually true today" view.
       **Observed:** `npm run test:e2e` 9 passed; `npm run gate` green at 108 files / 1,348 tests, with `apps/web` typecheck now part of `npm run typecheck`.
       **Not verified live:** no Postgres/Redis listener was available this session, so the browser suite ran against intercepted API responses only.
 
-- [ ] 2026-11-10 — **P8 editor interactions (blocked on API)** — redraw-one-scene and edit-script → selective-re-narrate need routes that do not exist yet; the dead `Redraw` button was removed rather than left appearing to work. Caption preview and waveform timeline are likewise open. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
+- [ ] 2026-11-10 — **P8 editor interactions (blocked on API)** — redraw-one-scene landed 2026-11-13; edit-script → selective-re-narrate still needs a route that does not exist, so no dead button is shown. Persisting a caption style choice and re-rendering with it likewise waits on a route. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
 
 - [x] 2026-11-12 — **P8 plan inspector** — the editor's new Plan card reads `GET /v1/videos/:id/plan` and shows the planner adapter (with `degradedFrom` when it fell back), the total duration, and each planned scene's timecode, motion preset, emphasis words and image prompt. A video before `create-scenes` shows "Plan is not ready yet." rather than an error.
       **Observed:** Playwright asserts the adapter, both scenes, `kenburns-in`/`pan-left`, the Tamil emphasis chip and the image prompt; axe still clean; `tsc` and eslint clean.
@@ -2078,6 +2087,18 @@ file stays the single "what is actually true today" view.
 - [x] 2026-11-10 — **MCP OAuth made functional and safe** — supersedes the 2026-11-09 "P7 OAuth complete" claim, which described the shape but not a working flow. `apps/mcp/src/store.ts` adds an `OAuthStore` interface and a `MemoryOAuthStore` (registered clients, single-use codes, access/refresh pairs, revoke-by-session). `server.ts` now: persists DCR clients and rejects non-https/non-loopback redirects; requires a 43-char S256 challenge on authorize; asks for a workspace **API key** at consent and validates it through `authenticateApiKey` (no client-supplied `workspace_id`); generates the authorization code server-side with a 10-minute TTL; consumes codes before checking PKCE; verifies `code_verifier` in constant time; rotates refresh tokens by killing the old session; and resolves `at_…` tokens on `/mcp` while forwarding the underlying `vp_…` key to `/v1` (never the OAuth token). `main.ts` validates static keys against `GET /v1/workspace` and no longer accepts any `vp_` token or invents `MCP_WORKSPACE_ID`. Fixed a contract bug found by the new tests: `jsonRpcResponseSchema` rejected `id: null`, so any parse/error response crashed the error handler.
       **Observed:** 50 MCP OAuth tests pass (23 focused + 27 end-to-end gate), including register → consent → code → token → `/mcp` forwarding → refresh rotation → revoke → static-key rejection; plus 10 contract tests; `tsc --noEmit` and eslint clean.
       **Not verified live:** the browser/OAuth consent flow was not exercised against a running API or a real MCP client this session; the gate suite runs the real Hono app with a stubbed API `fetch`. OAuth state is in memory, so a restart invalidates clients and tokens (documented in docs/07 §4.3).
+
+- [x] 2026-11-13 — **P8 redraw one scene** — `POST /v1/videos/:id/scenes/:idx/redraw` regenerates exactly one still of a **completed** video and then re-renders. The request is `{}` or `{prompt?}` (≤500 chars, strict); the nudge is appended to the stored scene prompt and cut at the image-prompt ceiling, never used as a replacement, so the planner's composition and the style negative clause still apply. The one-scene marker lives on the row (`video.redraw` jsonb, migration `0002_flimsy_ma_gnuci.sql`) because a job payload is only `{videoId}`; `beginRedraw` takes the row lock, checks the scene exists, sets `processing`/`create-images` and the marker, and `createQueueRedraw` enqueues `create-images` through the same client. The worker's `create-images` step sees the marker, draws only that scene against the other scenes' histograms, replaces its `frames/manifest.json` entry and `scene.image_asset_id`, charges one `image`, clears the marker and moves the video to `rendering`/`render`; narration, captions and `concat(scenes.text)` are untouched. The editor gained one Redraw button per scene plus an optional direction field, hidden whenever the video is not `completed`.
+      **Observed:** `npm run gate` green at 116 files / 1,453 tests, including 11 hermetic route
+      tests, 2 contract tests and 5 worker redraw tests (single scene, stored prompt, ceiling
+      truncation, out-of-plan scene, manifest/plan mismatch); `npm run test:e2e` 17 passed with the
+      new redraw spec asserting the `{prompt}` body, the queued-scene status line and the action
+      disappearing once the video is back in `processing`.
+      **Not verified live:** no Postgres/Redis or running worker this session, so the migration,
+      `beginRedraw`'s row lock and the real draw → manifest rewrite → re-render path are
+      typechecked and fake-tested only. A `beginRedraw` assertion was added to
+      `packages/db/src/videos.db.test.ts` (workspace scoping, scene required, completed-only) but
+      `npm run test:db` was not run; no redrawn still or MP4 was produced.
 
 ---
 

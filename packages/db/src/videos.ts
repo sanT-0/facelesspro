@@ -334,3 +334,74 @@ export async function beginRetry(
   if (next === undefined) throw new Error('retry transition returned no row');
   return { kind: 'queued', video: videoRowSchema.parse(next), step };
 }
+
+export interface BeginRedrawInput {
+  readonly workspaceId: string;
+  readonly videoId: string;
+  readonly sceneIdx: number;
+  /** A nudge appended to the stored scene prompt. */
+  readonly prompt?: string;
+}
+
+export type BeginRedrawResult =
+  /** The marker is stored; the caller must enqueue `create-images` in this tx. */
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  | { readonly kind: 'scene_not_found' }
+  /** Only a `completed` video is redrawable; in-flight work is not. */
+  | { readonly kind: 'conflict'; readonly status: VideoStatus };
+
+/**
+ * Queue a one-scene redraw of a completed video.
+ *
+ * The marker lives on the video row (`video.redraw`) because a job payload is
+ * only `{videoId}`. `create-images` regenerates exactly that scene, replaces the
+ * still and the manifest entry, then moves straight to `render`; captions and
+ * narration are untouched.
+ *
+ * Must run inside the transaction that enqueues the job: the row lock is what
+ * turns two concurrent redraw clicks into one accepted request and one `409`.
+ */
+export async function beginRedraw(
+  db: Database,
+  input: BeginRedrawInput,
+): Promise<BeginRedrawResult> {
+  const rows = await db
+    .select()
+    .from(video)
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .for('update');
+  const row = rows[0];
+  if (row === undefined) return { kind: 'not_found' };
+  if (row.status !== 'completed') return { kind: 'conflict', status: row.status };
+
+  const sceneRows = await db
+    .select({ id: scene.id })
+    .from(scene)
+    .where(and(eq(scene.video_id, input.videoId), eq(scene.idx, input.sceneIdx)))
+    .limit(1);
+  if (sceneRows[0] === undefined) return { kind: 'scene_not_found' };
+
+  const updated = await db
+    .update(video)
+    .set({
+      status: 'processing',
+      step: 'create-images',
+      error: null,
+      redraw: {
+        sceneIdx: input.sceneIdx,
+        ...(input.prompt === undefined ? {} : { prompt: input.prompt }),
+      },
+      updated_at: sql`now()`,
+    })
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .returning();
+
+  const next = updated[0];
+  if (next === undefined) throw new Error('redraw transition returned no row');
+  return { kind: 'queued', video: videoRowSchema.parse(next) };
+}

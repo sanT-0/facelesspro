@@ -85,6 +85,7 @@ function appWith(options: {
       readVideoWordTimings: async () => null,
       queueRender: async () => ({ kind: 'not_found' as const }),
       queueRetry: async () => ({ kind: 'not_found' as const }),
+      queueRedraw: async () => ({ kind: 'not_found' as const }),
       submitVideo:
         options.submitVideo ?? (async (input) => storedRow(input)),
       ...testAuth(WORKSPACE_ID),

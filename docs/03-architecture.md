@@ -129,7 +129,7 @@ caption_tpl    (id, workspace_id?, name, spec jsonb)       -- id<0 = built-in
 asset          (id, workspace_id, kind, key, bytes, mime, meta, created_at)
 
 video          (id, workspace_id, kind, status, step, error,
-                request jsonb, plan jsonb, webhook_url,
+                request jsonb, plan jsonb, redraw jsonb, webhook_url,
                 duration_ms, video_url, editor_seen_at, created_at, updated_at)
 scene          (id, video_id, idx, text, image_asset_id, motion jsonb, start_ms, end_ms)
 narration      (video_id, asset_id, duration_ms, word_timings jsonb, voice_plan jsonb)

@@ -1,5 +1,5 @@
 /**
- * `/v1/videos/:id` — the pipeline cursor and its two actions.
+ * `/v1/videos/:id` — the pipeline cursor and its actions.
  *
  * `GET` answers `videoResponseSchema` (the same object webhooks carry) and
  * rewrites the stored render key through `PUBLIC_BASE_URL` + the api's stable
@@ -19,6 +19,10 @@
  * `GET /:id/captions` re-serializes the stored cue track as SRT, VTT, ASS or
  * JSON (docs/07 §2.4). It reads the same rows the render used, so the sidecar
  * and the burned-in captions cannot disagree.
+ *
+ * `POST /:id/scenes/:idx/redraw` marks one scene of a **completed** video for
+ * regeneration; the worker redraws that still and re-renders. The prompt is a
+ * nudge on the stored one, and captions/narration are untouched.
  *
  * Every guarded transition and its enqueue share one transaction in the
  * injected queue dependency.
@@ -40,6 +44,7 @@ import {
   captionJsonExportSchema,
   captionPreviewRequestSchema,
   idSchema,
+  redrawSceneRequestSchema,
   renderRequestSchema,
   scenePlanSchema,
   videoPlanResponseSchema,
@@ -94,6 +99,26 @@ export type QueueRetryInput = {
 
 export type QueueRetry = (input: QueueRetryInput) => Promise<QueueRetryResult>;
 
+export interface QueueRedrawInput {
+  /** The authenticated workspace; the guard is scoped to it. */
+  readonly workspaceId: string;
+  readonly videoId: string;
+  /** Zero-based scene index from the stored plan. */
+  readonly sceneIdx: number;
+  /** A nudge appended to the stored scene prompt. */
+  readonly prompt?: string;
+}
+
+export type QueueRedrawResult =
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  /** The video has no scene at that index. */
+  | { readonly kind: 'scene_not_found' }
+  /** Only a completed video can redraw; generation in flight is a conflict. */
+  | { readonly kind: 'conflict'; readonly status: VideoStatus };
+
+export type QueueRedraw = (input: QueueRedrawInput) => Promise<QueueRedrawResult>;
+
 export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   /** Any status inside this workspace, so the route can answer 404. */
   readonly readVideo: (
@@ -104,6 +129,8 @@ export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   readonly queueRender: QueueRender;
   /** Guarded failed-step resume + enqueue in one Postgres transaction. */
   readonly queueRetry: QueueRetry;
+  /** Guarded one-scene redraw + enqueue in one Postgres transaction. */
+  readonly queueRedraw: QueueRedraw;
   /** Scene rows + still keys, ordered by `idx`, scoped to the workspace. */
   readonly readVideoScenes: (
     workspaceId: string,
@@ -451,6 +478,75 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
     switch (result.kind) {
       case 'not_found':
         return c.json(apiError('not_found', 'video not found'), 404);
+      case 'conflict':
+        return c.json(apiError('conflict', `video is ${result.status}`), 409);
+      case 'queued': {
+        const mapped = mapStoredVideo(result.video, base);
+        if (!mapped.ok) return c.json(apiError('internal', mapped.message), 500);
+        return c.json(mapped.body, 202);
+      }
+    }
+  });
+
+  app.post('/:id/scenes/:idx/redraw', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    const idxText = c.req.param('idx');
+    if (!/^(0|[1-9]\d*)$/.test(idxText)) {
+      return c.json(
+        apiError('invalid_request', 'idx must be a non-negative integer', 'idx'),
+        400,
+      );
+    }
+    const sceneIdx = Number(idxText);
+    // Postgres `integer` tops out at 2^31-1; a longer index is a bad request,
+    // not a 500 from the driver.
+    if (!Number.isSafeInteger(sceneIdx) || sceneIdx > 2_147_483_647) {
+      return c.json(
+        apiError('invalid_request', 'idx must fit in a 32-bit integer', 'idx'),
+        400,
+      );
+    }
+
+    let payload: unknown;
+    try {
+      payload = await readRenderBody(c.req.raw);
+    } catch {
+      return c.json(apiError('invalid_request', 'request body must be JSON'), 400);
+    }
+
+    const parsed = redrawSceneRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      let field: string | undefined;
+      if (issue !== undefined) {
+        if (issue.path.length > 0) {
+          field = issue.path.join('.');
+        } else if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+          field = issue.keys[0];
+        }
+      }
+      return c.json(
+        apiError('invalid_request', issue?.message ?? 'invalid request', field),
+        400,
+      );
+    }
+
+    const result = await deps.queueRedraw({
+      workspaceId: c.get('workspaceId'),
+      videoId: id,
+      sceneIdx,
+      ...(parsed.data.prompt === undefined ? {} : { prompt: parsed.data.prompt }),
+    });
+
+    switch (result.kind) {
+      case 'not_found':
+        return c.json(apiError('not_found', 'video not found'), 404);
+      case 'scene_not_found':
+        return c.json(apiError('not_found', 'scene not found'), 404);
       case 'conflict':
         return c.json(apiError('conflict', `video is ${result.status}`), 409);
       case 'queued': {

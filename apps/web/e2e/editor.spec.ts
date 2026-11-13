@@ -135,6 +135,38 @@ test('editor draws the narration waveform and scrubs the playhead', async ({ pag
   await expect(page.locator('#playhead-time')).toHaveText('0:03.2');
 });
 
+test('editor redraws one scene of a completed video', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  await expect(page.locator('.scene-item')).toHaveCount(2);
+  const redrawButtons = page.getByRole('button', { name: 'Redraw' });
+  await expect(redrawButtons).toHaveCount(2);
+
+  await page.locator('#redraw-prompt').fill('warmer light');
+
+  const redrawRequest = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/v1/videos/${VIDEO_ID}/scenes/1/redraw`),
+  );
+  await redrawButtons.nth(1).click();
+
+  const body = JSON.parse((await redrawRequest).postData() ?? '{}') as Record<
+    string,
+    unknown
+  >;
+  expect(body).toEqual({ prompt: 'warmer light' });
+
+  await expect(page.locator('#redraw-status')).toContainText('Scene 2 queued');
+  // The video is back in `create-images`, so the action disappears until the
+  // new still and the re-render finish.
+  await expect(page.locator('#editor-status')).toContainText('processing');
+  await expect(page.getByRole('button', { name: 'Redraw' })).toHaveCount(0);
+});
+
 test('editor says when the caption track is not ready yet', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1, captions: false });
   await signInAs(page, API_KEY);

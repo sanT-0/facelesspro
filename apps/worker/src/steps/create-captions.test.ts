@@ -94,6 +94,7 @@ function video(
     error: null,
     request: { kind: 'ai-video-v3', body },
     plan: null,
+    redraw: null,
     webhook_url: null,
     duration_ms: narration.duration_ms,
     video_url: null,

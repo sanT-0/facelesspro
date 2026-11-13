@@ -187,6 +187,20 @@ the same narration routing `GET /v1/videos/:id` returns, or `null` until `create
 unknown video is `404 not_found`; a video before `create-scenes` is `404 not_found` with `plan not
 available`; a stored plan that no longer validates is a fixed `500 internal`.
 
+`POST /v1/videos/:id/scenes/:idx/redraw` accepts `{}` or `{prompt?}` (≤500 characters) and
+regenerates exactly one still of a **completed** video. `prompt` is a nudge appended to the stored
+scene prompt, never a replacement: the planner's composition and the style negative clause still
+apply, and the combined prompt is cut to the image-prompt ceiling rather than rejected. The
+one-scene marker lives on the row (`video.redraw = {sceneIdx, prompt?}`) and the `create-images`
+job is enqueued in the same transaction, so a `202` always means exactly one queued job;
+`processing`, `rendering` and `failed` are `409 conflict` (a failure is resumed with `retry`). The
+step draws only that scene, compares it against the other scenes' histograms, replaces its
+`frames/manifest.json` entry and `scene.image_asset_id`, writes one `image` ledger row, clears the
+marker and moves the video to `rendering`/`render`; captions and narration are untouched, so
+`concat(scenes.text)` and the word timings do not change. Unknown video or scene index → `404
+not_found`, non-UUID id / non-integer or out-of-range `idx` / blank or over-long prompt / unknown
+body key → `400 invalid_request` with `field`.
+
 ### 2.5 API keys
 
 | Method | Path | Body / returns |

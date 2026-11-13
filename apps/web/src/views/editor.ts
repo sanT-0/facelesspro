@@ -6,8 +6,10 @@
  * stored caption cues with a sidecar preview/download for each format, and the
  * render panel. Fetches video details from GET /v1/videos/:id.
  *
- * Redraw and selective re-narrate are deliberately absent: neither route
- * exists yet, and a button that cannot work is worse than no button.
+ * A completed video can redraw one scene: the API stores a one-scene marker and
+ * the worker regenerates only that still, then re-renders. Selective
+ * re-narrate is deliberately absent: the route does not exist yet, and a button
+ * that cannot work is worse than no button.
  */
 
 import {
@@ -17,6 +19,7 @@ import {
   getVideo,
   getVideoPlan,
   previewCaptions,
+  redrawScene,
   renderVideo,
   type CaptionDocument,
   type CaptionSidecarFormat,
@@ -124,6 +127,12 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         <div id="scenes-list" class="mt-2">
           <div class="text-muted">Loading scenes…</div>
         </div>
+        <div class="form-group mt-2">
+          <label class="form-label" for="redraw-prompt">Redraw direction (optional)</label>
+          <input id="redraw-prompt" class="form-input" type="text" maxlength="500"
+            placeholder="e.g. warmer light, closer crop" />
+        </div>
+        <div id="redraw-status" class="status-line" role="status"></div>
       </section>
 
       <section class="card">
@@ -196,6 +205,8 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
   const captionsPanel = container.querySelector('#captions-panel') as HTMLElement;
   const renderBtn = container.querySelector('#render-btn') as HTMLButtonElement;
   const renderResult = container.querySelector('#render-result') as HTMLDivElement;
+  const redrawPrompt = container.querySelector('#redraw-prompt') as HTMLInputElement;
+  const redrawStatus = container.querySelector('#redraw-status') as HTMLElement;
 
   let video: Video | null = null;
 
@@ -224,7 +235,10 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     // The API serves scenes once `create-scenes` has committed.
     const scenes = v.scenes;
     if (scenes && scenes.length > 0) {
-      scenesList.innerHTML = scenes.map((s, _idx) => `
+      // Redraw only makes sense on a finished project: generation in flight or
+      // failed is resumed through retry, not by swapping one still.
+      const canRedraw = v.status === 'completed';
+      scenesList.innerHTML = scenes.map((s) => `
         <div class="scene-item">
           <img src="${s.imageUrl ?? 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2796%27 height=%2754%27%3E%3Crect width=%2796%27 height=%2754%27 fill=%27%23334155%27/%3E%3C/svg%3E'}" alt="Scene ${s.idx}" />
           <div class="scene-text">
@@ -232,15 +246,59 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
             <div class="scene-meta">
               <span>Scene ${s.idx + 1}</span>
               <span>${((s.endMs - s.startMs) / 1000).toFixed(1)}s</span>
+              ${canRedraw ? `<button class="btn btn-secondary" type="button" data-redraw-scene="${s.idx}">Redraw</button>` : ''}
             </div>
           </div>
         </div>
       `).join('');
+      bindSceneRedraw();
     } else {
       scenesList.innerHTML = '<div class="text-muted">No scenes available yet.</div>';
     }
 
     renderVoicePlan(v.voicePlan);
+  }
+
+  /**
+   * Wire each redraw button. Called again after every `renderVideoDetails`,
+   * because replacing the scene list detaches the old buttons.
+   */
+  function bindSceneRedraw(): void {
+    scenesList
+      .querySelectorAll<HTMLButtonElement>('[data-redraw-scene]')
+      .forEach((button) => {
+        button.addEventListener('click', async () => {
+          const idx = Number(button.dataset.redrawScene);
+          if (!Number.isInteger(idx) || idx < 0) return;
+
+          const nudge = redrawPrompt.value.trim();
+          const buttons = scenesList.querySelectorAll<HTMLButtonElement>(
+            '[data-redraw-scene]',
+          );
+          buttons.forEach((other) => {
+            other.disabled = true;
+          });
+          button.textContent = 'Redrawing…';
+          redrawStatus.textContent = `Redrawing scene ${idx + 1}…`;
+          delete redrawStatus.dataset.state;
+
+          try {
+            const updated = await redrawScene(
+              videoId,
+              idx,
+              nudge.length === 0 ? {} : { prompt: nudge },
+            );
+            video = updated;
+            renderVideoDetails(updated);
+            redrawStatus.textContent = `Scene ${idx + 1} queued. The video re-renders when the new still is ready.`;
+          } catch (err) {
+            redrawStatus.textContent = (err as Error).message;
+            redrawStatus.dataset.state = 'error';
+            button.disabled = false;
+            button.textContent = 'Redraw';
+          }
+        });
+      });
   }
 
   function renderVoicePlan(plan: Video['voicePlan']): void {

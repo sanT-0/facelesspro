@@ -2,6 +2,7 @@ import type {
   ArtStyleRow,
   GeneratedImage,
   ImageGenerationRequest,
+  SceneManifest,
   ScenePlan,
   SceneRow,
   StyleProfile,
@@ -18,11 +19,14 @@ import type { SceneFrame } from '../image/postprocess';
 import {
   createCreateImagesWork,
   framesManifestKey,
+  type LoadReferenceHistograms,
   type PersistImages,
   type PersistImagesInput,
   type ProcessScene,
+  type ReadSceneManifest,
   type StoreFrames,
   type StoreFramesInput,
+  type StoreRedrawFrame,
 } from './create-images';
 
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
@@ -108,6 +112,7 @@ function request(
     error: null,
     request: { kind: 'ai-video-v3', body },
     plan,
+    redraw: null,
     webhook_url: null,
     duration_ms: 2_400,
     video_url: null,
@@ -138,13 +143,20 @@ function harness(row: StepContext['video'] = request()) {
   const charge = vi.fn(async () => {
     calls.push('charge');
   });
+  const enqueue = vi.fn(async () => {
+    calls.push('enqueue');
+  });
+  // Redraw sets `status/step/redraw` through the documented `tx.db` escape hatch.
+  const where = vi.fn(async () => undefined);
+  const set = vi.fn(() => ({ where }));
+  const update = vi.fn(() => ({ set }));
   const tx: CommitTx = {
-    db: {} as Database,
+    db: { update } as unknown as Database,
     videoId: VIDEO_ID,
     attempt: 1,
     setStep: vi.fn(async () => {}),
     advance,
-    enqueue: vi.fn(async () => {}),
+    enqueue,
     charge,
     fireWebhook: vi.fn(async () => {}),
   };
@@ -166,7 +178,17 @@ function harness(row: StepContext['video'] = request()) {
     observe,
     transaction,
   };
-  return { context, tx, transactionCalls, advance, charge, calls, observe };
+  return {
+    context,
+    tx,
+    transactionCalls,
+    advance,
+    enqueue,
+    charge,
+    update,
+    calls,
+    observe,
+  };
 }
 
 function histogramFor(idx: number): number[] {
@@ -211,6 +233,9 @@ interface DepsOptions {
   findStyle?: () => Promise<ArtStyleRow | null>;
   scenes?: SceneRow[];
   imageUnitCost?: number;
+  readManifest?: ReadSceneManifest;
+  loadReferenceHistograms?: LoadReferenceHistograms;
+  storeRedrawFrame?: StoreRedrawFrame;
 }
 
 function deps(options: DepsOptions = {}) {
@@ -242,9 +267,23 @@ function deps(options: DepsOptions = {}) {
     processScene,
     storeFrames,
     persistImages,
+    ...(options.readManifest === undefined ? {} : { readManifest: options.readManifest }),
+    ...(options.loadReferenceHistograms === undefined
+      ? {}
+      : { loadReferenceHistograms: options.loadReferenceHistograms }),
+    ...(options.storeRedrawFrame === undefined
+      ? {}
+      : { storeRedrawFrame: options.storeRedrawFrame }),
     imageUnitCost: options.imageUnitCost ?? 0,
   });
-  return { work, processScene, storeFrames, persistImages, findStyle, calls };
+  return {
+    work,
+    processScene,
+    storeFrames,
+    persistImages,
+    findStyle,
+    calls,
+  };
 }
 
 describe('createCreateImagesWork', () => {
@@ -475,6 +514,171 @@ describe('createCreateImagesWork', () => {
     await expect(work(context)).rejects.toMatchObject({
       code: 'internal',
       retryable: true,
+    });
+    expect(transactionCalls).toHaveLength(0);
+  });
+});
+
+describe('createCreateImagesWork — one-scene redraw', () => {
+  function manifest(): SceneManifest {
+    return {
+      version: 1,
+      videoId: VIDEO_ID,
+      styleId: STYLE_ID,
+      size: 'landscape',
+      frames: plan.scenes.map((planned, idx) => ({
+        idx,
+        key: `ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/frames/000${idx + 1}.png`,
+        prompt: planned.imagePrompt,
+        seed: sceneSeedFor(VIDEO_ID, idx),
+        adapter: 'procedural',
+        degradedFrom: [],
+        width: 1024,
+        height: 576,
+        bytes: 100 + idx,
+        sha256: String(idx).repeat(64),
+        correction: { deltaE: 1, maxDeltaE: 6 },
+        consistency: {
+          distance: null,
+          outlier: false,
+          regenerated: false,
+          finalDistance: null,
+        },
+      })),
+    };
+  }
+
+  function redrawRow(
+    sceneIdx = 1,
+    prompt?: string,
+    planOverride?: ScenePlan,
+  ): StepContext['video'] {
+    const row = request();
+    if (planOverride !== undefined) row.plan = planOverride;
+    row.redraw = { sceneIdx, ...(prompt === undefined ? {} : { prompt }) };
+    return row;
+  }
+
+  it('draws only the chosen scene, replaces its manifest entry and queues render', async () => {
+    const processScene = vi.fn<ProcessScene>(async (imageRequest, options) => {
+      expect(options.referenceHistograms).toEqual([histogramFor(0)]);
+      return frameFor(imageRequest, 7);
+    });
+    const storeRedrawFrame = vi.fn<StoreRedrawFrame>(async () => ({
+      manifestKey: framesManifestKey(WORKSPACE_ID, VIDEO_ID),
+    }));
+    const persistImages = vi.fn<PersistImages>(async () => {});
+    const readManifest: ReadSceneManifest = async () => manifest();
+    const loadReferenceHistograms: LoadReferenceHistograms = async (input) =>
+      input.skipIdx === 1 ? [histogramFor(0)] : [histogramFor(1)];
+
+    const { work } = deps({
+      processScene,
+      storeRedrawFrame,
+      persistImages,
+      readManifest,
+      loadReferenceHistograms,
+      imageUnitCost: 2,
+    });
+    const { context, charge, enqueue, advance, update } = harness(redrawRow(1, 'warmer light'));
+
+    await work(context);
+
+    expect(processScene).toHaveBeenCalledTimes(1);
+    const [imageRequest] = vi.mocked(processScene).mock.calls[0]!;
+    expect(imageRequest.prompt).toBe(`${plan.scenes[1]!.imagePrompt}, warmer light`);
+    expect(imageRequest.seed).toBe(sceneSeedFor(VIDEO_ID, 1));
+
+    const stored = vi.mocked(storeRedrawFrame).mock.calls[0]![0];
+    expect(stored.frame.key).toBe(
+      `ws/${WORKSPACE_ID}/videos/${VIDEO_ID}/frames/0002.png`,
+    );
+    expect(stored.manifest.frames.map((frame) => frame.idx)).toEqual([0, 1]);
+    expect(stored.manifest.frames[0]).toEqual(manifest().frames[0]);
+    expect(stored.manifest.frames[1]!.prompt).toBe(
+      `${plan.scenes[1]!.imagePrompt}, warmer light`,
+    );
+    expect(stored.manifest.frames[1]!.sha256).toHaveLength(64);
+
+    const persisted = vi.mocked(persistImages).mock.calls[0]![1];
+    expect(persisted.frames).toHaveLength(1);
+    expect(persisted.frames[0]!.idx).toBe(1);
+
+    expect(charge).toHaveBeenCalledWith({ action: 'image', units: 1, unitCost: 2 });
+    expect(enqueue).toHaveBeenCalledWith('render');
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(advance).not.toHaveBeenCalled();
+  });
+
+  it('redraws with the stored prompt when no nudge is supplied', async () => {
+    const processScene = vi.fn<ProcessScene>(async (imageRequest) =>
+      frameFor(imageRequest, 3),
+    );
+    const { work } = deps({
+      processScene,
+      storeRedrawFrame: async () => ({
+        manifestKey: framesManifestKey(WORKSPACE_ID, VIDEO_ID),
+      }),
+      readManifest: async () => manifest(),
+      loadReferenceHistograms: async () => [histogramFor(0)],
+    });
+    const { context } = harness(redrawRow(1));
+
+    await work(context);
+
+    expect(vi.mocked(processScene).mock.calls[0]![0].prompt).toBe(
+      plan.scenes[1]!.imagePrompt,
+    );
+  });
+
+  it('truncates a nudge that would exceed the prompt ceiling', async () => {
+    const processScene = vi.fn<ProcessScene>(async (imageRequest) =>
+      frameFor(imageRequest, 3),
+    );
+    const { work } = deps({
+      processScene,
+      storeRedrawFrame: async () => ({
+        manifestKey: framesManifestKey(WORKSPACE_ID, VIDEO_ID),
+      }),
+      readManifest: async () => manifest(),
+      loadReferenceHistograms: async () => [histogramFor(0)],
+    });
+    // A stored prompt near the ceiling plus a 500-character nudge must be cut,
+    // not rejected: the redraw still happens, just with a shorter nudge.
+    const longPlan: ScenePlan = {
+      ...plan,
+      scenes: plan.scenes.map((scene, idx) =>
+        idx === 1 ? { ...scene, imagePrompt: `flat vector scene, ${'x'.repeat(700)}` } : scene,
+      ),
+    };
+    const { context } = harness(redrawRow(1, 'y'.repeat(500), longPlan));
+
+    await work(context);
+
+    const prompt = vi.mocked(processScene).mock.calls[0]![0].prompt;
+    expect(prompt).toHaveLength(1000);
+    expect(prompt.startsWith('flat vector scene, xxx')).toBe(true);
+    expect(prompt).toContain('y');
+  });
+
+  it('refuses a scene outside the stored plan and commits nothing', async () => {
+    const { work } = deps();
+    const { context, transactionCalls } = harness(redrawRow(9));
+
+    await expect(work(context)).rejects.toMatchObject({
+      code: 'internal',
+    });
+    expect(transactionCalls).toHaveLength(0);
+  });
+
+  it('does not treat a manifest with a different scene count as a valid redraw', async () => {
+    const { work } = deps({
+      readManifest: async () => ({ ...manifest(), frames: [manifest().frames[0]!] }),
+    });
+    const { context, transactionCalls } = harness(redrawRow(1));
+
+    await expect(work(context)).rejects.toMatchObject({
+      code: 'internal',
     });
     expect(transactionCalls).toHaveLength(0);
   });

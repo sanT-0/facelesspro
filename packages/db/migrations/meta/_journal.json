@@ -15,6 +15,13 @@
       "when": 1794036394211,
       "tag": "0001_omniscient_falcon",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1794584932990,
+      "tag": "0002_flimsy_ma_gnuci",
+      "breakpoints": true
     }
   ]
 }

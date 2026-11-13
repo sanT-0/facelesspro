@@ -69,6 +69,7 @@ function appWith(queueRetry: (input: QueueRetryInput) => Promise<QueueRetryResul
     readVideoWordTimings: async () => null,
     queueRender: async () => ({ kind: 'not_found' }),
     queueRetry,
+    queueRedraw: async () => ({ kind: 'not_found' }),
     ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

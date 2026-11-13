@@ -13,6 +13,7 @@
  */
 
 import {
+  MAX_IMAGE_PROMPT_CHARS,
   createAiVideoV3RequestSchema,
   imageGenerationRequestSchema,
   sceneManifestSchema,
@@ -25,6 +26,7 @@ import type {
   ArtStyleRow,
   GeneratedImage,
   ImageGenerationRequest,
+  RedrawState,
   SceneFrameManifest,
   SceneManifest,
   ScenePlan,
@@ -32,20 +34,22 @@ import type {
   Size,
   StyleProfile,
 } from '@facelesspro/contracts';
-import { sceneSeedFor } from '@facelesspro/core';
-import { asset, findArtStyle, scene } from '@facelesspro/db';
+import { rgbHistogram, sceneSeedFor } from '@facelesspro/core';
+import { asset, findArtStyle, scene, video } from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
 import { StepFailure, withStep } from '@facelesspro/queue';
 import type {
   CommitTx,
   StepBody,
+  StepContext,
   StepDeps,
   StepHandler,
 } from '@facelesspro/queue';
-import { and, asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 import { createHash } from 'node:crypto';
-import { writeFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 
+import { decodeFrame } from '../art-style/frame-decode';
 import { assertStyleUsable } from '../art-style/usable';
 import {
   dataDir,
@@ -94,6 +98,36 @@ export interface StoredFrames {
 
 export type StoreFrames = (input: StoreFramesInput) => Promise<StoredFrames>;
 
+export interface RedrawReferenceInput {
+  readonly workspaceId: string;
+  readonly videoId: string;
+  readonly manifest: SceneManifest;
+  /** The scene being redrawn; it must not be its own reference. */
+  readonly skipIdx: number;
+}
+
+/** Histograms of the other accepted scenes, so a redraw still matches the set. */
+export type LoadReferenceHistograms = (
+  input: RedrawReferenceInput,
+) => Promise<number[][]>;
+
+export type ReadSceneManifest = (
+  workspaceId: string,
+  videoId: string,
+) => Promise<SceneManifest>;
+
+export interface StoreRedrawFrameInput {
+  readonly workspaceId: string;
+  readonly videoId: string;
+  readonly frame: FrameBytes;
+  /** The existing manifest with the redrawn frame already replaced. */
+  readonly manifest: SceneManifest;
+}
+
+export type StoreRedrawFrame = (
+  input: StoreRedrawFrameInput,
+) => Promise<{ readonly manifestKey: string }>;
+
 export interface PersistImagesInput {
   readonly videoId: string;
   readonly workspaceId: string;
@@ -110,6 +144,10 @@ export interface CreateImagesWorkDeps {
   readonly processScene?: ProcessScene;
   readonly storeFrames?: StoreFrames;
   readonly persistImages?: PersistImages;
+  /** Redraw path: the existing manifest, its reference histograms and the store. */
+  readonly readManifest?: ReadSceneManifest;
+  readonly loadReferenceHistograms?: LoadReferenceHistograms;
+  readonly storeRedrawFrame?: StoreRedrawFrame;
   /** Self-host records units at zero cost; a paid plan supplies its price. */
   readonly imageUnitCost?: number;
 }
@@ -167,6 +205,26 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
     const rows = await loadScenes(ctx.db, ctx.videoId);
     const scenes = assertScenesMatchPlan(rows, plan.data);
 
+    const redraw = row.data.redraw ?? null;
+    if (redraw !== null) {
+      await redrawOneScene(ctx, {
+        redraw,
+        plan: plan.data,
+        scenes,
+        profile: profile.data,
+        workspaceId: row.data.workspace_id,
+        size: request.data.size,
+        draw: deps.image,
+        process,
+        readManifest: deps.readManifest ?? readSceneManifest,
+        loadReferences: deps.loadReferenceHistograms ?? loadReferenceHistograms,
+        store: deps.storeRedrawFrame ?? storeRedrawFrame,
+        persist,
+        unitCost,
+      });
+      return;
+    }
+
     const requests = buildRequests(
       ctx.videoId,
       plan.data,
@@ -190,21 +248,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       references.push([...frame.histogram]);
 
       const key = frameKey(row.data.workspace_id, ctx.videoId, idx);
-      const sha256 = createHash('sha256').update(frame.image.bytes).digest('hex');
-      frames.push({
-        idx,
-        key,
-        prompt: frame.prompt,
-        seed: frame.image.seed,
-        adapter: frame.image.adapter,
-        degradedFrom: [...frame.image.degradedFrom],
-        width: frame.image.width,
-        height: frame.image.height,
-        bytes: frame.image.bytes.byteLength,
-        sha256,
-        correction: frame.correction,
-        consistency: frame.consistency,
-      });
+      frames.push(manifestEntryFor(frame, key, idx));
       frameBytes.push({ key, bytes: frame.image.bytes });
       // `scenes` is ordered and has the same length; this asserts the pairing.
       if (scenes[idx]?.idx !== idx) {
@@ -346,6 +390,257 @@ export async function persistImages(tx: CommitTx, input: PersistImagesInput): Pr
       throw new StepFailure('internal', `could not link image asset for scene ${frame.idx}`);
     }
   }
+}
+
+interface RedrawWork {
+  readonly redraw: RedrawState;
+  readonly plan: ScenePlan;
+  readonly scenes: readonly SceneRow[];
+  readonly profile: StyleProfile;
+  readonly workspaceId: string;
+  readonly size: Size;
+  readonly draw: ImageFn;
+  readonly process: ProcessScene;
+  readonly readManifest: ReadSceneManifest;
+  readonly loadReferences: LoadReferenceHistograms;
+  readonly store: StoreRedrawFrame;
+  readonly persist: PersistImages;
+  readonly unitCost: number;
+}
+
+/**
+ * Regenerate exactly one scene, then hand the finished project back to `render`.
+ *
+ * Narration and captions are untouched: their timing does not depend on pixels.
+ * The manifest entry is replaced rather than appended, so the audit file still
+ * has one frame per scene, and `scene.image_asset_id` points at the new asset.
+ */
+async function redrawOneScene(ctx: StepContext, work: RedrawWork): Promise<void> {
+  const idx = work.redraw.sceneIdx;
+  if (work.plan.scenes[idx] === undefined || work.scenes[idx]?.idx !== idx) {
+    throw new StepFailure('internal', `redraw scene ${idx} is outside the stored plan`);
+  }
+
+  const request = buildRedrawRequest(
+    ctx.videoId,
+    work.plan,
+    work.profile,
+    work.size,
+    work.redraw,
+  );
+  const manifest = await work.readManifest(work.workspaceId, ctx.videoId);
+  if (manifest.frames.length !== work.plan.scenes.length) {
+    throw new StepFailure(
+      'internal',
+      `stored manifest (${manifest.frames.length}) does not match the plan (${work.plan.scenes.length})`,
+    );
+  }
+
+  const references = await work.loadReferences({
+    workspaceId: work.workspaceId,
+    videoId: ctx.videoId,
+    manifest,
+    skipIdx: idx,
+  });
+
+  let frame: SceneFrame;
+  try {
+    frame = await work.process(request, {
+      draw: work.draw,
+      referenceHistograms: references,
+    });
+  } catch (error) {
+    throw mapImageFailure(error, idx);
+  }
+
+  const key = frameKey(work.workspaceId, ctx.videoId, idx);
+  const entry = manifestEntryFor(frame, key, idx);
+  const nextManifest = sceneManifestSchema.parse({
+    ...manifest,
+    frames: manifest.frames.map((existing, frameIdx) =>
+      frameIdx === idx ? entry : existing,
+    ),
+  });
+
+  await storeRedrawFrameSafely(work.store, {
+    workspaceId: work.workspaceId,
+    videoId: ctx.videoId,
+    frame: { key, bytes: frame.image.bytes },
+    manifest: nextManifest,
+  });
+
+  ctx.observe({
+    adapter: frame.image.adapter,
+    items: 1,
+    ok: 1,
+    bytes: entry.bytes,
+    costUnits: 1,
+    degradedFrom:
+      entry.degradedFrom.length === 0 ? undefined : entry.degradedFrom.join(','),
+  });
+
+  await ctx.transaction(async (tx) => {
+    await work.persist(tx, {
+      videoId: ctx.videoId,
+      workspaceId: work.workspaceId,
+      frames: [entry],
+    });
+    await tx.charge({ action: 'image', units: 1, unitCost: work.unitCost });
+    await tx.db
+      .update(video)
+      .set({
+        redraw: null,
+        status: 'rendering',
+        step: 'render',
+        error: null,
+        updated_at: sql`now()`,
+      })
+      .where(eq(video.id, ctx.videoId));
+    await tx.enqueue('render');
+  });
+}
+
+function manifestEntryFor(
+  frame: SceneFrame,
+  key: string,
+  idx: number,
+): SceneFrameManifest {
+  return {
+    idx,
+    key,
+    prompt: frame.prompt,
+    seed: frame.image.seed,
+    adapter: frame.image.adapter,
+    degradedFrom: [...frame.image.degradedFrom],
+    width: frame.image.width,
+    height: frame.image.height,
+    bytes: frame.image.bytes.byteLength,
+    sha256: createHash('sha256').update(frame.image.bytes).digest('hex'),
+    correction: frame.correction,
+    consistency: frame.consistency,
+  };
+}
+
+function buildRedrawRequest(
+  videoId: string,
+  plan: ScenePlan,
+  profile: StyleProfile,
+  size: Size,
+  redraw: RedrawState,
+): ImageGenerationRequest {
+  const planned = plan.scenes[redraw.sceneIdx];
+  if (planned === undefined) {
+    throw new StepFailure('internal', `redraw scene ${redraw.sceneIdx} is outside the plan`);
+  }
+  const nudge = redraw.prompt === undefined ? '' : `, ${redraw.prompt}`;
+  try {
+    return imageGenerationRequestSchema.parse({
+      prompt: `${planned.imagePrompt}${nudge}`.slice(0, MAX_IMAGE_PROMPT_CHARS),
+      negativePrompt: withRequiredNegatives(profile.negative),
+      seed: sceneSeedFor(videoId, redraw.sceneIdx),
+      size,
+      style: profile,
+    });
+  } catch (error) {
+    throw new StepFailure('internal', 'redraw cannot form a valid image request', {
+      cause: error,
+    });
+  }
+}
+
+async function readSceneManifest(
+  workspaceId: string,
+  videoId: string,
+): Promise<SceneManifest> {
+  const path = resolveStorageKey(dataDir(), framesManifestKey(workspaceId, videoId));
+  let raw: string;
+  try {
+    raw = await readFile(path, 'utf8');
+  } catch (error) {
+    throw new StepFailure(
+      'internal',
+      `could not read the scene manifest: ${messageOf(error)}`,
+      { retryable: true, cause: error },
+    );
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    throw new StepFailure('internal', 'stored scene manifest is not JSON', {
+      cause: error,
+    });
+  }
+
+  const manifest = sceneManifestSchema.safeParse(parsed);
+  if (!manifest.success) {
+    throw new StepFailure('internal', 'stored scene manifest is invalid', {
+      cause: manifest.error,
+    });
+  }
+  return manifest.data;
+}
+
+/** The other scenes' accepted histograms, decoded from their stored stills. */
+async function loadReferenceHistograms(
+  input: RedrawReferenceInput,
+): Promise<number[][]> {
+  const root = dataDir();
+  const histograms: number[][] = [];
+  for (const frame of input.manifest.frames) {
+    if (frame.idx === input.skipIdx) continue;
+    let decoded: { data: Uint8Array };
+    try {
+      decoded = await decodeFrame(resolveStorageKey(root, frame.key));
+    } catch (error) {
+      throw new StepFailure(
+        'internal',
+        `could not decode scene ${frame.idx} for the redraw reference: ${messageOf(error)}`,
+        { retryable: true, cause: error },
+      );
+    }
+    histograms.push(rgbHistogram(decoded.data));
+  }
+  return histograms;
+}
+
+export async function storeRedrawFrame(
+  input: StoreRedrawFrameInput,
+): Promise<{ readonly manifestKey: string }> {
+  const root = dataDir();
+  const framePath = resolveStorageKey(root, input.frame.key);
+  await ensureParentPath(framePath);
+  await writeFile(framePath, input.frame.bytes);
+
+  const manifestKey = framesManifestKey(input.workspaceId, input.videoId);
+  const manifestPath = resolveStorageKey(root, manifestKey);
+  await ensureParentPath(manifestPath);
+  await writeFile(
+    manifestPath,
+    `${JSON.stringify(input.manifest, null, 2)}\n`,
+    'utf8',
+  );
+  return { manifestKey };
+}
+
+async function storeRedrawFrameSafely(
+  store: StoreRedrawFrame,
+  input: StoreRedrawFrameInput,
+): Promise<{ readonly manifestKey: string }> {
+  try {
+    return await store(input);
+  } catch (error) {
+    throw new StepFailure(
+      'internal',
+      `could not store the redrawn frame: ${messageOf(error)}`,
+      { retryable: true, cause: error },
+    );
+  }
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 /** Default process: draw once, then correct/guard and re-draw at most once. */

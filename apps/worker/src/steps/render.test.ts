@@ -150,6 +150,7 @@ function video(overrides: Record<string, unknown> = {}): StepContext['video'] {
     error: null,
     request: { kind: 'ai-video-v3', body: parsed },
     plan: null,
+    redraw: null,
     webhook_url: null,
     duration_ms: 2_400,
     video_url: null,

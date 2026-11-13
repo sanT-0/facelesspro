@@ -16,6 +16,8 @@ import {
   createQuizVideoRequestSchema,
   createRobloxVideoRequestSchema,
   fakeTextScreenshotRequestSchema,
+  MAX_REDRAW_PROMPT_CHARS,
+  redrawSceneRequestSchema,
   renderOptionsSchema,
   renderRequestSchema,
   textToSpeechRequestSchema,
@@ -399,5 +401,21 @@ describe('other requests', () => {
     expect(parsed.size).toBe('portrait');
     expect(parsed.captions).toBe(true);
     expect(parsed.text).toBe('comment');
+  });
+
+  it('redraw accepts an empty body or one prompt nudge, and nothing else', () => {
+    expect(redrawSceneRequestSchema.parse({})).toEqual({});
+    expect(redrawSceneRequestSchema.parse({ prompt: 'warmer light' })).toEqual({
+      prompt: 'warmer light',
+    });
+    // Blank and over-long nudges are rejected, not trimmed into something else.
+    expect(redrawSceneRequestSchema.safeParse({ prompt: '   ' }).success).toBe(false);
+    expect(
+      redrawSceneRequestSchema.safeParse({
+        prompt: 'x'.repeat(MAX_REDRAW_PROMPT_CHARS + 1),
+      }).success,
+    ).toBe(false);
+    // Unknown keys are a client bug: the worker never sees them.
+    expect(redrawSceneRequestSchema.safeParse({ sceneIdx: 1 }).success).toBe(false);
   });
 });

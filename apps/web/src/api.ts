@@ -207,6 +207,25 @@ export async function retryVideo(id: string): Promise<Video> {
   });
 }
 
+/**
+ * Regenerate one scene of a completed video.
+ *
+ * `prompt` is a nudge appended to the stored scene prompt, never a replacement:
+ * the planner's composition and the style clause still apply. The API answers
+ * `202` with the video already moved to `processing`/`create-images`; the
+ * worker redraws that one scene and queues `render` itself.
+ */
+export async function redrawScene(
+  id: string,
+  sceneIdx: number,
+  body: { prompt?: string } = {},
+): Promise<Video> {
+  return apiJson<Video>(
+    `/videos/${encodeURIComponent(id)}/scenes/${sceneIdx}/redraw`,
+    { method: 'POST', body: JSON.stringify(body) },
+  );
+}
+
 export interface Workspace {
   id: string;
   name: string;

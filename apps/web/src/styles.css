@@ -571,6 +571,16 @@ a:hover {
   color: var(--color-danger);
 }
 
+.status-line {
+  min-height: 1.25rem;
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+.status-line[data-state='error'] {
+  color: var(--color-danger);
+}
+
 .caption-emoji {
   margin-left: 0.25rem;
 }

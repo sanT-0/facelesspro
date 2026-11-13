@@ -7,11 +7,11 @@
  * cursor promises work nobody will run.
  */
 
-import { beginRender, beginRetry, databaseFor } from '@facelesspro/db';
+import { beginRedraw, beginRender, beginRetry, databaseFor } from '@facelesspro/db';
 import type { createDb, Database } from '@facelesspro/db';
 import { enqueueStep } from '@facelesspro/queue';
 
-import type { QueueRender, QueueRetry } from './videos';
+import type { QueueRedraw, QueueRender, QueueRetry } from './videos';
 
 type Pool = ReturnType<typeof createDb>['pool'];
 type Boss = Parameters<typeof enqueueStep>[0];
@@ -81,6 +81,26 @@ export function createQueueRetry(
         await enqueueStep(
           boss,
           { videoId: input.videoId, step: result.step },
+          enqueueThrough(client),
+        );
+      }
+      return result;
+    });
+  };
+}
+
+export function createQueueRedraw(
+  pool: Pool,
+  getBoss: () => Promise<Boss>,
+): QueueRedraw {
+  return async (input) => {
+    const boss = await getBoss();
+    return withTransaction(pool, async (txDb, client) => {
+      const result = await beginRedraw(txDb, input);
+      if (result.kind === 'queued') {
+        await enqueueStep(
+          boss,
+          { videoId: input.videoId, step: 'create-images' },
           enqueueThrough(client),
         );
       }

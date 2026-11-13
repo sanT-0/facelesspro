@@ -197,6 +197,20 @@ export const videoRequestRowSchema = z.strictObject({
 });
 export type VideoRequestRow = z.infer<typeof videoRequestRowSchema>;
 
+/**
+ * A one-scene redraw waiting for `create-images`.
+ *
+ * Stored on the video row rather than in the queue payload, because a job
+ * payload is only `{videoId}` (docs/03 §4). It is cleared by the step's commit,
+ * so a redelivered job cannot redraw twice.
+ */
+export const redrawStateSchema = z.strictObject({
+  sceneIdx: z.int().min(0),
+  /** A nudge appended to the stored scene prompt. */
+  prompt: z.string().trim().min(1).max(500).optional(),
+});
+export type RedrawState = z.infer<typeof redrawStateSchema>;
+
 export const videoRowSchema = z.strictObject({
   id: idSchema,
   workspace_id: idSchema,
@@ -207,6 +221,7 @@ export const videoRowSchema = z.strictObject({
   error: jsonb.nullish(),
   request: videoRequestRowSchema,
   plan: jsonb.nullish(),
+  redraw: redrawStateSchema.nullish(),
   webhook_url: z.string().nullish(),
   duration_ms: z.int().min(0).nullish(),
   video_url: z.string().nullish(),

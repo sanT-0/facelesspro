@@ -424,6 +424,22 @@ export const planVideoRequestSchema = z
 export type PlanVideoRequest = z.input<typeof planVideoRequestSchema>;
 export type PlanVideoRequestParsed = z.output<typeof planVideoRequestSchema>;
 
+// --- §2.4 redraw one scene --------------------------------------------------
+
+/** A nudge is appended to the stored scene prompt; it never replaces it. */
+export const MAX_REDRAW_PROMPT_CHARS = 500;
+
+/**
+ * `POST /v1/videos/:id/scenes/:idx/redraw` body.
+ *
+ * Optional and strict: `{}` redraws with the stored prompt, and an unknown key
+ * is a client bug rather than a field the worker silently ignores.
+ */
+export const redrawSceneRequestSchema = z.strictObject({
+  prompt: z.string().trim().min(1).max(MAX_REDRAW_PROMPT_CHARS).optional(),
+});
+export type RedrawSceneRequest = z.output<typeof redrawSceneRequestSchema>;
+
 // --- §3.8 Art Style (multipart upload) -------------------------------------------
 
 /**

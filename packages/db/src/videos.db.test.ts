@@ -15,8 +15,8 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { createDb } from './client';
 import type { Database } from './client';
-import { video, workspace } from './schema';
-import { beginRender, beginRetry, findVideo } from './videos';
+import { scene, video, workspace } from './schema';
+import { beginRedraw, beginRender, beginRetry, findVideo } from './videos';
 
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
 
@@ -128,5 +128,49 @@ describe('video workspace scoping (Postgres)', () => {
 
     const allowed = await beginRetry(db, ownerId, failedId);
     expect(allowed).toMatchObject({ kind: 'queued', step: 'create-images' });
+  });
+
+  it('beginRedraw is workspace-scoped, needs a real scene and only accepts completed', async () => {
+    // Another workspace cannot mark a scene of this video, even with its UUID.
+    expect(
+      await beginRedraw(db, { workspaceId: strangerId, videoId: completedId, sceneIdx: 0 }),
+    ).toEqual({ kind: 'not_found' });
+    const denied = await db.select().from(video).where(eq(video.id, completedId));
+    expect(denied[0]?.status).toBe('completed');
+    expect(denied[0]?.redraw).toBeNull();
+
+    // The index must name a stored scene, not just any integer.
+    expect(
+      await beginRedraw(db, { workspaceId: ownerId, videoId: completedId, sceneIdx: 0 }),
+    ).toEqual({ kind: 'scene_not_found' });
+
+    await db.insert(scene).values({
+      video_id: completedId,
+      idx: 0,
+      text: 'வணக்கம் நண்பர்களே.',
+      start_ms: 0,
+      end_ms: 2_400,
+    });
+
+    const queued = await beginRedraw(db, {
+      workspaceId: ownerId,
+      videoId: completedId,
+      sceneIdx: 0,
+      prompt: 'warmer light',
+    });
+    expect(queued).toMatchObject({
+      kind: 'queued',
+      video: {
+        status: 'processing',
+        step: 'create-images',
+        error: null,
+        redraw: { sceneIdx: 0, prompt: 'warmer light' },
+      },
+    });
+
+    // A failed video is resumed through retry, never by swapping one still.
+    expect(
+      await beginRedraw(db, { workspaceId: ownerId, videoId: failedId, sceneIdx: 0 }),
+    ).toEqual({ kind: 'conflict', status: 'failed' });
   });
 });

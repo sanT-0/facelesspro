@@ -24,6 +24,7 @@ import type {
   JobEventOutcome,
   NarrationPlan,
   PlanId,
+  RedrawState,
   RenderFormat,
   RenderStatus,
   Size,
@@ -144,6 +145,8 @@ export const video = pgTable(
       .$type<{ kind: VideoKind; body: Record<string, unknown> }>()
       .notNull(),
     plan: jsonb('plan').$type<Record<string, unknown>>(),
+    /** A one-scene redraw waiting for `create-images`; cleared by its commit. */
+    redraw: jsonb('redraw').$type<RedrawState | null>(),
     webhook_url: text('webhook_url'),
     duration_ms: integer('duration_ms'),
     video_url: text('video_url'),

@@ -427,6 +427,20 @@ export async function installFakeApi(
       return;
     }
 
+    // One-scene redraw: the API moves the video back to `create-images` and the
+    // worker re-renders afterwards. The stills stay listed meanwhile.
+    if (
+      method === 'POST' &&
+      new RegExp(`^/v1/videos/${VIDEO_ID}/scenes/\\d+/redraw$`).test(path)
+    ) {
+      await json(route, 202, {
+        ...video('completed'),
+        status: 'processing',
+        step: 'create-images',
+      });
+      return;
+    }
+
     await json(route, 404, {
       error: { code: 'not_found', message: `fake api has no ${method} ${path}` },
     });
