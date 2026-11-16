@@ -25,6 +25,7 @@ import {
   frameRateSchema,
   idSchema,
   isoDateTimeSchema,
+  MAX_SCENES,
   memberRoleSchema,
   planIdSchema,
   renderFormatSchema,
@@ -211,6 +212,18 @@ export const redrawStateSchema = z.strictObject({
 });
 export type RedrawState = z.infer<typeof redrawStateSchema>;
 
+/**
+ * A selective re-narrate waiting for `create-vocal`.
+ *
+ * The indexes are the scenes whose text changed; they are the only scenes
+ * charged to the ledger (the rest are media-cache hits). Cleared by the step's
+ * commit, so a redelivered job cannot charge twice.
+ */
+export const revocalStateSchema = z.strictObject({
+  sceneIdxs: z.array(z.int().min(0)).min(1).max(MAX_SCENES),
+});
+export type RevocalState = z.infer<typeof revocalStateSchema>;
+
 export const videoRowSchema = z.strictObject({
   id: idSchema,
   workspace_id: idSchema,
@@ -222,6 +235,7 @@ export const videoRowSchema = z.strictObject({
   request: videoRequestRowSchema,
   plan: jsonb.nullish(),
   redraw: redrawStateSchema.nullish(),
+  revocal: revocalStateSchema.nullish(),
   webhook_url: z.string().nullish(),
   duration_ms: z.int().min(0).nullish(),
   video_url: z.string().nullish(),

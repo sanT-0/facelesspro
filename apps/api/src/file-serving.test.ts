@@ -68,6 +68,7 @@ function client() {
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     queueRedraw: async () => ({ kind: 'not_found' as const }),
+    queueRevocal: async () => ({ kind: 'not_found' as const }),
     authenticateApiKey: async () => null,
     rateLimit: { check: () => ({ allowed: true, retryAfterSeconds: 0 }) },
     createApiKey: async () => {

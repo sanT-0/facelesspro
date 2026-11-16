@@ -35,7 +35,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { createApp } from './app';
 import { testAuth, testClient } from './test-auth';
-import { createQueueRedraw, createQueueRetry } from './video-queues';
+import { createQueueRedraw, createQueueRetry, createQueueRevocal } from './video-queues';
 
 const BASE = 'http://api.test';
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
@@ -82,6 +82,7 @@ function app(authWorkspaceId = workspaceId) {
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: createQueueRetry(pool, async () => boss),
     queueRedraw: createQueueRedraw(pool, async () => boss),
+    queueRevocal: createQueueRevocal(pool, async () => boss),
     ...testAuth(authWorkspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

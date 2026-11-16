@@ -586,8 +586,12 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
       shows the planner adapter plus each scene's motion, emphasis and image prompt. A completed
       video offers one Redraw button per scene plus an optional direction field; the button posts
       `POST /v1/videos/:id/scenes/:idx/redraw`, the worker regenerates that one still and queues
-      `render`, and the editor hides the action while the video is back in flight. Script edit and
-      selective re-narrate still have no route.
+      `render`, and the editor hides the action while the video is back in flight. The same
+      completed video makes each scene's text editable: "Re-narrate changed scenes" posts only
+      the edited `{scenes: [{idx, text}]}` to `POST /v1/videos/:id/narration`, the worker
+      re-stitches the master (unchanged scenes are media-cache hits), charges only the changed
+      characters, rebuilds the captions and re-renders without touching the artwork. Persisting a
+      caption-style choice or re-rendering with it still needs a route.
 - [x] Voice-plan inspector (which runs went to which voice + override). The plan is returned by
       `GET /v1/videos/:id` and rendered in the editor with per-run language, text and voice.
 - [x] Downloads + share link.
@@ -596,8 +600,7 @@ webhook; revoked key → 401 everywhere; delivered webhook verifies with the HMA
       deployment-specific).
 
 **Gate:** Playwright studio + editor specs green; axe has no critical violations; the whole
-flow works at 375 px width. (The selective-re-narrate spec lands with its API route; everything
-else is green.)
+flow works at 375 px width.
 
 **Artifact check:** screen recording of script → finished video without opening a terminal.
 

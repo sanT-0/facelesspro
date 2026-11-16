@@ -67,6 +67,8 @@ export interface PersistNarrationInput {
   voicePlan: NarrationPlan;
   timings: readonly SceneTiming[];
   stored: StoredNarration;
+  /** True when this run consumes a pending re-narrate marker. */
+  clearRevocal?: boolean;
 }
 
 export type PersistNarration = (
@@ -188,7 +190,13 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
       videoId: ctx.videoId,
       bytes: synthesis.audio,
     });
-    const units = segments.reduce((total, segment) => total + [...segment.text].length, 0);
+    // A re-narrate charges only the scenes whose text changed. The rest of the
+    // master was served from the media cache, so it cost no provider call and
+    // must not cost a ledger unit.
+    const revocal = row.data.revocal ?? null;
+    const units = revocal === null
+      ? segments.reduce((total, segment) => total + [...segment.text].length, 0)
+      : chargedSceneUnits(segments, ranges, revocal.sceneIdxs);
 
     ctx.observe({
       items: segments.length,
@@ -204,9 +212,18 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         voicePlan: merged,
         timings,
         stored,
+        clearRevocal: revocal !== null,
       });
       await tx.charge({ action: 'tts', units, unitCost });
-      await tx.advance();
+      if (revocal === null) {
+        await tx.advance();
+        return;
+      }
+      // Re-narrate keeps the existing artwork, so the cursor jumps past
+      // `create-images` to `create-captions`. `advance()` would send the video
+      // back through image generation.
+      await tx.setStep('create-captions');
+      await tx.enqueue('create-captions');
     });
   };
 }
@@ -266,19 +283,38 @@ export async function persistNarration(
     throw new StepFailure('internal', 'asset insert returned no row');
   }
 
-  await tx.db.insert(narration).values({
-    video_id: input.videoId,
-    asset_id: assetId,
-    duration_ms: input.synthesis.durationMs,
-    word_timings: input.synthesis.segments.flatMap((segment) =>
-      segment.words.map((word) => ({
-        text: word.text,
-        start_ms: word.startMs,
-        end_ms: word.endMs,
-      })),
-    ),
-    voice_plan: input.voicePlan,
-  });
+  await tx.db
+    .insert(narration)
+    .values({
+      video_id: input.videoId,
+      asset_id: assetId,
+      duration_ms: input.synthesis.durationMs,
+      word_timings: input.synthesis.segments.flatMap((segment) =>
+        segment.words.map((word) => ({
+          text: word.text,
+          start_ms: word.startMs,
+          end_ms: word.endMs,
+        })),
+      ),
+      voice_plan: input.voicePlan,
+    })
+    // `narration.video_id` is the primary key: a re-narrate replaces the row
+    // instead of violating it.
+    .onConflictDoUpdate({
+      target: narration.video_id,
+      set: {
+        asset_id: assetId,
+        duration_ms: input.synthesis.durationMs,
+        word_timings: input.synthesis.segments.flatMap((segment) =>
+          segment.words.map((word) => ({
+            text: word.text,
+            start_ms: word.startMs,
+            end_ms: word.endMs,
+          })),
+        ),
+        voice_plan: input.voicePlan,
+      },
+    });
 
   for (const timing of input.timings) {
     await tx.db
@@ -289,7 +325,12 @@ export async function persistNarration(
 
   await tx.db
     .update(video)
-    .set({ duration_ms: input.synthesis.durationMs })
+    .set({
+      duration_ms: input.synthesis.durationMs,
+      // The marker names the scenes that were charged; consuming it here keeps
+      // a redelivered job from charging them again.
+      ...(input.clearRevocal === true ? { revocal: null } : {}),
+    })
     .where(eq(video.id, input.videoId));
 }
 
@@ -439,6 +480,30 @@ function deriveSceneTimings(
     }
     return { idx: index, startMs: index === 0 ? 0 : start, endMs: end };
   });
+}
+
+/**
+ * Characters charged by a re-narrate: only the scenes whose text changed.
+ *
+ * `ranges[i].first` is the index of scene *i*'s first segment; scene *i* owns
+ * every segment up to the next scene's first. The master is still re-stitched
+ * in full, but the untouched scenes are media-cache hits.
+ */
+function chargedSceneUnits(
+  segments: readonly NarrationSegment[],
+  ranges: readonly SceneRange[],
+  changed: readonly number[],
+): number {
+  const isChanged = new Set(changed);
+  return ranges.reduce((total, range, index) => {
+    if (!isChanged.has(index)) return total;
+    const end = ranges[index + 1]?.first ?? segments.length;
+    for (let at = range.first; at < end; at += 1) {
+      const segment = segments[at];
+      if (segment !== undefined) total += [...segment.text].length;
+    }
+    return total;
+  }, 0);
 }
 
 function invalidSynthesis(message: string): StepFailure {

@@ -9,7 +9,9 @@
 
 import {
   captionTrackRowSchema,
+  createAiVideoV3RequestSchema,
   narrationPlanSchema,
+  scenePlanSchema,
   sceneRowSchema,
   videoRowSchema,
   wordTimingSchema,
@@ -26,7 +28,7 @@ import type {
   VideoStep,
   WordTiming,
 } from '@facelesspro/contracts';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 import type { Database } from './client';
 import { asset, captionTrack, narration, scene, video } from './schema';
@@ -403,5 +405,144 @@ export async function beginRedraw(
 
   const next = updated[0];
   if (next === undefined) throw new Error('redraw transition returned no row');
+  return { kind: 'queued', video: videoRowSchema.parse(next) };
+}
+
+export interface BeginRevocalInput {
+  readonly workspaceId: string;
+  readonly videoId: string;
+  /** Only the scenes whose text changed; the rest are cache hits. */
+  readonly edits: readonly { readonly idx: number; readonly text: string }[];
+}
+
+export type BeginRevocalResult =
+  /** Scene text, request script and plan are updated; enqueue `create-vocal`. */
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  /** No scene row has that index. */
+  | { readonly kind: 'scene_not_found'; readonly idx: number }
+  /** Every submitted text already matches the stored one. */
+  | { readonly kind: 'unchanged' }
+  /** The narration is an uploaded voiceover, not TTS: text cannot change it. */
+  | { readonly kind: 'voiceover' }
+  /** The stored video has no editable scene narration (not an AI-video V3 project). */
+  | { readonly kind: 'not_narratable' }
+  | { readonly kind: 'conflict'; readonly status: VideoStatus }
+  /** The edited script no longer fits the stored request (size ceiling). */
+  | { readonly kind: 'invalid_request'; readonly message: string; readonly field: string };
+
+/**
+ * Replace the text of some scenes and queue `create-vocal`.
+ *
+ * Three stored facts must move together or the pipeline breaks:
+ * - `scene.text` is what the step narrates;
+ * - `video.request.body.script` must still equal `concat(scenes.text)`, which
+ *   `create-vocal` re-checks before synthesising;
+ * - `video.plan.scenes[i].text` must match the scene row, which `create-images`
+ *   re-checks before a redraw.
+ *
+ * The `revocal` marker names the changed scenes so the step charges only their
+ * characters. Must run inside the transaction that enqueues the job.
+ */
+export async function beginRevocal(
+  db: Database,
+  input: BeginRevocalInput,
+): Promise<BeginRevocalResult> {
+  const rows = await db
+    .select()
+    .from(video)
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .for('update');
+  const row = rows[0];
+  if (row === undefined) return { kind: 'not_found' };
+  if (row.status !== 'completed') return { kind: 'conflict', status: row.status };
+  if (row.kind !== 'ai-video-v3') return { kind: 'not_narratable' };
+
+  const stored = videoRowSchema.parse(row);
+  const request = createAiVideoV3RequestSchema.safeParse(stored.request.body);
+  if (!request.success) {
+    throw new Error('stored V3 request does not match the request contract');
+  }
+  if (request.data.voiceoverUrl !== undefined) return { kind: 'voiceover' };
+
+  const sceneRows = await db
+    .select()
+    .from(scene)
+    .where(eq(scene.video_id, input.videoId))
+    .orderBy(asc(scene.idx));
+  if (sceneRows.length === 0) return { kind: 'not_narratable' };
+  sceneRows.forEach((value, index) => {
+    if (value.idx !== index) throw new Error(`scene row ${index} has index ${value.idx}`);
+  });
+
+  const byIdx = new Map(sceneRows.map((value) => [value.idx, value]));
+  const edits = new Map<number, string>();
+  for (const edit of input.edits) {
+    const target = byIdx.get(edit.idx);
+    if (target === undefined) return { kind: 'scene_not_found', idx: edit.idx };
+    const text = edit.text.trim();
+    if (text !== target.text) edits.set(edit.idx, text);
+  }
+  if (edits.size === 0) return { kind: 'unchanged' };
+
+  const newTexts = sceneRows.map((value) => edits.get(value.idx) ?? value.text);
+  const script = newTexts.join(' ');
+
+  // The edited script must still satisfy the same request contract (size
+  // ceiling, non-blank), so a resize that no longer fits is a 400, not a 500
+  // inside the worker.
+  const nextRequest = createAiVideoV3RequestSchema.safeParse({
+    ...request.data,
+    script,
+  });
+  if (!nextRequest.success) {
+    const issue = nextRequest.error.issues[0];
+    return {
+      kind: 'invalid_request',
+      message: issue?.message ?? 'edited script is not valid',
+      field: 'scenes',
+    };
+  }
+
+  const parsedPlan = scenePlanSchema.safeParse(stored.plan);
+  if (!parsedPlan.success || parsedPlan.data.scenes.length !== sceneRows.length) {
+    throw new Error('stored plan does not match the stored scenes');
+  }
+  const nextPlan = scenePlanSchema.parse({
+    ...parsedPlan.data,
+    scenes: parsedPlan.data.scenes.map((planned, index) => {
+      const text = newTexts[index];
+      if (text === undefined) throw new Error(`plan has no scene ${index}`);
+      return edits.has(index) ? { ...planned, text } : planned;
+    }),
+  });
+
+  for (const [idx, text] of edits) {
+    await db
+      .update(scene)
+      .set({ text })
+      .where(and(eq(scene.video_id, input.videoId), eq(scene.idx, idx)));
+  }
+
+  const updated = await db
+    .update(video)
+    .set({
+      status: 'processing',
+      step: 'create-vocal',
+      error: null,
+      request: { kind: stored.request.kind, body: nextRequest.data },
+      plan: nextPlan,
+      revocal: { sceneIdxs: [...edits.keys()].sort((a, b) => a - b) },
+      updated_at: sql`now()`,
+    })
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .returning();
+
+  const next = updated[0];
+  if (next === undefined) throw new Error('revocal transition returned no row');
   return { kind: 'queued', video: videoRowSchema.parse(next) };
 }

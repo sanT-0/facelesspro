@@ -19,6 +19,7 @@ import {
   MAX_QUIZ_ITEMS,
   MAX_QUIZ_TEXT_CHARS,
   MAX_ROBLOX_SCRIPT_CHARS,
+  MAX_SCENES,
   MAX_SCRIPT_CHARS,
   MAX_TTS_CHARS,
   MAX_V2_SCRIPT_CHARS,
@@ -439,6 +440,43 @@ export const redrawSceneRequestSchema = z.strictObject({
   prompt: z.string().trim().min(1).max(MAX_REDRAW_PROMPT_CHARS).optional(),
 });
 export type RedrawSceneRequest = z.output<typeof redrawSceneRequestSchema>;
+
+// --- §2.4 selective re-narrate ----------------------------------------------
+
+/** One scene's new text. `idx` is the stored zero-based scene index. */
+export const revocalSceneEditSchema = z.strictObject({
+  idx: z.int().min(0),
+  text: z.string().trim().min(1).max(MAX_SCRIPT_CHARS),
+});
+export type RevocalSceneEdit = z.output<typeof revocalSceneEditSchema>;
+
+/**
+ * `POST /v1/videos/:id/narration` body.
+ *
+ * Only **changed** scenes are sent. Unchanged text is a cache hit in the media
+ * service, so it costs no provider call and no ledger unit; the master is still
+ * re-stitched because a changed scene's duration shifts every later scene.
+ */
+export const revocalNarrationRequestSchema = z
+  .strictObject({
+    scenes: z.array(revocalSceneEditSchema).min(1).max(MAX_SCENES),
+  })
+  .superRefine((value, ctx) => {
+    const seen = new Set<number>();
+    value.scenes.forEach((scene, index) => {
+      if (seen.has(scene.idx)) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['scenes', index, 'idx'],
+          message: 'idx must be unique',
+        });
+      }
+      seen.add(scene.idx);
+    });
+  });
+export type RevocalNarrationRequest = z.output<
+  typeof revocalNarrationRequestSchema
+>;
 
 // --- §3.8 Art Style (multipart upload) -------------------------------------------
 

@@ -49,7 +49,12 @@ import type { CreateAiVideoV3RequestParsed, VideoRow } from '@facelesspro/contra
 import { createApp } from './app';
 import type { ArtStyleSubmission } from './art-styles';
 import { createRateLimiter, rateLimitOptionsFromEnv } from './rate-limit';
-import { createQueueRedraw, createQueueRender, createQueueRetry } from './video-queues';
+import {
+  createQueueRedraw,
+  createQueueRender,
+  createQueueRetry,
+  createQueueRevocal,
+} from './video-queues';
 
 loadEnv();
 
@@ -219,6 +224,7 @@ async function main(): Promise<void> {
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
     queueRedraw: createQueueRedraw(pool, producer),
+    queueRevocal: createQueueRevocal(pool, producer),
     authenticateApiKey: (token) => authenticateApiKey(db, token),
     rateLimit: createRateLimiter(rateLimitOptionsFromEnv(process.env)),
     createApiKey: (input) => createApiKey(db, input),

@@ -201,6 +201,20 @@ marker and moves the video to `rendering`/`render`; captions and narration are u
 not_found`, non-UUID id / non-integer or out-of-range `idx` / blank or over-long prompt / unknown
 body key → `400 invalid_request` with `field`.
 
+`POST /v1/videos/:id/narration` accepts `{scenes: [{idx, text}]}` — only the scenes whose text
+changed, at least one, unique indexes, each text 1..50,000 characters after trimming. It is a
+**completed** video only; `processing`/`rendering`/`failed` are `409 conflict`, and so are a video
+whose narration is an uploaded voiceover (text cannot change that audio) and a stored video that
+is not an AI-video V3 project (no scene text to edit). The transition updates
+the scene rows, the stored request `script` and the plan in one transaction, records the changed
+indexes in `video.revocal`, moves the video to `processing`/`create-vocal` and enqueues that step;
+a `202` returns the same `videoResponseSchema` as `GET`. Sending only identical text is `400
+invalid_request` with `field: "scenes"` — nothing changed, so nothing is queued or charged — and an
+edited script that no longer fits the stored request is also `400 invalid_request` with
+`field: "scenes"`. Unknown video or scene index → `404 not_found`; non-UUID id / empty list /
+duplicate index / blank or over-long text / unknown key → `400 invalid_request` with `field`. The
+worker charges TTS units for the changed scenes only; unchanged scenes are media-cache hits.
+
 ### 2.5 API keys
 
 | Method | Path | Body / returns |

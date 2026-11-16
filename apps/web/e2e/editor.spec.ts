@@ -167,6 +167,54 @@ test('editor redraws one scene of a completed video', async ({ page }) => {
   await expect(page.getByRole('button', { name: 'Redraw' })).toHaveCount(0);
 });
 
+test('editor re-narrates only the scene text that changed', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  // A completed video exposes one editable textarea per scene.
+  const fields = page.locator('[data-scene-text]');
+  await expect(fields).toHaveCount(2);
+  await expect(fields.nth(1)).toHaveValue('இரண்டாவது காட்சி');
+
+  await fields.nth(1).fill('புதிய இரண்டாம் காட்சி');
+
+  const renarrateRequest = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/v1/videos/${VIDEO_ID}/narration`),
+  );
+  await page.getByRole('button', { name: 'Re-narrate changed scenes' }).click();
+
+  const body = JSON.parse((await renarrateRequest).postData() ?? '{}') as Record<
+    string,
+    unknown
+  >;
+  // Only the edited scene is sent: the untouched one is a media-cache hit.
+  expect(body).toEqual({ scenes: [{ idx: 1, text: 'புதிய இரண்டாம் காட்சி' }] });
+
+  await expect(page.locator('#renarrate-status')).toContainText('Queued.');
+  await expect(page.locator('#editor-status')).toContainText('processing');
+  // Re-narrate is only offered on a completed video.
+  await expect(fields).toHaveCount(0);
+});
+
+test('editor does not post a re-narrate when no scene text changed', async ({
+  page,
+}) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  await expect(page.locator('[data-scene-text]')).toHaveCount(2);
+  await page.getByRole('button', { name: 'Re-narrate changed scenes' }).click();
+
+  await expect(page.locator('#renarrate-status')).toContainText('No scene text changed.');
+  await expect(page.locator('#editor-status')).toContainText('completed');
+});
+
 test('editor says when the caption track is not ready yet', async ({ page }) => {
   await installFakeApi(page, { completeAfter: 1, captions: false });
   await signInAs(page, API_KEY);

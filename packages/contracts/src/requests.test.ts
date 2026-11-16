@@ -20,6 +20,7 @@ import {
   redrawSceneRequestSchema,
   renderOptionsSchema,
   renderRequestSchema,
+  revocalNarrationRequestSchema,
   textToSpeechRequestSchema,
 } from './requests';
 
@@ -417,5 +418,47 @@ describe('other requests', () => {
     ).toBe(false);
     // Unknown keys are a client bug: the worker never sees them.
     expect(redrawSceneRequestSchema.safeParse({ sceneIdx: 1 }).success).toBe(false);
+  });
+
+  it('re-narrate accepts changed scenes only, with unique indexes', () => {
+    expect(
+      revocalNarrationRequestSchema.parse({
+        scenes: [
+          { idx: 0, text: '  புதிய வரி  ' },
+          { idx: 2, text: 'A new English line.' },
+        ],
+      }),
+    ).toEqual({
+      scenes: [
+        { idx: 0, text: 'புதிய வரி' },
+        { idx: 2, text: 'A new English line.' },
+      ],
+    });
+
+    // At least one edit; blank text is not an edit.
+    expect(revocalNarrationRequestSchema.safeParse({ scenes: [] }).success).toBe(false);
+    expect(
+      revocalNarrationRequestSchema.safeParse({ scenes: [{ idx: 0, text: '   ' }] })
+        .success,
+    ).toBe(false);
+    // A repeated idx would make the ledger unit ambiguous.
+    expect(
+      revocalNarrationRequestSchema.safeParse({
+        scenes: [
+          { idx: 1, text: 'one' },
+          { idx: 1, text: 'two' },
+        ],
+      }).success,
+    ).toBe(false);
+    // Indexes are non-negative integers, and unknown keys are rejected.
+    expect(
+      revocalNarrationRequestSchema.safeParse({ scenes: [{ idx: -1, text: 'x' }] })
+        .success,
+    ).toBe(false);
+    expect(
+      revocalNarrationRequestSchema.safeParse({
+        scenes: [{ idx: 0, text: 'x', voice: 'en' }],
+      }).success,
+    ).toBe(false);
   });
 });

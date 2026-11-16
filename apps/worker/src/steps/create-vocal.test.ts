@@ -45,6 +45,7 @@ function sceneRow(idx: number, text: string, startMs: number, endMs: number): Sc
 
 function request(
   body: Record<string, unknown> = { artStyleId: STYLE_ID, script: SCRIPT },
+  revocal: StepContext['video']['revocal'] = null,
 ): StepContext['video'] {
   return {
     id: VIDEO_ID,
@@ -56,6 +57,7 @@ function request(
     request: { kind: 'ai-video-v3', body },
     plan: null,
     redraw: null,
+    revocal,
     webhook_url: null,
     duration_ms: null,
     video_url: null,
@@ -73,13 +75,19 @@ function harness(row: StepContext['video'] = request()) {
   const charge = vi.fn(async () => {
     calls.push('charge');
   });
+  const setStep = vi.fn(async () => {
+    calls.push('setStep');
+  });
+  const enqueue = vi.fn(async () => {
+    calls.push('enqueue');
+  });
   const tx: CommitTx = {
     db: {} as Database,
     videoId: VIDEO_ID,
     attempt: 1,
-    setStep: vi.fn(async () => {}),
+    setStep,
     advance,
-    enqueue: vi.fn(async () => {}),
+    enqueue,
     charge,
     fireWebhook: vi.fn(async () => {}),
   };
@@ -101,7 +109,7 @@ function harness(row: StepContext['video'] = request()) {
     observe,
     transaction,
   };
-  return { context, tx, transactionCalls, advance, charge, calls, observe };
+  return { context, tx, transactionCalls, advance, setStep, enqueue, charge, calls, observe };
 }
 
 /** A response whose segments and words exactly match the request. */
@@ -373,5 +381,69 @@ describe('createCreateVocalWork', () => {
     expect(plan.runs.map((run) => run.lang)).toEqual(['ta', 'en']);
     expect(plan.runs.every((run) => run.voice === PAIR.ta)).toBe(true);
     expect(plan.overrides).toEqual([]);
+  });
+
+  it('charges only the changed scenes and jumps to captions for a re-narrate', async () => {
+    const { work, persist, tts } = deps({});
+    const { context, calls, advance, setStep, enqueue, charge } = harness(
+      request(undefined, { sceneIdxs: [1] }),
+    );
+
+    await work(context);
+
+    // The whole master is still synthesised; unchanged scenes are cache hits
+    // inside the media service.
+    expect(tts.synthesize).toHaveBeenCalledOnce();
+    expect(charge).toHaveBeenCalledWith({
+      action: 'tts',
+      units: [...ENGLISH].length,
+      unitCost: 0,
+    });
+    expect(advance).not.toHaveBeenCalled();
+    expect(setStep).toHaveBeenCalledWith('create-captions');
+    expect(enqueue).toHaveBeenCalledWith('create-captions');
+    expect(calls).toEqual(['transaction', 'charge', 'setStep', 'enqueue']);
+
+    const input = (
+      vi.mocked(persist).mock.calls[0] as unknown as [CommitTx, PersistNarrationInput]
+    )[1];
+    expect(input.clearRevocal).toBe(true);
+    expect(input.timings).toEqual([
+      { idx: 0, startMs: 0, endMs: 1_500 },
+      { idx: 1, startMs: 1_500, endMs: 2_400 },
+    ]);
+  });
+
+  it('charges every segment of a changed scene that switches language mid-line', async () => {
+    const switchText = `${TAMIL} ${ENGLISH}`;
+    const { work } = deps({
+      scenes: [sceneRow(0, switchText, 0, 2_400)],
+    });
+    const { context, charge } = harness(
+      request({ artStyleId: STYLE_ID, script: switchText }, { sceneIdxs: [0] }),
+    );
+
+    await work(context);
+
+    // One scene, two runs: the Tamil and English segments are both charged.
+    expect(charge).toHaveBeenCalledWith({
+      action: 'tts',
+      units: [...TAMIL].length + [...ENGLISH].length,
+      unitCost: 0,
+    });
+  });
+
+  it('marks a normal run as not consuming a revocal marker', async () => {
+    const { work, persist } = deps({});
+    const { context, advance, setStep } = harness();
+
+    await work(context);
+
+    const input = (
+      vi.mocked(persist).mock.calls[0] as unknown as [CommitTx, PersistNarrationInput]
+    )[1];
+    expect(input.clearRevocal).toBe(false);
+    expect(advance).toHaveBeenCalledOnce();
+    expect(setStep).not.toHaveBeenCalled();
   });
 });

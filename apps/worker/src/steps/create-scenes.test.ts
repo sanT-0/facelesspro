@@ -213,6 +213,7 @@ function video(
     request: { kind: 'ai-video-v3', body },
     plan: null,
     redraw: null,
+    revocal: null,
     webhook_url: null,
     duration_ms: null,
     video_url: null,

@@ -7,10 +7,13 @@
  * render panel. Fetches video details from GET /v1/videos/:id.
  *
  * A completed video can redraw one scene: the API stores a one-scene marker and
- * the worker regenerates only that still, then re-renders. Selective
- * re-narrate is deliberately absent: the route does not exist yet, and a button
- * that cannot work is worse than no button.
+ * the worker regenerates only that still, then re-renders. The same completed
+ * video can also re-narrate edited scene text: only changed scenes are sent,
+ * unchanged text is a media-cache hit, and the worker re-stitches the master
+ * and re-renders from `create-captions` without touching the artwork.
  */
+
+import { MAX_SCRIPT_CHARS } from '@facelesspro/contracts';
 
 import {
   getCaptionDocument,
@@ -21,6 +24,7 @@ import {
   previewCaptions,
   redrawScene,
   renderVideo,
+  revocalNarration,
   type CaptionDocument,
   type CaptionSidecarFormat,
   type CaptionTemplate,
@@ -133,6 +137,12 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
             placeholder="e.g. warmer light, closer crop" />
         </div>
         <div id="redraw-status" class="status-line" role="status"></div>
+        <div id="renarrate-panel" class="form-group mt-2" hidden>
+          <button class="btn btn-primary" id="renarrate-btn" type="button">
+            Re-narrate changed scenes
+          </button>
+          <div id="renarrate-status" class="status-line" role="status"></div>
+        </div>
       </section>
 
       <section class="card">
@@ -207,8 +217,18 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
   const renderResult = container.querySelector('#render-result') as HTMLDivElement;
   const redrawPrompt = container.querySelector('#redraw-prompt') as HTMLInputElement;
   const redrawStatus = container.querySelector('#redraw-status') as HTMLElement;
+  const renarratePanel = container.querySelector('#renarrate-panel') as HTMLElement;
+  const renarrateBtn = container.querySelector('#renarrate-btn') as HTMLButtonElement;
+  const renarrateStatus = container.querySelector('#renarrate-status') as HTMLElement;
 
   let video: Video | null = null;
+  /** Text as loaded, so "changed" means edited by the user, not re-sent. */
+  let storedTexts = new Map<number, string>();
+
+  // Bound once: the button is not part of the re-rendered scene list.
+  renarrateBtn.addEventListener('click', () => {
+    void renarrateChangedScenes();
+  });
 
   async function loadVideo(): Promise<void> {
     try {
@@ -235,14 +255,19 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     // The API serves scenes once `create-scenes` has committed.
     const scenes = v.scenes;
     if (scenes && scenes.length > 0) {
-      // Redraw only makes sense on a finished project: generation in flight or
-      // failed is resumed through retry, not by swapping one still.
+      // Redraw and re-narrate only make sense on a finished project:
+      // generation in flight or failed is resumed through retry, not by
+      // swapping one still or one line.
       const canRedraw = v.status === 'completed';
+      storedTexts = new Map(scenes.map((s) => [s.idx, s.text]));
+      renarratePanel.hidden = !canRedraw;
       scenesList.innerHTML = scenes.map((s) => `
         <div class="scene-item">
           <img src="${s.imageUrl ?? 'data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 width=%2796%27 height=%2754%27%3E%3Crect width=%2796%27 height=%2754%27 fill=%27%23334155%27/%3E%3C/svg%3E'}" alt="Scene ${s.idx}" />
           <div class="scene-text">
-            <p>${escapeHtml(s.text)}</p>
+            ${canRedraw
+              ? `<textarea class="form-input scene-text-input" rows="2" maxlength="${MAX_SCRIPT_CHARS}" data-scene-text="${s.idx}" aria-label="Scene ${s.idx + 1} text">${escapeHtml(s.text)}</textarea>`
+              : `<p>${escapeHtml(s.text)}</p>`}
             <div class="scene-meta">
               <span>Scene ${s.idx + 1}</span>
               <span>${((s.endMs - s.startMs) / 1000).toFixed(1)}s</span>
@@ -254,6 +279,7 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
       bindSceneRedraw();
     } else {
       scenesList.innerHTML = '<div class="text-muted">No scenes available yet.</div>';
+      renarratePanel.hidden = true;
     }
 
     renderVoicePlan(v.voicePlan);
@@ -299,6 +325,50 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
           }
         });
       });
+  }
+
+  /**
+   * Send only the scenes whose textarea differs from the loaded text.
+   *
+   * Re-sending unchanged scenes would make the server charge them as edits,
+   * so the comparison happens here and an empty set is reported as a no-op
+   * rather than a request the API would reject.
+   */
+  async function renarrateChangedScenes(): Promise<void> {
+    const fields = scenesList.querySelectorAll<HTMLTextAreaElement>(
+      '[data-scene-text]',
+    );
+    const changed: { idx: number; text: string }[] = [];
+    fields.forEach((field) => {
+      const idx = Number(field.dataset.sceneText);
+      if (!Number.isInteger(idx) || idx < 0) return;
+      const text = field.value.trim();
+      if (text.length > 0 && text !== storedTexts.get(idx)) {
+        changed.push({ idx, text });
+      }
+    });
+
+    if (changed.length === 0) {
+      renarrateStatus.textContent = 'No scene text changed.';
+      delete renarrateStatus.dataset.state;
+      return;
+    }
+
+    renarrateBtn.disabled = true;
+    renarrateStatus.textContent = `Re-narrating ${changed.length} scene${changed.length === 1 ? '' : 's'}…`;
+    delete renarrateStatus.dataset.state;
+
+    try {
+      const updated = await revocalNarration(videoId, changed);
+      video = updated;
+      renderVideoDetails(updated);
+      renarrateStatus.textContent = `Queued. The video re-renders after the captions are rebuilt.`;
+    } catch (err) {
+      renarrateStatus.textContent = (err as Error).message;
+      renarrateStatus.dataset.state = 'error';
+    } finally {
+      renarrateBtn.disabled = false;
+    }
   }
 
   function renderVoicePlan(plan: Video['voicePlan']): void {

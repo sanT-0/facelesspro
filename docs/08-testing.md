@@ -292,13 +292,16 @@ or the editor's inspector will lie.
 |---|---|
 | Playwright `sign-in.spec` | a protected page redirects to `/sign-in`; a rejected key leaves nothing in localStorage; a valid key is stored, survives reload, and the studio opens |
 | Playwright `studio.spec` | Tamil script survives the form byte-for-byte; the create body carries `artStyleId`/`size`/`speed`/`captions`; the job view polls processing → completed and exposes the download href; the flow fits 375 px with no horizontal overflow (`@mobile`) |
-| Playwright `editor.spec` | scenes from `GET /v1/videos/:id` render; a real WAV decodes and draws a non-blank waveform, and clicking its midpoint scrubs the playhead to 3.2 s of 6.4 s; the plan card shows the committed adapter, each scene's motion and emphasis and its image prompt; the voice plan lists each run's language, text and voice plus its run/override counts; the stored caption cues render with timecodes and each sidecar previews/downloads (SRT asserted); choosing a template, a words-per-cue value and emoji posts `{templateId, spec: {wordLimit, emoji}}` to `POST /v1/videos/:id/captions/preview` and replaces the cue list with the preview's grouping while the panel states it is not persisted; a missing track shows "Captions are not ready yet."; the render panel posts the selected `{resolution, frameRate, format}` to `POST /v1/videos/:id/render`; a completed video offers one Redraw button per scene that posts `{prompt}` to `POST /v1/videos/:id/scenes/:idx/redraw`, and once the response moves the video back to `processing` the buttons disappear and the status line names the queued scene |
+| Playwright `editor.spec` | scenes from `GET /v1/videos/:id` render; a real WAV decodes and draws a non-blank waveform, and clicking its midpoint scrubs the playhead to 3.2 s of 6.4 s; the plan card shows the committed adapter, each scene's motion and emphasis and its image prompt; the voice plan lists each run's language, text and voice plus its run/override counts; the stored caption cues render with timecodes and each sidecar previews/downloads (SRT asserted); choosing a template, a words-per-cue value and emoji posts `{templateId, spec: {wordLimit, emoji}}` to `POST /v1/videos/:id/captions/preview` and replaces the cue list with the preview's grouping while the panel states it is not persisted; a missing track shows "Captions are not ready yet."; the render panel posts the selected `{resolution, frameRate, format}` to `POST /v1/videos/:id/render`; a completed video offers one Redraw button per scene that posts `{prompt}` to `POST /v1/videos/:id/scenes/:idx/redraw`, and once the response moves the video back to `processing` the buttons disappear and the status line names the queued scene; the same video shows one editable textarea per scene, and "Re-narrate changed scenes" posts **only** the edited `{scenes: [{idx, text}]}` to `POST /v1/videos/:id/narration`, then hides the controls while the video moves to `processing`/`create-vocal`; clicking it with no edit posts nothing and says so |
 | Playwright `a11y.spec` | axe reports zero **critical** violations on studio, editor and pricing |
 | Playwright `pricing.spec` | `/pricing` renders all six plan cards from the shared catalog without a key, shows `Unlimited` for self-hosted, states that this build ships no price list, and the header link plus signed-in CTA navigate correctly |
 
-Pending (blocked on an API route that does not exist yet): editor edit-script → selective
-re-narrate. That spec is written with the route, not before, so the suite never asserts a control
-the product cannot honour.
+Hermetic API/worker coverage for the re-narrate route lives in `apps/api/src/video-revocal.test.ts`
+(401/202/400/404/409 plus the voiceover and unchanged cases) and
+`apps/worker/src/steps/create-vocal.test.ts` (changed-scene-only charging, `create-captions`
+cursor jump, marker consumed). The real-Postgres transition and the upserts are exercised by
+`packages/db/src/videos.db.test.ts` and `apps/worker/src/steps/create-vocal.db.test.ts` under
+`npm run test:db`.
 
 ### 3.11 `apps/mcp`
 

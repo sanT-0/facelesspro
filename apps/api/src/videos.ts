@@ -46,6 +46,7 @@ import {
   idSchema,
   redrawSceneRequestSchema,
   renderRequestSchema,
+  revocalNarrationRequestSchema,
   scenePlanSchema,
   videoPlanResponseSchema,
   videoResponseSchema,
@@ -119,6 +120,38 @@ export type QueueRedrawResult =
 
 export type QueueRedraw = (input: QueueRedrawInput) => Promise<QueueRedrawResult>;
 
+export interface QueueRevocalInput {
+  /** The authenticated workspace; the guard is scoped to it. */
+  readonly workspaceId: string;
+  readonly videoId: string;
+  /** Only the scenes whose text changed. */
+  readonly edits: readonly { readonly idx: number; readonly text: string }[];
+}
+
+export type QueueRevocalResult =
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  /** No stored scene has that index. */
+  | { readonly kind: 'scene_not_found'; readonly idx: number }
+  /** Every submitted text already matches the stored one. */
+  | { readonly kind: 'unchanged' }
+  /** An uploaded voiceover cannot be re-narrated from text. */
+  | { readonly kind: 'voiceover' }
+  /** The video has no editable scene narration (not an AI-video V3 project). */
+  | { readonly kind: 'not_narratable' }
+  /** Only a completed video can be re-narrated. */
+  | { readonly kind: 'conflict'; readonly status: VideoStatus }
+  /** The edited script no longer fits the stored request. */
+  | {
+      readonly kind: 'invalid_request';
+      readonly message: string;
+      readonly field: string;
+    };
+
+export type QueueRevocal = (
+  input: QueueRevocalInput,
+) => Promise<QueueRevocalResult>;
+
 export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   /** Any status inside this workspace, so the route can answer 404. */
   readonly readVideo: (
@@ -131,6 +164,8 @@ export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   readonly queueRetry: QueueRetry;
   /** Guarded one-scene redraw + enqueue in one Postgres transaction. */
   readonly queueRedraw: QueueRedraw;
+  /** Guarded selective re-narrate + enqueue in one Postgres transaction. */
+  readonly queueRevocal: QueueRevocal;
   /** Scene rows + still keys, ordered by `idx`, scoped to the workspace. */
   readonly readVideoScenes: (
     workspaceId: string,
@@ -547,6 +582,77 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
         return c.json(apiError('not_found', 'video not found'), 404);
       case 'scene_not_found':
         return c.json(apiError('not_found', 'scene not found'), 404);
+      case 'conflict':
+        return c.json(apiError('conflict', `video is ${result.status}`), 409);
+      case 'queued': {
+        const mapped = mapStoredVideo(result.video, base);
+        if (!mapped.ok) return c.json(apiError('internal', mapped.message), 500);
+        return c.json(mapped.body, 202);
+      }
+    }
+  });
+
+  app.post('/:id/narration', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await readRenderBody(c.req.raw);
+    } catch {
+      return c.json(apiError('invalid_request', 'request body must be JSON'), 400);
+    }
+
+    const parsed = revocalNarrationRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      let field: string | undefined;
+      if (issue !== undefined) {
+        if (issue.path.length > 0) {
+          field = issue.path.join('.');
+        } else if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+          field = issue.keys[0];
+        }
+      }
+      return c.json(
+        apiError('invalid_request', issue?.message ?? 'invalid request', field),
+        400,
+      );
+    }
+
+    const result = await deps.queueRevocal({
+      workspaceId: c.get('workspaceId'),
+      videoId: id,
+      edits: parsed.data.scenes,
+    });
+
+    switch (result.kind) {
+      case 'not_found':
+        return c.json(apiError('not_found', 'video not found'), 404);
+      case 'scene_not_found':
+        return c.json(apiError('not_found', `scene ${result.idx} not found`), 404);
+      case 'unchanged':
+        return c.json(
+          apiError('invalid_request', 'no scene text changed', 'scenes'),
+          400,
+        );
+      case 'voiceover':
+        return c.json(
+          apiError('conflict', 'video narration is an uploaded voiceover'),
+          409,
+        );
+      case 'not_narratable':
+        return c.json(
+          apiError('conflict', 'video has no editable narration'),
+          409,
+        );
+      case 'invalid_request':
+        return c.json(
+          apiError('invalid_request', result.message, result.field),
+          400,
+        );
       case 'conflict':
         return c.json(apiError('conflict', `video is ${result.status}`), 409);
       case 'queued': {

@@ -231,7 +231,24 @@ scene N text ──► buildNarrationPlan ──► runs ──┘
    `video.duration_ms`, which is what images and captions consume.
 6. Store the encoded master before opening the commit transaction. The transaction writes the
    `asset` row, the `narration` row (`word_timings`, `voice_plan`), the scene spans, the video
-   duration, one ledger row and the cursor advance — nothing partial survives a crash.
+   duration, one ledger row and the cursor advance — nothing partial survives a crash. Both
+   `narration.video_id` and `caption_track.video_id` are keys, so a re-run upserts rather than
+   inserts.
+
+**Selective re-narrate.** `POST /v1/videos/:id/narration` only accepts a `completed` video whose
+narration is TTS (an uploaded voiceover is a `409`). Inside the row lock, `beginRevocal()` moves
+three facts together: each changed `scene.text`, `video.request.body.script` (the new texts
+joined by `' '`, re-validated against the request schema), and `video.plan.scenes[i].text` — the
+last one because a later redraw checks scene rows against the plan. It records the changed
+indexes in `video.revocal`, sets `processing`/`create-vocal` and enqueues that step in the same
+transaction.
+
+The step then rebuilds the **whole** plan and re-synthesises the whole master: a changed scene's
+duration shifts every later scene, so the offsets cannot be patched. This is cheap because the
+media service caches each segment by `hash(engine, voice, text)` — unchanged scenes are disk
+hits. The ledger charges only the characters of the changed scenes. The commit clears
+`video.revocal` and moves the cursor to `create-captions`, so the existing artwork is kept and
+`advance()` does not send the video back through `create-images`.
 
 **Artifacts:** `ws/<workspaceId>/videos/<videoId>/audio/narration.mp3` (the encoded master);
 scene offsets live in `scene.start_ms`/`scene.end_ms` and the word timeline in

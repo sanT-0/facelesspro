@@ -8,7 +8,7 @@
 
 import { randomUUID } from 'node:crypto';
 
-import { createAiVideoV3RequestSchema } from '@facelesspro/contracts';
+import { createAiVideoV3RequestSchema, scenePlanSchema } from '@facelesspro/contracts';
 import { eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createDb } from './client';
 import type { Database } from './client';
 import { scene, video, workspace } from './schema';
-import { beginRedraw, beginRender, beginRetry, findVideo } from './videos';
+import { beginRedraw, beginRender, beginRetry, beginRevocal, findVideo } from './videos';
 
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
 
@@ -171,6 +171,108 @@ describe('video workspace scoping (Postgres)', () => {
     // A failed video is resumed through retry, never by swapping one still.
     expect(
       await beginRedraw(db, { workspaceId: ownerId, videoId: failedId, sceneIdx: 0 }),
+    ).toEqual({ kind: 'conflict', status: 'failed' });
+  });
+
+  it('beginRevocal moves scene text, request script and plan together', async () => {
+    const plan = scenePlanSchema.parse({
+      scenes: [
+        {
+          text: 'வணக்கம் நண்பர்களே.',
+          imagePrompt: 'a teacher',
+          motion: 'none',
+          emphasis: [],
+          startMs: 0,
+          endMs: 1_200,
+        },
+        {
+          text: 'Today fire!',
+          imagePrompt: 'a fire',
+          motion: 'none',
+          emphasis: [],
+          startMs: 1_200,
+          endMs: 2_400,
+        },
+      ],
+      adapter: 'heuristic',
+      degradedFrom: [],
+      totalMs: 2_400,
+    });
+    await db.update(video).set({ plan }).where(eq(video.id, completedId));
+    await db.insert(scene).values([
+      {
+        video_id: completedId,
+        idx: 0,
+        text: 'வணக்கம் நண்பர்களே.',
+        start_ms: 0,
+        end_ms: 1_200,
+      },
+      { video_id: completedId, idx: 1, text: 'Today fire!', start_ms: 1_200, end_ms: 2_400 },
+    ]);
+
+    // Another workspace cannot edit this video's narration.
+    expect(
+      await beginRevocal(db, {
+        workspaceId: strangerId,
+        videoId: completedId,
+        edits: [{ idx: 0, text: 'வேறு வரி' }],
+      }),
+    ).toEqual({ kind: 'not_found' });
+
+    // The index must name a stored scene.
+    expect(
+      await beginRevocal(db, {
+        workspaceId: ownerId,
+        videoId: completedId,
+        edits: [{ idx: 9, text: 'x' }],
+      }),
+    ).toEqual({ kind: 'scene_not_found', idx: 9 });
+
+    // Re-sending the stored text is not a change and must not charge anyone.
+    expect(
+      await beginRevocal(db, {
+        workspaceId: ownerId,
+        videoId: completedId,
+        edits: [{ idx: 0, text: '  வணக்கம் நண்பர்களே.  ' }],
+      }),
+    ).toEqual({ kind: 'unchanged' });
+
+    const queued = await beginRevocal(db, {
+      workspaceId: ownerId,
+      videoId: completedId,
+      edits: [
+        { idx: 0, text: '  வேறு வரி  ' },
+        { idx: 1, text: 'Today fire!' },
+      ],
+    });
+    expect(queued).toMatchObject({
+      kind: 'queued',
+      video: {
+        status: 'processing',
+        step: 'create-vocal',
+        error: null,
+        revocal: { sceneIdxs: [0] },
+      },
+    });
+    if (queued.kind !== 'queued') throw new Error('expected queued');
+    // Only the actually changed scene moved; the untouched one stayed stored.
+    expect(createAiVideoV3RequestSchema.parse(queued.video.request.body).script).toBe(
+      'வேறு வரி Today fire!',
+    );
+    const storedScenes = await db.select().from(scene).where(eq(scene.video_id, completedId));
+    expect(storedScenes.map((row) => row.text)).toEqual(['வேறு வரி', 'Today fire!']);
+    expect(scenePlanSchema.parse(queued.video.plan).scenes.map((row) => row.text)).toEqual([
+      'வேறு வரி',
+      'Today fire!',
+    ]);
+
+    // Only a completed video is re-narratable.
+    expect(
+      await beginRevocal(db, {
+        workspaceId: ownerId,
+        videoId: failedId,
+        edits: [{ idx: 0, text: 'x' }],
+      }),
     ).toEqual({ kind: 'conflict', status: 'failed' });
   });
 });

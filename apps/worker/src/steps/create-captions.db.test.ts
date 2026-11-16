@@ -362,4 +362,43 @@ describe('create-captions step (Postgres)', () => {
     ).toHaveLength(1);
     expect(await boss.getQueueSize(queueFor('render'))).toBe(1);
   });
+
+  it('replaces the one cue track when it runs again for a re-narrate', async () => {
+    const handler = createCreateCaptionsHandler({ db, pool, boss });
+
+    await handler({ jobId: 'first-captions', videoId, step: 'create-captions' });
+
+    // A re-narrate re-enters this step with new word timings. Re-running with
+    // the same `caption_track.video_id` key must update the row, not fail.
+    await db
+      .update(narration)
+      .set({
+        word_timings: [
+          { text: 'வணக்கம', start_ms: 0, end_ms: 400 },
+          { text: 'நண்பர்களே.', start_ms: 400, end_ms: 900 },
+          { text: 'Today', start_ms: 1_000, end_ms: 1_300 },
+          { text: 'fire!', start_ms: 1_300, end_ms: 1_700 },
+        ],
+      })
+      .where(eq(narration.video_id, videoId));
+    await db
+      .update(video)
+      .set({ status: 'processing', step: 'create-captions' })
+      .where(eq(video.id, videoId));
+
+    await handler({ jobId: 'second-captions', videoId, step: 'create-captions' });
+
+    const tracks = await db
+      .select()
+      .from(captionTrack)
+      .where(eq(captionTrack.video_id, videoId));
+    expect(tracks).toHaveLength(1);
+    const track = captionTrackRowSchema.parse(tracks[0]);
+    expect(track.cues[0]?.words[0]?.text).toBe('வணக்கம');
+    // Each run still writes its own asset rows for the four sidecars.
+    const captionAssets = (
+      await db.select().from(asset).where(eq(asset.workspace_id, workspaceId))
+    ).filter((row) => row.kind === 'caption');
+    expect(captionAssets).toHaveLength(8);
+  });
 });

@@ -27,6 +27,7 @@ import type {
   RedrawState,
   RenderFormat,
   RenderStatus,
+  RevocalState,
   Size,
   VideoError,
   VideoKind,
@@ -147,6 +148,8 @@ export const video = pgTable(
     plan: jsonb('plan').$type<Record<string, unknown>>(),
     /** A one-scene redraw waiting for `create-images`; cleared by its commit. */
     redraw: jsonb('redraw').$type<RedrawState | null>(),
+    /** Scenes with edited text waiting for `create-vocal`; cleared by its commit. */
+    revocal: jsonb('revocal').$type<RevocalState | null>(),
     webhook_url: text('webhook_url'),
     duration_ms: integer('duration_ms'),
     video_url: text('video_url'),

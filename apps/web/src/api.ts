@@ -226,6 +226,23 @@ export async function redrawScene(
   );
 }
 
+/**
+ * Replace the text of some scenes and re-narrate.
+ *
+ * Only changed scenes are sent: untouched text is a media-cache hit, so it
+ * costs nothing. The API re-stitches the whole master and re-renders because a
+ * changed scene's duration shifts every later scene.
+ */
+export async function revocalNarration(
+  id: string,
+  scenes: readonly { idx: number; text: string }[],
+): Promise<Video> {
+  return apiJson<Video>(`/videos/${encodeURIComponent(id)}/narration`, {
+    method: 'POST',
+    body: JSON.stringify({ scenes }),
+  });
+}
+
 export interface Workspace {
   id: string;
   name: string;

@@ -76,6 +76,7 @@ function appWith(
     queueRender: async () => ({ kind: 'not_found' as const }),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     queueRedraw: async () => ({ kind: 'not_found' as const }),
+    queueRevocal: async () => ({ kind: 'not_found' as const }),
     ...testAuth(workspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

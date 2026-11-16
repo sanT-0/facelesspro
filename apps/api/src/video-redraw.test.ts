@@ -42,6 +42,7 @@ function row(overrides: Partial<VideoRow> = {}): VideoRow {
     request: { kind: 'ai-video-v3', body },
     plan: null,
     redraw: null,
+    revocal: null,
     webhook_url: null,
     duration_ms: 180_000,
     video_url: RENDER_KEY,
@@ -81,6 +82,7 @@ function appWith(queueRedraw: (input: QueueRedrawInput) => Promise<QueueRedrawRe
       queueRender: async () => ({ kind: 'not_found' }),
       queueRetry: async () => ({ kind: 'not_found' }),
       queueRedraw,
+      queueRevocal: async () => ({ kind: 'not_found' as const }),
       ...testAuth(WORKSPACE_ID),
       createApiKey: async () => {
         throw new Error('api keys are not used in this suite');

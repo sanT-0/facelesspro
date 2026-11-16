@@ -441,6 +441,25 @@ export async function installFakeApi(
       return;
     }
 
+    // Selective re-narrate: the scene text has already been replaced in the
+    // stored request, so the 202 body shows the new text while `create-vocal`
+    // re-stitches the master.
+    if (method === 'POST' && path === `/v1/videos/${VIDEO_ID}/narration`) {
+      const edits =
+        (body as { scenes?: { idx: number; text: string }[] } | undefined)?.scenes ?? [];
+      const scenes = SCENES.map((scene) => {
+        const edit = edits.find((candidate) => candidate.idx === scene.idx);
+        return edit === undefined ? scene : { ...scene, text: edit.text };
+      });
+      await json(route, 202, {
+        ...video('completed'),
+        status: 'processing',
+        step: 'create-vocal',
+        scenes,
+      });
+      return;
+    }
+
     await json(route, 404, {
       error: { code: 'not_found', message: `fake api has no ${method} ${path}` },
     });

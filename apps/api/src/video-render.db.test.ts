@@ -78,6 +78,7 @@ function app(authWorkspaceId = workspaceId) {
     queueRender: createQueueRender(pool, async () => boss),
     queueRetry: async () => ({ kind: 'not_found' as const }),
     queueRedraw: async () => ({ kind: 'not_found' as const }),
+    queueRevocal: async () => ({ kind: 'not_found' as const }),
     ...testAuth(authWorkspaceId),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

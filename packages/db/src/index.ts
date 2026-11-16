@@ -52,6 +52,7 @@ export {
   beginRedraw,
   beginRender,
   beginRetry,
+  beginRevocal,
   findVideo,
   insertVideo,
   listVideoScenes,
@@ -67,6 +68,8 @@ export type {
   BeginRenderInput,
   BeginRenderResult,
   BeginRetryResult,
+  BeginRevocalInput,
+  BeginRevocalResult,
   InsertVideoInput,
 } from './videos';
 export {

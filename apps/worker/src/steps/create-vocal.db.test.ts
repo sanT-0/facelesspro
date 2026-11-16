@@ -75,6 +75,7 @@ let durationMs: number;
 async function purgeStepQueues(): Promise<void> {
   await boss.purgeQueue(queueFor('create-vocal'));
   await boss.purgeQueue(queueFor('create-images'));
+  await boss.purgeQueue(queueFor('create-captions'));
 }
 
 async function deleteVideoRows(): Promise<void> {
@@ -411,5 +412,86 @@ describe('create-vocal step (Postgres)', () => {
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
     ).toHaveLength(1);
     expect(await boss.getQueueSize(queueFor('create-images'))).toBe(1);
+  });
+
+  it('re-narrates changed scenes onto the captions cursor and replaces the narration row', async () => {
+    const tts = fakeTts();
+    const handler = createCreateVocalHandler({
+      db,
+      pool,
+      boss,
+      tts: tts.port,
+      defaultPairId: 'valluvar',
+    });
+    const job = { jobId: 'manual-create-vocal', videoId, step: 'create-vocal' as const };
+
+    // First narration: the ordinary path, then pretend the video finished.
+    await handler(job);
+    const first = (
+      await db.select().from(narration).where(eq(narration.video_id, videoId))
+    )[0]!;
+    const firstLedger = await db
+      .select()
+      .from(creditLedger)
+      .where(eq(creditLedger.video_id, videoId));
+
+    const replacement = 'Today we redraw the second scene.';
+    await db
+      .update(scene)
+      .set({ text: replacement })
+      .where(eq(scene.video_id, videoId));
+    const current = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    const body = createAiVideoV3RequestSchema.parse({
+      ...createAiVideoV3RequestSchema.parse(current.request.body),
+      script: `${TAMIL} ${replacement}`,
+    });
+    await db
+      .update(video)
+      .set({
+        status: 'completed',
+        step: 'create-vocal',
+        request: { kind: 'ai-video-v3', body },
+        revocal: { sceneIdxs: [1] },
+      })
+      .where(eq(video.id, videoId));
+
+    await handler({ ...job, jobId: 'manual-revocal' });
+
+    const storedVideo = videoRowSchema.parse(
+      (await db.select().from(video).where(eq(video.id, videoId)))[0],
+    );
+    // `create-captions`, not `create-images`: the artwork is reused.
+    expect(storedVideo.step).toBe('create-captions');
+    expect(storedVideo.status).toBe('processing');
+    expect(storedVideo.revocal).toBeNull();
+
+    // The narration row was replaced (same key), not duplicated.
+    const narrations = await db
+      .select()
+      .from(narration)
+      .where(eq(narration.video_id, videoId));
+    expect(narrations).toHaveLength(1);
+    const replacementNarration = narrationRowSchema.parse(narrations[0]);
+    expect(replacementNarration.voice_plan.script).toBe(`${TAMIL} ${replacement}`);
+    expect(replacementNarration.asset_id).not.toBe(first.asset_id);
+
+    // Only the changed scene's characters were charged.
+    const ledger = await db
+      .select()
+      .from(creditLedger)
+      .where(eq(creditLedger.video_id, videoId));
+    expect(ledger).toHaveLength(firstLedger.length + 1);
+    expect(ledger.at(-1)).toMatchObject({
+      action: 'tts',
+      units: [...replacement].length,
+      unit_cost: 0,
+      delta: 0,
+    });
+
+    // The rendered MP4 is stale now, so the next step is a fresh render after
+    // captions — the queue shows exactly that.
+    expect(await boss.getQueueSize(queueFor('create-captions'))).toBe(1);
   });
 });

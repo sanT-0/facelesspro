@@ -2042,7 +2042,7 @@ file stays the single "what is actually true today" view.
       **Observed:** `npm run test:e2e` 9 passed; `npm run gate` green at 108 files / 1,348 tests, with `apps/web` typecheck now part of `npm run typecheck`.
       **Not verified live:** no Postgres/Redis listener was available this session, so the browser suite ran against intercepted API responses only.
 
-- [ ] 2026-11-10 — **P8 editor interactions (blocked on API)** — redraw-one-scene landed 2026-11-13; edit-script → selective-re-narrate still needs a route that does not exist, so no dead button is shown. Persisting a caption style choice and re-rendering with it likewise waits on a route. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
+- [ ] 2026-11-10 — **P8 editor interactions** — redraw-one-scene landed 2026-11-13 and edit-script → selective-re-narrate landed 2026-11-16. Persisting a caption style choice and re-rendering with it still waits on a route. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
 
 - [x] 2026-11-12 — **P8 plan inspector** — the editor's new Plan card reads `GET /v1/videos/:id/plan` and shows the planner adapter (with `degradedFrom` when it fell back), the total duration, and each planned scene's timecode, motion preset, emphasis words and image prompt. A video before `create-scenes` shows "Plan is not ready yet." rather than an error.
       **Observed:** Playwright asserts the adapter, both scenes, `kenburns-in`/`pan-left`, the Tamil emphasis chip and the image prompt; axe still clean; `tsc` and eslint clean.
@@ -2099,6 +2099,16 @@ file stays the single "what is actually true today" view.
       typechecked and fake-tested only. A `beginRedraw` assertion was added to
       `packages/db/src/videos.db.test.ts` (workspace scoping, scene required, completed-only) but
       `npm run test:db` was not run; no redrawn still or MP4 was produced.
+
+- [x] 2026-11-16 — **P8 selective re-narrate** — `POST /v1/videos/:id/narration` takes `{scenes: [{idx, text}]}` with only the scenes whose text changed (strict, 1..`MAX_SCENES`, unique `idx`, text trimmed to 1..`MAX_SCRIPT_CHARS`) and re-narrates a **completed** video. `beginRevocal` holds the row lock and moves three facts together: each `scene.text`, `video.request.body.script` (the new texts joined by `' '` and re-validated with `createAiVideoV3RequestSchema`), and `video.plan.scenes[i].text` — the last one so a later redraw's `assertScenesMatchPlan` still passes. It records the changed indexes in `video.revocal` (jsonb, migration `0003_amusing_liz_osborn.sql`), sets `processing`/`create-vocal` and `createQueueRevocal` enqueues the step in the same transaction. The worker rebuilds the whole plan and master (a changed scene's duration shifts every later scene), but charges only the changed scenes' characters — unchanged scenes are `hash(engine, voice, text)` cache hits in `services/media`. Pinpointing the segments per scene needed a `chargedSceneUnits` helper over the existing ranges. Commit clears the marker through `persistNarration` (`clearRevocal`) and moves the cursor to `create-captions` with `setStep` + `enqueue`, not `advance()` (which would re-enter `create-images`). `narration` and `caption_track` inserts became upserts on their `video_id` keys. The editor shows one editable textarea per scene on a completed video and a "Re-narrate changed scenes" button that posts only the edited scenes, or says "No scene text changed." without a request.
+      **Observed:** `npm run gate` green at 117 files / 1,469 tests, including 12 hermetic route
+      tests, 1 contract test and 4 worker tests (changed-scene-only units, multi-run scene,
+      `create-captions` jump, marker consumed); `npm run test:e2e` 19 passed with two new
+      re-narrate specs.
+      **Not verified live:** no Postgres/Redis or running worker this session, so migrations
+      `0002`/`0003`, `beginRevocal`'s row lock, the narration/caption upserts and a real
+      re-narrate → re-render MP4 are typechecked and fake-tested only. A `beginRevocal` assertion
+      was added to `packages/db/src/videos.db.test.ts` but `npm run test:db` was not run.
 
 ---
 

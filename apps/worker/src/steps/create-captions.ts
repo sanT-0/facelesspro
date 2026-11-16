@@ -306,11 +306,22 @@ export async function persistCaptions(
     throw new StepFailure('internal', 'caption asset insert returned the wrong rows');
   }
 
-  await tx.db.insert(captionTrack).values({
-    video_id: input.videoId,
-    template_id: input.templateId,
-    cues: [...input.cues],
-  });
+  await tx.db
+    .insert(captionTrack)
+    .values({
+      video_id: input.videoId,
+      template_id: input.templateId,
+      cues: [...input.cues],
+    })
+    // `caption_track.video_id` is the primary key: re-narrating the video
+    // replaces the cue track instead of violating it.
+    .onConflictDoUpdate({
+      target: captionTrack.video_id,
+      set: {
+        template_id: input.templateId,
+        cues: [...input.cues],
+      },
+    });
 }
 
 /** Complete an editable project without inventing or enqueueing an MP4 render. */
