@@ -114,6 +114,7 @@ function appWith(options: {
     queueRetry: async () => ({ kind: 'not_found' as const }),
     queueRedraw: async () => ({ kind: 'not_found' as const }),
     queueRevocal: async () => ({ kind: 'not_found' as const }),
+    queueRecaption: async () => ({ kind: 'not_found' as const }),
     ...testAuth(options.videoId ?? WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

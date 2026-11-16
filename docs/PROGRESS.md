@@ -2042,7 +2042,9 @@ file stays the single "what is actually true today" view.
       **Observed:** `npm run test:e2e` 9 passed; `npm run gate` green at 108 files / 1,348 tests, with `apps/web` typecheck now part of `npm run typecheck`.
       **Not verified live:** no Postgres/Redis listener was available this session, so the browser suite ran against intercepted API responses only.
 
-- [ ] 2026-11-10 — **P8 editor interactions** — redraw-one-scene landed 2026-11-13 and edit-script → selective-re-narrate landed 2026-11-16. Persisting a caption style choice and re-rendering with it still waits on a route. Studio cost preview waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
+- [x] 2026-11-10 — **P8 editor interactions** — redraw-one-scene landed 2026-11-13, edit-script → selective-re-narrate landed 2026-11-16, and caption-style save → re-render landed 2026-11-16. All four required editor affordances now have routes.
+
+- [ ] 2026-11-10 — **P8 studio cost preview** — waits on a cost endpoint (`POST /v1/videos/plan` returns timing/scenes, not credits).
 
 - [x] 2026-11-12 — **P8 plan inspector** — the editor's new Plan card reads `GET /v1/videos/:id/plan` and shows the planner adapter (with `degradedFrom` when it fell back), the total duration, and each planned scene's timecode, motion preset, emphasis words and image prompt. A video before `create-scenes` shows "Plan is not ready yet." rather than an error.
       **Observed:** Playwright asserts the adapter, both scenes, `kenburns-in`/`pan-left`, the Tamil emphasis chip and the image prompt; axe still clean; `tsc` and eslint clean.
@@ -2109,6 +2111,17 @@ file stays the single "what is actually true today" view.
       `0002`/`0003`, `beginRevocal`'s row lock, the narration/caption upserts and a real
       re-narrate → re-render MP4 are typechecked and fake-tested only. A `beginRevocal` assertion
       was added to `packages/db/src/videos.db.test.ts` but `npm run test:db` was not run.
+
+- [x] 2026-11-16 — **P8 save caption style and re-render** — `POST /v1/videos/:id/captions` takes the same `{templateId?, spec?}` group as the preview, but **persists** it: `templateId` replaces the stored request's `captionTemplateId`, and `spec` replaces its `captionSpec` (omitting `spec` clears the override). `captionSpec` is a new optional field on the V3 create request, so the style rides in `video.request.body` and needed no migration. `beginRecaption` holds the row lock, accepts only a **completed** captioned AI-video V3 (`409 video has no captions` for captions-off/non-V3, `409 video is <status>` otherwise), rewrites the request and moves to `processing`/`create-captions`; `createQueueRecaption` enqueues that step in the same transaction. The worker now merges the stored `captionSpec` over the selected template's spec before grouping, so cues, the four sidecars and the ASS burned by `render` all use the saved style while audio and artwork stay untouched; the editor's caption card gained "Save style and re-render" (hidden off `completed`) next to Preview.
+      **Observed:** `npm run gate` green at 118 files / 1,483 tests, including 11 hermetic route
+      tests, 2 contract tests and 1 worker test (override wins over the template, emoji off,
+      persisted cues unchanged); `npm run test:e2e` 20 passed with one new save spec asserting the
+      exact `{templateId, spec}` body and the queued status. `npx tsc --noEmit` clean for api,
+      worker and web.
+      **Not verified live:** no Postgres/Redis or running worker this session, so
+      `beginRecaption` and a real restyle → re-render MP4 are typechecked and fake-tested only; a
+      real-Postgres assertion was added to `packages/db/src/videos.db.test.ts` but
+      `npm run test:db` was not run. `GET /v1/videos/:id` does not echo the saved style.
 
 ---
 

@@ -43,6 +43,7 @@ import {
   voiceIdSchema,
   webhookUrlSchema,
 } from './common';
+import { captionSpecSchema } from './responses';
 
 // --- shared pieces ----------------------------------------------------------
 
@@ -133,6 +134,8 @@ const v3Base = {
   /** Artwork-first template: captions off unless asked for. */
   captions: z.boolean().default(false),
   captionTemplateId: captionTemplateIdSchema.optional(),
+  /** Per-video overrides merged over the chosen template's spec. */
+  captionSpec: captionSpecSchema.optional(),
   render: renderOptionsSchema.optional(),
   webhookUrl: webhookUrlSchema.optional(),
 };
@@ -165,6 +168,27 @@ export type CreateAiVideoV3Request = z.input<typeof createAiVideoV3RequestSchema
 export type CreateAiVideoV3RequestParsed = z.output<
   typeof createAiVideoV3RequestSchema
 >;
+
+/**
+ * `POST /v1/videos/:id/captions` — save a caption style and rebuild.
+ *
+ * The body is the complete choice, not a patch: `templateId` replaces the
+ * request's template and `spec` replaces its spec override. A request with
+ * neither would not change anything, so it is rejected instead of queueing an
+ * identical re-render.
+ */
+export const updateCaptionsRequestSchema = z
+  .strictObject({
+    templateId: captionTemplateIdSchema.optional(),
+    spec: captionSpecSchema.optional(),
+  })
+  .refine(
+    (value) =>
+      value.templateId !== undefined ||
+      (value.spec !== undefined && Object.keys(value.spec).length > 0),
+    { message: 'provide templateId or a non-empty spec', path: ['templateId'] },
+  );
+export type UpdateCaptionsRequest = z.output<typeof updateCaptionsRequestSchema>;
 
 // --- §3.2 AI Video V2 -------------------------------------------------------
 

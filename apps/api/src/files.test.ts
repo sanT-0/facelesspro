@@ -54,6 +54,7 @@ function appWith(options: {
       queueRetry: async () => ({ kind: 'not_found' as const }),
       queueRedraw: async () => ({ kind: 'not_found' as const }),
       queueRevocal: async () => ({ kind: 'not_found' as const }),
+      queueRecaption: async () => ({ kind: 'not_found' as const }),
       submitVideo: async () => {
         throw new Error('ai-videos-v3 is not used in this suite');
       },

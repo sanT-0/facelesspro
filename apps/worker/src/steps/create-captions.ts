@@ -184,12 +184,16 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
     }
 
     const words = captionWords(parsedNarration.data);
-    const cues = buildCues(words, selectedTemplate.spec, request.data.size);
+    // The per-video override wins over the template's own spec, so the style
+    // saved through `POST /v1/videos/:id/captions` reaches cues, sidecars and
+    // the ASS that `render` burns.
+    const spec = { ...selectedTemplate.spec, ...(request.data.captionSpec ?? {}) };
+    const cues = buildCues(words, spec, request.data.size);
     const artifacts = buildCaptionArtifacts(
       row.data.workspace_id,
       ctx.videoId,
       cues,
-      selectedTemplate.spec,
+      spec,
       request.data.size,
     );
 

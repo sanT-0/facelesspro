@@ -408,6 +408,17 @@ export async function installFakeApi(
       return;
     }
 
+    if (method === 'POST' && path === `/v1/videos/${VIDEO_ID}/captions`) {
+      // The API stores the style on the request and queues `create-captions`;
+      // the fake echoes the transition without rebuilding anything.
+      await json(route, 202, {
+        ...video('completed'),
+        status: 'processing',
+        step: 'create-captions',
+      });
+      return;
+    }
+
     if (method === 'POST' && path === `/v1/videos/${VIDEO_ID}/captions/preview`) {
       await json(route, 200, CAPTION_PREVIEW_DOCUMENT);
       return;

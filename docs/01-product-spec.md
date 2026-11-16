@@ -81,6 +81,7 @@ Script (or voiceover) → scenes → narration → images drawn in a **cloned ar
 | `voiceStyle` | object | see below | stability/similarityBoost/style/speed, each 0–100; speed is a percentage of normal rate, 50–200 |
 | `captions` | boolean | `false` | V3 is artwork-first, captions off by default |
 | `captionTemplateId` | number | last used | negative = built-in; until workspace preferences land, an omitted id uses built-in `-1` |
+| `captionSpec` | object | omitted | per-video overrides merged over the template spec (`wordLimit`, `maxLines`, `emoji`, colours, position) |
 | `render` | object | omitted | `{}` accepts defaults |
 | `webhookUrl` | https url | — | terminal-status callback |
 
@@ -356,7 +357,7 @@ Required affordances:
 - scene list with generated image, script text, duration;
 - redraw one scene (with prompt nudge), regenerate all;
 - edit script → re-narrate only the changed scenes;
-- caption style + word-limit + emoji toggle with live preview;
+- caption style + word-limit + emoji toggle with live preview, then save → re-render;
 - timeline scrub with audio waveform;
 - render panel (resolution, fps, format) with cost preview;
 - download + share link.

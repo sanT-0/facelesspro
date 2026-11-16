@@ -639,7 +639,11 @@ The API route that serves stored sidecars remains P6; P4 supplies and verifies t
 track or charging a zero-value row. With captions enabled, the worker selects the requested
 template; an omitted id temporarily uses built-in `-1` until workspace "last used" preferences
 land. Built-ins (`workspace_id=null`) are global, while a custom template must belong to the
-video's workspace.
+video's workspace. A stored `captionSpec` from the request is merged **over** the template's spec
+before grouping, so the editor's saved word limit/emoji reaches the cues, the four sidecars and
+the burned-in ASS. `POST /v1/videos/:id/captions` (docs/07 §2.4) rewrites that spec and re-enqueues
+this step on a completed video; the same commit rewrites the sidecars and queues `render`, so the
+MP4 picks up the new style without re-synthesising audio or redrawing artwork.
 
 The worker validates the stored narration and requires positive, ordered, non-overlapping global
 word spans inside the master duration. Cue grouping uses the template's `wordLimit`/`maxLines`

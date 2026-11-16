@@ -49,6 +49,7 @@ export type {
   GeneratedApiKey,
 } from './api-keys';
 export {
+  beginRecaption,
   beginRedraw,
   beginRender,
   beginRetry,
@@ -63,6 +64,8 @@ export {
 } from './videos';
 export type { VideoSceneArtifact } from './videos';
 export type {
+  BeginRecaptionInput,
+  BeginRecaptionResult,
   BeginRedrawInput,
   BeginRedrawResult,
   BeginRenderInput,

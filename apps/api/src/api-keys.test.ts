@@ -68,6 +68,7 @@ function appWith(overrides: {
     queueRetry: async () => ({ kind: 'not_found' as const }),
     queueRedraw: async () => ({ kind: 'not_found' as const }),
     queueRevocal: async () => ({ kind: 'not_found' as const }),
+    queueRecaption: async () => ({ kind: 'not_found' as const }),
     authenticateApiKey:
       overrides.authenticateApiKey ??
       (async (token) => (token === TOKEN ? row() : null)),

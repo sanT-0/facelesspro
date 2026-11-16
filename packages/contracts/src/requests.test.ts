@@ -22,6 +22,7 @@ import {
   renderRequestSchema,
   revocalNarrationRequestSchema,
   textToSpeechRequestSchema,
+  updateCaptionsRequestSchema,
 } from './requests';
 
 const ART_STYLE = '0190a0a0-0000-7000-8000-000000000000';
@@ -458,6 +459,49 @@ describe('other requests', () => {
     expect(
       revocalNarrationRequestSchema.safeParse({
         scenes: [{ idx: 0, text: 'x', voice: 'en' }],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('caption style accepts a template, a spec patch, or both — but not nothing', () => {
+    expect(updateCaptionsRequestSchema.parse({ templateId: 7 })).toEqual({
+      templateId: 7,
+    });
+    expect(
+      updateCaptionsRequestSchema.parse({ spec: { wordLimit: 2, emoji: true } }),
+    ).toEqual({ templateId: undefined, spec: { wordLimit: 2, emoji: true } });
+    expect(
+      updateCaptionsRequestSchema.parse({
+        templateId: -1,
+        spec: { position: 'top' },
+      }),
+    ).toEqual({ templateId: -1, spec: { position: 'top' } });
+
+    // Neither key, or an empty spec, would not change the stored style.
+    expect(updateCaptionsRequestSchema.safeParse({}).success).toBe(false);
+    expect(updateCaptionsRequestSchema.safeParse({ spec: {} }).success).toBe(false);
+    // Unknown keys and out-of-range values are client bugs.
+    expect(
+      updateCaptionsRequestSchema.safeParse({ templateId: 7, font: 'Lato' }).success,
+    ).toBe(false);
+    expect(
+      updateCaptionsRequestSchema.safeParse({ spec: { wordLimit: 11 } }).success,
+    ).toBe(false);
+  });
+
+  it('a V3 request may carry a per-video caption spec', () => {
+    const parsed = createAiVideoV3RequestSchema.parse({
+      artStyleId: ART_STYLE,
+      script: 'வணக்கம்.',
+      captions: true,
+      captionSpec: { wordLimit: 2, emoji: true },
+    });
+    expect(parsed.captionSpec).toEqual({ wordLimit: 2, emoji: true });
+    expect(
+      createAiVideoV3RequestSchema.safeParse({
+        artStyleId: ART_STYLE,
+        script: 'வணக்கம்.',
+        captionSpec: { wordLimit: 0 },
       }).success,
     ).toBe(false);
   });

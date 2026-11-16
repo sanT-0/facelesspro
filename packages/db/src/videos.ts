@@ -17,6 +17,7 @@ import {
   wordTimingSchema,
 } from '@facelesspro/contracts';
 import type {
+  CaptionSpec,
   CaptionTrackRow,
   NarrationPlan,
   RenderOptions,
@@ -545,4 +546,86 @@ export async function beginRevocal(
   const next = updated[0];
   if (next === undefined) throw new Error('revocal transition returned no row');
   return { kind: 'queued', video: videoRowSchema.parse(next) };
+}
+
+export interface BeginRecaptionInput {
+  readonly workspaceId: string;
+  readonly videoId: string;
+  /** Replaces the request's `captionTemplateId`; absent keeps the current one. */
+  readonly templateId?: number;
+  /** Replaces the request's `captionSpec`; absent clears the override. */
+  readonly spec?: CaptionSpec;
+}
+
+export type BeginRecaptionResult =
+  /** The stored request carries the new style; enqueue `create-captions`. */
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  /** Captions are off, or the stored video is not an AI-video V3 project. */
+  | { readonly kind: 'no_captions' }
+  /** Only a completed video can change its caption style. */
+  | { readonly kind: 'conflict'; readonly status: VideoStatus };
+
+/**
+ * Save a caption style on the stored request and queue `create-captions`.
+ *
+ * The style lives in `video.request.body` next to `captions` and
+ * `captionTemplateId`, so a later re-narrate (which rewrites `script` and
+ * spreads the rest of the body) cannot lose it. The step merges
+ * `captionSpec` over the template's own spec, and `render` burns the ASS the
+ * step regenerated, so the choice reaches the MP4 without touching audio or
+ * artwork.
+ *
+ * `templateId`/`spec` are replacements, not patches: omitting `spec` clears
+ * the stored override. Must run inside the transaction that enqueues the job.
+ */
+export async function beginRecaption(
+  db: Database,
+  input: BeginRecaptionInput,
+): Promise<BeginRecaptionResult> {
+  const rows = await db
+    .select()
+    .from(video)
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .for('update');
+  const row = rows[0];
+  if (row === undefined) return { kind: 'not_found' };
+  if (row.status !== 'completed') return { kind: 'conflict', status: row.status };
+  if (row.kind !== 'ai-video-v3') return { kind: 'no_captions' };
+
+  const stored = videoRowSchema.parse(row);
+  const request = createAiVideoV3RequestSchema.safeParse(stored.request.body);
+  if (!request.success) {
+    throw new Error('stored V3 request does not match the request contract');
+  }
+  if (!request.data.captions) return { kind: 'no_captions' };
+
+  const body: Record<string, unknown> = { ...request.data };
+  if (input.templateId !== undefined) body.captionTemplateId = input.templateId;
+  if (input.spec === undefined) {
+    delete body.captionSpec;
+  } else {
+    body.captionSpec = input.spec;
+  }
+  const next = createAiVideoV3RequestSchema.parse(body);
+
+  const updated = await db
+    .update(video)
+    .set({
+      status: 'processing',
+      step: 'create-captions',
+      error: null,
+      request: { kind: stored.request.kind, body: next },
+      updated_at: sql`now()`,
+    })
+    .where(
+      and(eq(video.id, input.videoId), eq(video.workspace_id, input.workspaceId)),
+    )
+    .returning();
+
+  const nextRow = updated[0];
+  if (nextRow === undefined) throw new Error('recaption transition returned no row');
+  return { kind: 'queued', video: videoRowSchema.parse(nextRow) };
 }

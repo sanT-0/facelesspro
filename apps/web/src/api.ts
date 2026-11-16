@@ -454,6 +454,23 @@ export async function previewCaptions(
   );
 }
 
+/**
+ * Save a caption style and rebuild the track + MP4.
+ *
+ * The body is the complete choice: `templateId` and `spec` replace what the
+ * stored request holds. The worker regroups the stored word timings, rewrites
+ * the four sidecars and ASS, then re-renders; audio and artwork are untouched.
+ */
+export async function updateCaptionStyle(
+  id: string,
+  body: { templateId?: number; spec?: CaptionSpec },
+): Promise<Video> {
+  return apiJson<Video>(`/videos/${encodeURIComponent(id)}/captions`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  });
+}
+
 /** One sidecar as text, for previewing or downloading. */
 export async function getCaptionSidecar(
   id: string,

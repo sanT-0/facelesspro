@@ -74,7 +74,7 @@ test('editor previews another caption grouping without persisting it', async ({ 
   await page.goto(`/editor?id=${VIDEO_ID}`);
 
   await expect(page.locator('.caption-cue')).toHaveCount(2);
-  await expect(page.getByText('Preview only', { exact: false })).toBeVisible();
+  await expect(page.getByText('Preview does not change', { exact: false })).toBeVisible();
 
   await page.locator('#caption-template').selectOption('7');
   await page.locator('#caption-word-limit').fill('2');
@@ -101,6 +101,42 @@ test('editor previews another caption grouping without persisting it', async ({ 
   await expect(page.locator('#caption-preview-status')).toContainText('Preview: 3 cues');
   await expect(page.locator('.caption-cue').first()).toContainText('தமிழ் முதல்');
   await expect(page.locator('.caption-cue').first()).toContainText('🔥');
+});
+
+test('editor saves a caption style and re-queues create-captions', async ({ page }) => {
+  await installFakeApi(page, { completeAfter: 1 });
+  await signInAs(page, API_KEY);
+
+  await page.goto(`/editor?id=${VIDEO_ID}`);
+
+  await expect(page.locator('.caption-cue')).toHaveCount(2);
+
+  await page.locator('#caption-template').selectOption('7');
+  await page.locator('#caption-word-limit').fill('2');
+  await page.locator('#caption-emoji').check();
+
+  const saveRequest = page.waitForRequest(
+    (request) =>
+      request.method() === 'POST' &&
+      request.url().endsWith(`/v1/videos/${VIDEO_ID}/captions`),
+  );
+  await page.getByRole('button', { name: 'Save style and re-render' }).click();
+
+  const body = JSON.parse((await saveRequest).postData() ?? '{}') as Record<
+    string,
+    unknown
+  >;
+  expect(body).toEqual({
+    templateId: 7,
+    spec: { wordLimit: 2, emoji: true },
+  });
+
+  // Saving is not a preview: the 202 puts the video back into processing and
+  // the panel says what is being rebuilt.
+  await expect(page.locator('#caption-preview-status')).toContainText(
+    'Captions and the MP4 rebuild with this style',
+  );
+  await expect(page.getByRole('button', { name: 'Style saved' })).toBeVisible();
 });
 
 test('editor draws the narration waveform and scrubs the playhead', async ({ page }) => {

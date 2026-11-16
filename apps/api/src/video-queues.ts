@@ -7,11 +7,17 @@
  * cursor promises work nobody will run.
  */
 
-import { beginRedraw, beginRender, beginRetry, beginRevocal, databaseFor } from '@facelesspro/db';
+import { beginRecaption, beginRedraw, beginRender, beginRetry, beginRevocal, databaseFor } from '@facelesspro/db';
 import type { createDb, Database } from '@facelesspro/db';
 import { enqueueStep } from '@facelesspro/queue';
 
-import type { QueueRedraw, QueueRender, QueueRetry, QueueRevocal } from './videos';
+import type {
+  QueueRecaption,
+  QueueRedraw,
+  QueueRender,
+  QueueRetry,
+  QueueRevocal,
+} from './videos';
 
 type Pool = ReturnType<typeof createDb>['pool'];
 type Boss = Parameters<typeof enqueueStep>[0];
@@ -121,6 +127,26 @@ export function createQueueRevocal(
         await enqueueStep(
           boss,
           { videoId: input.videoId, step: 'create-vocal' },
+          enqueueThrough(client),
+        );
+      }
+      return result;
+    });
+  };
+}
+
+export function createQueueRecaption(
+  pool: Pool,
+  getBoss: () => Promise<Boss>,
+): QueueRecaption {
+  return async (input) => {
+    const boss = await getBoss();
+    return withTransaction(pool, async (txDb, client) => {
+      const result = await beginRecaption(txDb, input);
+      if (result.kind === 'queued') {
+        await enqueueStep(
+          boss,
+          { videoId: input.videoId, step: 'create-captions' },
           enqueueThrough(client),
         );
       }

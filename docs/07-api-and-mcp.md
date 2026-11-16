@@ -73,7 +73,7 @@ bucket/CDN swap (docs/10), not extra auth.
 
 | Method | Path | Body highlights |
 |---|---|---|
-| POST | `/v1/ai-videos-v3` | `artStyleId*`, `script`\|`voiceoverUrl`, `size`, `speed`, `voiceId`, `voiceStyle`, `captions`, `captionTemplateId`, `render`, `webhookUrl` |
+| POST | `/v1/ai-videos-v3` | `artStyleId*`, `script`\|`voiceoverUrl`, `size`, `speed`, `voiceId`, `voiceStyle`, `captions`, `captionTemplateId`, `captionSpec`, `render`, `webhookUrl` |
 | POST | `/v1/ai-videos` | `script*`, `imageStyle`, `size`, `transition`, `voiceId`, `voiceStyle`, `render`, `webhookUrl` |
 | POST | `/v1/quiz-videos` | `items*[]`, `template`, `language`, `voiceId`, `answerTemplate`, `generateBackgroundImage`, `backgroundImagePrompt`, `generateQuestionImage`, `imageStyle`, `render`, `webhookUrl` |
 | POST | `/v1/fake-text-videos` | `conversations*[]`, `backgroundVideoId`, `backgroundVideoStartFrom`, `render`, `webhookUrl` |
@@ -148,6 +148,7 @@ before every video.
 | POST | `/v1/videos/:id/narration` | re-narrate changed scenes only |
 | GET | `/v1/videos/:id/captions` | `srt`, `vtt`, `ass`, `json` |
 | POST | `/v1/videos/:id/captions/preview` | regroup the stored word timings with `{templateId?, spec?}` → the same versioned JSON document; no write, no charge |
+| POST | `/v1/videos/:id/captions` | save a caption style and rebuild the track + MP4; completed captioned V3 only |
 | POST | `/v1/videos/:id/retry` | re-enqueue the step recorded on a `failed` video; `409` unless `failed`; no charge of its own |
 | POST | `/v1/art-styles` | upload reference video (multipart) → ffprobe validation (≥30s, has audio, ≤10min), stores file, inserts `art_style` row `status='building'`, returns `202 {id, status, createdAt}`. Build job enqueued asynchronously. |
 | GET | `/v1/art-styles/:id/export` | portable style JSON `{version: 1, name, formats[], profile}` — the full `StyleProfile`, no ids/keys/timestamps; `409 conflict` while building, `404 not_found`, `400 invalid_request` (`field: "id"`), `500 internal` if the stored profile fails validation |
@@ -180,6 +181,22 @@ word limit or emoji without saving a template. Nothing is written and no ledger 
 preview is free. An unknown explicit `templateId` is `400 invalid_request` (`field:
 "templateId"`), an unknown video is `404 not_found`, and a video whose `create-vocal` step has not
 committed is `404 not_found` with `captions not available`.
+
+`POST /v1/videos/:id/captions` accepts the same `{templateId?, spec?}` shape and **saves** it:
+`templateId` replaces the stored request's `captionTemplateId` and `spec` replaces its
+`captionSpec`. The body is the complete choice, not a patch — omitting `spec` clears the
+per-video override, so a template-only save uses that template's own spec. At least one of the
+two keys is required; `{}` or `{spec: {}}` would not change anything, so it is `400
+invalid_request` with `field: "templateId"`. An unknown explicit template is also `400` with
+`field: "templateId"`. The transition is allowed only on a `completed` AI-video V3 project with
+`captions: true`: other statuses are `409 conflict` (`video is <status>`), and a video with
+captions off or another kind is `409 conflict` (`video has no captions`). Inside the row lock
+the request is rewritten, the video moves to `processing`/`create-captions` and that step is
+enqueued in the same transaction; the `202` returns the same `videoResponseSchema` as `GET`. The
+worker merges the saved spec over the template, rewrites the four sidecars and ASS, and — when
+the request carried `render` — queues `render`, so the MP4 is rebuilt with the new style while
+audio and artwork are untouched. Unknown video → `404 not_found`; non-UUID id / malformed body →
+`400 invalid_request`.
 
 `GET /v1/videos/:id/plan` returns `{plan, voicePlan}`. `plan` is the stored `scenePlanSchema`
 document: the split `create-scenes` committed, including `adapter`/`degradedFrom`. `voicePlan` is

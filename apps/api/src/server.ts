@@ -50,6 +50,7 @@ import { createApp } from './app';
 import type { ArtStyleSubmission } from './art-styles';
 import { createRateLimiter, rateLimitOptionsFromEnv } from './rate-limit';
 import {
+  createQueueRecaption,
   createQueueRedraw,
   createQueueRender,
   createQueueRetry,
@@ -225,6 +226,7 @@ async function main(): Promise<void> {
     queueRetry: createQueueRetry(pool, producer),
     queueRedraw: createQueueRedraw(pool, producer),
     queueRevocal: createQueueRevocal(pool, producer),
+    queueRecaption: createQueueRecaption(pool, producer),
     authenticateApiKey: (token) => authenticateApiKey(db, token),
     rateLimit: createRateLimiter(rateLimitOptionsFromEnv(process.env)),
     createApiKey: (input) => createApiKey(db, input),

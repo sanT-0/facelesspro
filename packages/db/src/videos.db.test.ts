@@ -16,7 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 import { createDb } from './client';
 import type { Database } from './client';
 import { scene, video, workspace } from './schema';
-import { beginRedraw, beginRender, beginRetry, beginRevocal, findVideo } from './videos';
+import { beginRecaption, beginRedraw, beginRender, beginRetry, beginRevocal, findVideo } from './videos';
 
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
 
@@ -274,5 +274,104 @@ describe('video workspace scoping (Postgres)', () => {
         edits: [{ idx: 0, text: 'x' }],
       }),
     ).toEqual({ kind: 'conflict', status: 'failed' });
+  });
+
+  it('beginRecaption replaces the stored caption style on a completed captioned V3', async () => {
+    // Another workspace cannot restyle it, even with the UUID.
+    expect(
+      await beginRecaption(db, {
+        workspaceId: strangerId,
+        videoId: completedId,
+        templateId: 7,
+      }),
+    ).toEqual({ kind: 'not_found' });
+
+    // A failed video is resumed through retry, not restyled mid-pipeline.
+    expect(
+      await beginRecaption(db, {
+        workspaceId: ownerId,
+        videoId: failedId,
+        templateId: 7,
+      }),
+    ).toEqual({ kind: 'conflict', status: 'failed' });
+
+    // Captions off means there is no track to rebuild.
+    const off = await db
+      .insert(video)
+      .values({
+        workspace_id: ownerId,
+        kind: 'ai-video-v3',
+        status: 'completed',
+        step: null,
+        request: {
+          kind: 'ai-video-v3',
+          body: { ...request, captions: false },
+        },
+      })
+      .returning({ id: video.id });
+    expect(
+      await beginRecaption(db, {
+        workspaceId: ownerId,
+        videoId: off[0]!.id,
+        spec: { emoji: true },
+      }),
+    ).toEqual({ kind: 'no_captions' });
+
+    // A non-V3 video has no caption style in its request to replace.
+    const other = await db
+      .insert(video)
+      .values({
+        workspace_id: ownerId,
+        kind: 'caption',
+        status: 'completed',
+        step: null,
+        request: {
+          kind: 'caption',
+          body: { url: 'https://example.com/in.mp4' },
+        },
+      })
+      .returning({ id: video.id });
+    expect(
+      await beginRecaption(db, { workspaceId: ownerId, videoId: other[0]!.id, templateId: 7 }),
+    ).toEqual({ kind: 'no_captions' });
+
+    const queued = await beginRecaption(db, {
+      workspaceId: ownerId,
+      videoId: completedId,
+      templateId: 7,
+      spec: { wordLimit: 2, emoji: false },
+    });
+    expect(queued).toMatchObject({
+      kind: 'queued',
+      video: {
+        status: 'processing',
+        step: 'create-captions',
+        error: null,
+      },
+    });
+    if (queued.kind !== 'queued') throw new Error('expected queued');
+    const body = createAiVideoV3RequestSchema.parse(queued.video.request.body);
+    expect(body.captionTemplateId).toBe(7);
+    expect(body.captionSpec).toEqual({ wordLimit: 2, emoji: false });
+    // The rest of the stored request survives the rewrite, so a later
+    // re-narrate still finds the same script and art style.
+    expect(body.script).toBe(request.script);
+    expect(body.artStyleId).toBe(STYLE_ID);
+
+    // Omitting `spec` clears the override — the template's own spec wins
+    // again. Reset to completed so the second call reaches the transition.
+    await db
+      .update(video)
+      .set({ status: 'completed', step: null })
+      .where(eq(video.id, completedId));
+    const cleared = await beginRecaption(db, {
+      workspaceId: ownerId,
+      videoId: completedId,
+      templateId: 7,
+    });
+    if (cleared.kind !== 'queued') throw new Error('expected queued');
+    const clearedBody = createAiVideoV3RequestSchema.parse(cleared.video.request.body);
+    expect(clearedBody.captionTemplateId).toBe(7);
+    expect(clearedBody.captionSpec).toBeUndefined();
   });
 });

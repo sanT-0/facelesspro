@@ -71,6 +71,7 @@ function appWith(queueRetry: (input: QueueRetryInput) => Promise<QueueRetryResul
     queueRetry,
     queueRedraw: async () => ({ kind: 'not_found' }),
     queueRevocal: async () => ({ kind: 'not_found' }),
+    queueRecaption: async () => ({ kind: 'not_found' }),
     ...testAuth(WORKSPACE_ID),
     createApiKey: async () => {
       throw new Error('api keys are not used in this suite');

@@ -25,6 +25,7 @@ import {
   redrawScene,
   renderVideo,
   revocalNarration,
+  updateCaptionStyle,
   type CaptionDocument,
   type CaptionSidecarFormat,
   type CaptionTemplate,
@@ -579,10 +580,13 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         </div>
         <div class="form-group">
           <button class="btn btn-secondary" type="button" id="caption-preview-btn">Preview</button>
+          <button class="btn btn-primary" type="button" id="caption-save-btn"${video?.status === 'completed' ? '' : ' hidden'}>
+            Save style and re-render
+          </button>
         </div>
       </div>
       <p class="text-muted caption-preview-note">
-        Preview only — the stored captions and any render are unchanged.
+        Preview does not change the stored captions. Save rebuilds them and the MP4.
       </p>
       <div id="caption-preview-status" class="caption-preview-status" role="status"></div>
       <div class="caption-cues" id="caption-cues">${cueListHtml(document)}</div>
@@ -612,29 +616,41 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
     const previewButton = captionsPanel.querySelector(
       '#caption-preview-btn',
     ) as HTMLButtonElement;
+    const saveButton = captionsPanel.querySelector(
+      '#caption-save-btn',
+    ) as HTMLButtonElement;
     const previewStatus = captionsPanel.querySelector(
       '#caption-preview-status',
     ) as HTMLElement;
     const cueList = captionsPanel.querySelector('#caption-cues') as HTMLElement;
 
-    previewButton.addEventListener('click', async () => {
+    /** The complete style choice, or `null` after reporting a bad word limit. */
+    function captionGroup(): {
+      templateId?: number;
+      spec: { wordLimit: number; emoji: boolean };
+    } | null {
       const wordLimit = Number(wordLimitInput.value);
       if (!Number.isInteger(wordLimit) || wordLimit < 1 || wordLimit > 10) {
         previewStatus.textContent = 'Words per cue must be a whole number from 1 to 10.';
         previewStatus.dataset.state = 'error';
-        return;
+        return null;
       }
+      return {
+        spec: { wordLimit, emoji: emojiInput.checked },
+        ...(templateSelect === null
+          ? {}
+          : { templateId: Number(templateSelect.value) }),
+      };
+    }
+
+    previewButton.addEventListener('click', async () => {
+      const group = captionGroup();
+      if (group === null) return;
 
       previewButton.disabled = true;
       previewStatus.textContent = 'Regrouping…';
       delete previewStatus.dataset.state;
       try {
-        const group = {
-          spec: { wordLimit, emoji: emojiInput.checked },
-          ...(templateSelect === null
-            ? {}
-            : { templateId: Number(templateSelect.value) }),
-        };
         const preview = await previewCaptions(videoId, group);
         cueList.innerHTML = cueListHtml(preview);
         previewStatus.textContent = `Preview: ${preview.cues.length} cue${preview.cues.length === 1 ? '' : 's'}.`;
@@ -643,6 +659,40 @@ export async function renderEditor(params: Record<string, string>): Promise<HTML
         previewStatus.dataset.state = 'error';
       } finally {
         previewButton.disabled = false;
+      }
+    });
+
+    saveButton.addEventListener('click', async () => {
+      const group = captionGroup();
+      if (group === null) return;
+
+      previewButton.disabled = true;
+      saveButton.disabled = true;
+      previewStatus.textContent = 'Saving style…';
+      delete previewStatus.dataset.state;
+      try {
+        const updated = await updateCaptionStyle(videoId, group);
+        // The 202 body is the video row only — scenes/voicePlan come from the
+        // separate read paths. Keep the ones already on screen so saving a
+        // style does not blank the scene list.
+        const previous = video;
+        video = {
+          ...updated,
+          ...(previous?.scenes === undefined ? {} : { scenes: previous.scenes }),
+          ...(previous?.voicePlan === undefined ? {} : { voicePlan: previous.voicePlan }),
+        };
+        renderVideoDetails(video);
+        // The panel keeps the last stored cues: the worker has not rebuilt
+        // them yet, and the status line says so.
+        previewStatus.textContent =
+          'Queued. Captions and the MP4 rebuild with this style; audio and artwork are unchanged.';
+        saveButton.textContent = 'Style saved';
+        saveButton.disabled = true;
+      } catch (err) {
+        previewStatus.textContent = (err as Error).message;
+        previewStatus.dataset.state = 'error';
+        previewButton.disabled = false;
+        saveButton.disabled = false;
       }
     });
 

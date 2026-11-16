@@ -285,6 +285,44 @@ describe('createCreateCaptionsWork', () => {
     expect(ass).toContain('PlayResY: 1920');
   });
 
+  it('merges a per-video captionSpec over the template before grouping', async () => {
+    const row = video({
+      artStyleId: STYLE_ID,
+      script: SCRIPT,
+      captions: true,
+      captionTemplateId: template.id,
+      // The template groups three words and adds an emoji; the saved override
+      // asks for one word per cue and no emoji.
+      captionSpec: { wordLimit: 1, emoji: false },
+      render: {},
+    });
+    const { work, store, persist } = deps();
+
+    await work(harness(row).context);
+
+    const input = vi.mocked(store).mock.calls[0]![0];
+    const ass = utf8(input.artifacts.find((artifact) => artifact.format === 'ass')!);
+    expect(ass).not.toContain('Noto Emoji');
+    expect(ass).toContain('Noto Sans Tamil');
+
+    const json = utf8(input.artifacts.find((artifact) => artifact.format === 'json')!);
+    const document = captionJsonExportSchema.parse(JSON.parse(json) as unknown);
+    expect(document.cues.map((cue) => cue.lines.join(' '))).toEqual([
+      'வணக்கம்',
+      'நண்பர்களே.',
+      'Today',
+      'fire!',
+    ]);
+    expect(document.cues.every((cue) => cue.emoji === undefined)).toBe(true);
+
+    const persisted = (
+      vi.mocked(persist).mock.calls[0] as unknown as [CommitTx, PersistCaptionsInput]
+    )[1];
+    expect(persisted.templateId).toBe(template.id);
+    // The stored cues, not the merged spec, are what later steps read.
+    expect(persisted.cues).toEqual(document.cues.map(({ index: _index, ...cue }) => cue));
+  });
+
   it('advances without loading narration, writing artifacts or charging when captions are off', async () => {
     const events: string[] = [];
     const row = video({ artStyleId: STYLE_ID, script: SCRIPT, captions: false, render: {} });

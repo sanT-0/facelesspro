@@ -48,11 +48,13 @@ import {
   renderRequestSchema,
   revocalNarrationRequestSchema,
   scenePlanSchema,
+  updateCaptionsRequestSchema,
   videoPlanResponseSchema,
   videoResponseSchema,
   videoRowSchema,
 } from '@facelesspro/contracts';
 import type {
+  CaptionSpec,
   CaptionTrackRow,
   NarrationPlan,
   RenderOptions,
@@ -152,6 +154,28 @@ export type QueueRevocal = (
   input: QueueRevocalInput,
 ) => Promise<QueueRevocalResult>;
 
+export interface QueueRecaptionInput {
+  /** The authenticated workspace; the guard is scoped to it. */
+  readonly workspaceId: string;
+  readonly videoId: string;
+  /** Replaces the request's template; absent keeps the current one. */
+  readonly templateId?: number;
+  /** Replaces the request's spec override; absent clears it. */
+  readonly spec?: CaptionSpec;
+}
+
+export type QueueRecaptionResult =
+  | { readonly kind: 'queued'; readonly video: VideoRow }
+  | { readonly kind: 'not_found' }
+  /** Captions are off, or the video is not an AI-video V3 project. */
+  | { readonly kind: 'no_captions' }
+  /** Only a completed video can change its caption style. */
+  | { readonly kind: 'conflict'; readonly status: VideoStatus };
+
+export type QueueRecaption = (
+  input: QueueRecaptionInput,
+) => Promise<QueueRecaptionResult>;
+
 export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   /** Any status inside this workspace, so the route can answer 404. */
   readonly readVideo: (
@@ -166,6 +190,8 @@ export interface VideoRouteDeps extends AuthDeps, CaptionTemplateDeps {
   readonly queueRedraw: QueueRedraw;
   /** Guarded selective re-narrate + enqueue in one Postgres transaction. */
   readonly queueRevocal: QueueRevocal;
+  /** Guarded caption-style save + enqueue in one Postgres transaction. */
+  readonly queueRecaption: QueueRecaption;
   /** Scene rows + still keys, ordered by `idx`, scoped to the workspace. */
   readonly readVideoScenes: (
     workspaceId: string,
@@ -653,6 +679,72 @@ export function createVideoRoutes(deps: VideoRouteDeps): Hono<WorkspaceEnv> {
           apiError('invalid_request', result.message, result.field),
           400,
         );
+      case 'conflict':
+        return c.json(apiError('conflict', `video is ${result.status}`), 409);
+      case 'queued': {
+        const mapped = mapStoredVideo(result.video, base);
+        if (!mapped.ok) return c.json(apiError('internal', mapped.message), 500);
+        return c.json(mapped.body, 202);
+      }
+    }
+  });
+
+  app.post('/:id/captions', async (c) => {
+    const id = c.req.param('id');
+    if (!idSchema.safeParse(id).success) {
+      return c.json(apiError('invalid_request', 'id must be a UUID', 'id'), 400);
+    }
+
+    let payload: unknown;
+    try {
+      payload = await readRenderBody(c.req.raw);
+    } catch {
+      return c.json(apiError('invalid_request', 'request body must be JSON'), 400);
+    }
+
+    const parsed = updateCaptionsRequestSchema.safeParse(payload);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      let field: string | undefined;
+      if (issue !== undefined) {
+        if (issue.path.length > 0) {
+          field = issue.path.join('.');
+        } else if (issue.code === 'unrecognized_keys' && issue.keys.length > 0) {
+          field = issue.keys[0];
+        }
+      }
+      return c.json(
+        apiError('invalid_request', issue?.message ?? 'invalid request', field),
+        400,
+      );
+    }
+
+    // An unknown template would fail inside the worker after the video has
+    // already moved; reject it here like the preview route does.
+    if (parsed.data.templateId !== undefined) {
+      const templates = await deps.listCaptionTemplates();
+      if (!templates.some((template) => template.id === parsed.data.templateId)) {
+        return c.json(
+          apiError('invalid_request', 'unknown caption template', 'templateId'),
+          400,
+        );
+      }
+    }
+
+    const result = await deps.queueRecaption({
+      workspaceId: c.get('workspaceId'),
+      videoId: id,
+      ...(parsed.data.templateId === undefined
+        ? {}
+        : { templateId: parsed.data.templateId }),
+      ...(parsed.data.spec === undefined ? {} : { spec: parsed.data.spec }),
+    });
+
+    switch (result.kind) {
+      case 'not_found':
+        return c.json(apiError('not_found', 'video not found'), 404);
+      case 'no_captions':
+        return c.json(apiError('conflict', 'video has no captions'), 409);
       case 'conflict':
         return c.json(apiError('conflict', `video is ${result.status}`), 409);
       case 'queued': {
