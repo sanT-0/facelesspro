@@ -156,8 +156,18 @@ tokens are not billed to the user in self-host mode. A zero-unit action writes n
 adapter/degradation provenance lives in the plan, and the step's runtime measurements land in
 the attempt's `job_event` row (docs/04 §9).
 
+**V2 dialects.** `create-scenes` normalises `ai-video-v3` and `ai-video` rows to one
+`{script, size, style}` shape before planning. A V2 preset is expanded by
+`apps/worker/src/v2/style.ts` into `planStyleFromProfile()` exactly like a stored V3 profile, so
+there is no second planner or prompt format. `strong-swipe` is a scene-*to-scene* transition, but
+the renderer's motion vocabulary is per scene; until the composer grows a real cross-fade it is
+expressed as alternating `pan-left`/`pan-right`, while `smooth` keeps the planner's gentle
+motion cycle. This is our interpretation, not a copied behaviour. The plan still must
+reconstruct the script after the transition rewrite, so `concat(scenes.text)` is unchanged.
+
 **Test hooks:** golden script → snapshot of scene count and scene durations; property test
-"concat(scenes.text) preserves script"; fallback determinism test.
+"concat(scenes.text) preserves script"; fallback determinism test; V2 preset → deterministic
+planner clauses and stable manifest id.
 
 ### 1b. `create-scenes` with a voiceover
 
@@ -387,6 +397,12 @@ truncated first if needed to stay within the 1000-character contract). A second 
 still an outlier is accepted — the guard never retries twice, so it cannot spin against a
 provider that keeps answering. The accepted prompt and the `regenerated` flag are what
 `frames/manifest.json` records.
+
+**V2 manifest id.** A V2 preset has no `art_style` row but the manifest still needs a
+`styleId`. `v2StyleId()` hashes the preset name (FNV-1a) into an RFC-4122-shaped UUID, so the
+strict schema holds and the same preset is recognisable across videos and machines. V3 continues
+to record the selected `art_style.id`. The V2 branch also skips the art-style lookup entirely and
+uses `v2StyleProfile(imageStyle, size)` for the negative clause, palette and seed.
 
 **Redraw branch.** `POST /v1/videos/:id/scenes/:idx/redraw` (docs/07 §2.4) sets
 `video.redraw = {sceneIdx, prompt?}` and enqueues this step on a `completed` video. The marker is

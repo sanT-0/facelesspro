@@ -15,23 +15,14 @@ import {
   createAiVideoV3RequestSchema,
   createVideoResponseSchema,
   type ArtStyleRow,
-  type CreateAiVideoV3RequestParsed,
-  type VideoRow,
 } from '@facelesspro/contracts';
 import { estimateDuration } from '@facelesspro/core';
 
 import { withWorkspace } from './auth';
 import type { AuthDeps, WorkspaceEnv } from './auth';
+import type { SubmitVideo } from './video-submit';
 
-export interface SubmitVideoInput {
-  readonly workspaceId: string;
-  readonly body: {
-    readonly kind: 'ai-video-v3';
-    readonly body: CreateAiVideoV3RequestParsed;
-  };
-}
-
-export type SubmitVideo = (input: SubmitVideoInput) => Promise<VideoRow>;
+export type { SubmitVideo, SubmitVideoInput } from './video-submit';
 
 export interface AiVideosV3RouteDeps extends AuthDeps {
   /** One style by id, scoped to the caller's workspace (published or own). */

@@ -67,6 +67,14 @@ function request(
   };
 }
 
+function v2Request(body: Record<string, unknown> = { script: SCRIPT }): StepContext['video'] {
+  return {
+    ...request(),
+    kind: 'ai-video',
+    request: { kind: 'ai-video', body },
+  };
+}
+
 function harness(row: StepContext['video'] = request()) {
   const calls: string[] = [];
   const advance = vi.fn(async () => {
@@ -445,5 +453,27 @@ describe('createCreateVocalWork', () => {
     expect(input.clearRevocal).toBe(false);
     expect(advance).toHaveBeenCalledOnce();
     expect(setStep).not.toHaveBeenCalled();
+  });
+
+  it('narrates a V2 script and charges the spoken characters', async () => {
+    const { work, tts, persist } = deps({});
+    const { context, charge, advance } = harness(v2Request());
+
+    await work(context);
+
+    expect(tts.resolvePair).toHaveBeenCalledWith('valluvar');
+    expect(tts.synthesize).toHaveBeenCalledOnce();
+    expect(charge).toHaveBeenCalledWith({
+      action: 'tts',
+      units: [...TAMIL, ...ENGLISH].length,
+      unitCost: 0,
+    });
+    expect(advance).toHaveBeenCalledOnce();
+
+    const input = (
+      vi.mocked(persist).mock.calls[0] as unknown as [CommitTx, PersistNarrationInput]
+    )[1];
+    expect(input.voicePlan.script).toBe(SCRIPT);
+    expect(input.voicePlan.runs).toHaveLength(2);
   });
 });

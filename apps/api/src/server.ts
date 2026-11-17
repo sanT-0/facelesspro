@@ -44,11 +44,11 @@ import {
   stopBoss,
 } from '@facelesspro/queue';
 import { serve } from '@hono/node-server';
-import type { CreateAiVideoV3RequestParsed, VideoRow } from '@facelesspro/contracts';
 
 import { createApp } from './app';
 import type { ArtStyleSubmission } from './art-styles';
 import { createRateLimiter, rateLimitOptionsFromEnv } from './rate-limit';
+import type { SubmitVideo } from './video-submit';
 import {
   createQueueRecaption,
   createQueueRedraw,
@@ -111,13 +111,7 @@ async function main(): Promise<void> {
     }
   };
 
-  const submitVideo = async (input: {
-    readonly workspaceId: string;
-    readonly body: {
-      readonly kind: 'ai-video-v3';
-      readonly body: CreateAiVideoV3RequestParsed;
-    };
-  }): Promise<VideoRow> => {
+  const submitVideo: SubmitVideo = async (input) => {
     const boss = await producer();
     const client = await pool.connect();
     try {

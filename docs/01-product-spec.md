@@ -98,11 +98,30 @@ Script (or voiceover) → scenes → narration → images drawn in a **cloned ar
 **Our addition `[+]`:** `script` accepts Tamil, English and Tanglish in the same string, and
 `voicePlan` is derived automatically (see [docs/05](./05-tts-tamil-mixed.md)).
 
-### 3.2 AI Video V2 `[P]`
+### 3.2 AI Video V2 `[P]` `[~]`
 
-Same shape, but `imageStyle` is one of 16 fixed presets and `transition` is
+Same pipeline, but `imageStyle` is one of 16 fixed presets and `transition` is
 `smooth | strong-swipe`. Script ≤10,000 chars. Default `size=portrait`.
-No `artStyleId`, no `voiceoverUrl`.
+No `artStyleId`, no `voiceoverUrl`, no `captions` flag (V2 always captions).
+
+| Field | Type | Default | Notes |
+|---|---|---|---|
+| `script` | string | **required** | ≤10,000 chars |
+| `imageStyle` | enum | `CREEPY_COMIC` | one of 16 presets |
+| `size` | `landscape`\|`portrait` | `portrait` | |
+| `transition` | `smooth`\|`strong-swipe` | `smooth` | |
+| `voiceId` | string | workspace default | |
+| `voiceStyle` | object | `{stability:38, similarityBoost:75, style:50, speed:100}` | accepted for parity |
+| `render` | object | omitted | `{}` accepts defaults |
+| `webhookUrl` | https url | — | terminal-status callback |
+
+**Our implementation `[~]` (2026-11-17):** `POST /v1/ai-videos` accepts this body. The 16
+presets expand inside the worker (`apps/worker/src/v2/style.ts`) into the same `StyleProfile` V3
+uses, so the planner, image prompts, palette correction and redraw keep one code path. A preset
+has no `art_style` row, so the frame manifest records a deterministic UUID derived from the
+preset name. Captions are always produced with built-in template `-1`; omitting `render`
+completes an editable project without an mp4, exactly as V3 does. `strong-swipe` is currently
+expressed as alternating lateral pans because the renderer has no cross-fade yet (docs/04 §1).
 
 ### 3.3 Quiz video `[P]`
 

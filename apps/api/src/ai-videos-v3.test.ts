@@ -336,6 +336,9 @@ describe('POST /v1/ai-videos-v3', () => {
 
     expect(response.status).toBe(202);
     const submission = submitVideo.mock.calls[0]![0];
+    if (submission.body.kind !== 'ai-video-v3') {
+      throw new Error('expected a V3 submission');
+    }
     expect(submission.body.body.script).toBeUndefined();
     expect(submission.body.body.voiceoverUrl).toBe(
       'https://cdn.example.com/voice.m4a',

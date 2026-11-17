@@ -2123,6 +2123,25 @@ file stays the single "what is actually true today" view.
       real-Postgres assertion was added to `packages/db/src/videos.db.test.ts` but
       `npm run test:db` was not run. `GET /v1/videos/:id` does not echo the saved style.
 
+- [x] 2026-11-17 — **P9 AI Video V2 implementation** — `POST /v1/ai-videos` is real and shares
+      V3's submit transaction through `SubmitVideoInput` (`ai-video-v3` \| `ai-video`). The 16
+      `imageStyle` presets expand in the worker (`apps/worker/src/v2/style.ts`) into the same
+      `StyleProfile` the planner and image steps already use; because a preset has no
+      `art_style` row, `v2StyleId()` derives a stable RFC-4122-shaped UUID from the preset name for
+      `frames/manifest.json`. `create-scenes`, `create-vocal`, `create-images`, `create-captions`
+      and `render` now normalise both create kinds before doing work; V2 captions are always on
+      with built-in template `-1`, `render` remains optional, and `strong-swipe` is expressed as
+      alternating lateral pans until a real cross-fade exists. `voiceStyle` is accepted but, like
+      V3 today, not yet applied by TTS.
+      **Observed:** `npx tsc --noEmit` clean; targeted suites green — V2 route 10, V3 route 12,
+      preset expansion 4, create-scenes 24, create-vocal 19, create-images 20, create-captions 19,
+      render 21 (129 total across those files). The V2 tests prove no `findStyle` call, the preset
+      planner clauses, alternating pans, the stable manifest id, V2 narration/charge, always-on
+      captions and the requested 2K/60 portrait render profile.
+      **Not verified live:** no Postgres/Redis or running worker, so a watchable 30 s V2 artifact
+      (the P9 gate) was not produced; migrations, the shared submit transaction and a real
+      end-to-end V2 render are typechecked/fake-tested only. `strong-swipe` is not a cross-fade.
+
 ---
 
 ## Decisions log

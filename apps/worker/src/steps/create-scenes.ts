@@ -11,6 +11,7 @@
 
 import {
   MAX_SCENES,
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   narrationPlanSchema,
   scenePlanSchema,
@@ -20,6 +21,7 @@ import {
 import type {
   ArtStyleRow,
   ScenePlan,
+  Size,
   StyleProfile,
 } from '@facelesspro/contracts';
 import { normalizeScript } from '@facelesspro/core';
@@ -50,6 +52,7 @@ import {
   storageKey,
 } from '../art-style/storage';
 import { VoiceoverDownloadError, downloadVoiceover } from '../voiceover/download';
+import { v2StyleProfile } from '../v2/style';
 
 export type FindStyle = (db: Database, id: string) => Promise<ArtStyleRow | null>;
 export type PersistScenePlan = (
@@ -116,6 +119,33 @@ export function planStyleFromProfile(profile: StyleProfile): PlanStyle {
   };
 }
 
+/** The two create dialects V2 and V3 share once the style is resolved. */
+interface NormalizedSceneRequest {
+  readonly script?: string;
+  readonly voiceoverUrl?: string;
+  readonly size: Size;
+  readonly style: PlanStyle;
+  /** V2 only: `strong-swipe` turns the plan's motion into lateral pans. */
+  readonly strongSwipe: boolean;
+}
+
+/**
+ * V2's transition is a scene-to-scene instruction, but the renderer's motion is
+ * per scene. Until the composer grows real cross-fades, `strong-swipe` is
+ * expressed as alternating lateral pans and `smooth` keeps the planner's gentle
+ * cycle. This is our interpretation; docs/04 §1 states it plainly.
+ */
+function applyV2Transition(plan: ScenePlan, strongSwipe: boolean): ScenePlan {
+  if (!strongSwipe) return plan;
+  return scenePlanSchema.parse({
+    ...plan,
+    scenes: plan.scenes.map((scene, index) => ({
+      ...scene,
+      motion: index % 2 === 0 ? 'pan-left' : 'pan-right',
+    })),
+  });
+}
+
 /** Business body exported separately so unit tests need no Postgres or pg-boss. */
 export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
   const lookupStyle = deps.findStyle ?? findArtStyle;
@@ -131,33 +161,64 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' || row.data.request.kind !== 'ai-video-v3') {
-      throw new StepFailure('internal', 'create-scenes received a non-V3 video');
+
+    let normalized: NormalizedSceneRequest;
+    if (row.data.kind === 'ai-video-v3' && row.data.request.kind === 'ai-video-v3') {
+      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const selectedStyle = await lookupStyle(ctx.db, request.data.artStyleId);
+      assertStyleUsable(selectedStyle, row.data.workspace_id, request.data.size);
+      const parsedProfile = styleProfileSchema.safeParse(selectedStyle.profile);
+      if (!parsedProfile.success) {
+        throw new StepFailure('internal', `art style ${selectedStyle.id} has an invalid profile`, {
+          cause: parsedProfile.error,
+        });
+      }
+
+      normalized = {
+        ...(request.data.script === undefined ? {} : { script: request.data.script }),
+        ...(request.data.voiceoverUrl === undefined
+          ? {}
+          : { voiceoverUrl: request.data.voiceoverUrl }),
+        size: request.data.size,
+        style: planStyleFromProfile(parsedProfile.data),
+        strongSwipe: false,
+      };
+    } else if (row.data.kind === 'ai-video' && row.data.request.kind === 'ai-video') {
+      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const profile = v2StyleProfile(request.data.imageStyle, request.data.size);
+      normalized = {
+        script: request.data.script,
+        size: request.data.size,
+        style: planStyleFromProfile(profile),
+        strongSwipe: request.data.transition === 'strong-swipe',
+      };
+    } else {
+      throw new StepFailure(
+        'internal',
+        `create-scenes received an unsupported video kind ${row.data.kind}`,
+      );
     }
 
-    const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-    if (!request.success) {
-      throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-        cause: request.error,
-      });
-    }
+    const style = normalized.style;
 
-    const selectedStyle = await lookupStyle(ctx.db, request.data.artStyleId);
-    assertStyleUsable(selectedStyle, row.data.workspace_id, request.data.size);
-    const parsedProfile = styleProfileSchema.safeParse(selectedStyle.profile);
-    if (!parsedProfile.success) {
-      throw new StepFailure('internal', `art style ${selectedStyle.id} has an invalid profile`, {
-        cause: parsedProfile.error,
-      });
-    }
-    const style = planStyleFromProfile(parsedProfile.data);
-
-    if (request.data.script === undefined) {
+    if (normalized.voiceoverUrl !== undefined) {
       // `createAiVideoV3RequestSchema` guarantees exactly one of the two; the
       // upload path owns everything about the supplied audio, including the
       // narration row `create-vocal` would otherwise have produced.
-      const voiceoverUrl = request.data.voiceoverUrl;
-      if (voiceoverUrl === undefined || deps.asr === undefined) {
+      const voiceoverUrl = normalized.voiceoverUrl;
+      if (deps.asr === undefined) {
         throw new StepFailure(
           'internal',
           'create-scenes cannot process a voiceover without an ASR port',
@@ -197,12 +258,14 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
       return;
     }
 
+    const script = normalized.script;
+    if (script === undefined) {
+      throw new StepFailure('internal', 'create-scenes has neither a script nor a voiceover');
+    }
+
     let candidate: ScenePlan;
     try {
-      candidate = await deps.planner.plan({
-        script: request.data.script,
-        style,
-      });
+      candidate = await deps.planner.plan({ script, style });
     } catch (error) {
       if (error instanceof PlannerChainError) {
         throw new StepFailure('upstream_failed', error.message, {
@@ -219,10 +282,11 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         cause: parsedPlan.error,
       });
     }
+    const plan = applyV2Transition(parsedPlan.data, normalized.strongSwipe);
     const reconstructed = normalizeScript(
-      parsedPlan.data.scenes.map((planned) => planned.text).join(' '),
+      plan.scenes.map((planned) => planned.text).join(' '),
     );
-    if (reconstructed !== normalizeScript(request.data.script)) {
+    if (reconstructed !== normalizeScript(script)) {
       throw new StepFailure(
         'upstream_failed',
         'planner scene text does not reconstruct the normalized script',
@@ -230,16 +294,14 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
     }
 
     ctx.observe({
-      adapter: parsedPlan.data.adapter,
-      items: parsedPlan.data.scenes.length,
+      adapter: plan.adapter,
+      items: plan.scenes.length,
       degradedFrom:
-        parsedPlan.data.degradedFrom.length === 0
-          ? undefined
-          : parsedPlan.data.degradedFrom.join(','),
+        plan.degradedFrom.length === 0 ? undefined : plan.degradedFrom.join(','),
     });
 
     await ctx.transaction(async (tx) => {
-      await persist(tx, ctx.videoId, parsedPlan.data);
+      await persist(tx, ctx.videoId, plan);
       await tx.advance();
     });
   };

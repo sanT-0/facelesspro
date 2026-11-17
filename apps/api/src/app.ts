@@ -16,7 +16,8 @@ import type { ArtStyleDeps } from './art-styles';
 import { createCaptionTemplateRoutes } from './caption-templates';
 import type { CaptionTemplateDeps } from './caption-templates';
 import { createAiVideosV3Routes } from './ai-videos-v3';
-import type { AiVideosV3RouteDeps } from './ai-videos-v3';
+import { createAiVideosRoutes } from './ai-videos';
+import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
 import { createFilesRoutes } from './files';
 import { createSoundEffectsRoutes } from './sound-effects';
@@ -42,7 +43,7 @@ export interface ApiDeps
     ApiKeyRouteDeps,
     WorkspaceRouteDeps {
   /** Insert the video row and enqueue `create-scenes` in one transaction. */
-  readonly submitVideo: AiVideosV3RouteDeps['submitVideo'];
+  readonly submitVideo: SubmitVideo;
   /** Store an uploaded file and return its key, byte count and mime type. */
   readonly storeFile: (
     file: {
@@ -210,6 +211,12 @@ export function createApp(deps: ApiDeps): Hono {
    * the row insert and the `create-scenes` enqueue.
    */
   app.route('/v1/ai-videos-v3', createAiVideosV3Routes(deps));
+
+  /**
+   * `POST /v1/ai-videos` — create a V2 video: a fixed `imageStyle` preset
+   * instead of a cloned art style. Shares the same submit transaction.
+   */
+  app.route('/v1/ai-videos', createAiVideosRoutes(deps));
 
   /**
    * `POST /v1/files` — multipart file upload. Auth and rate limits come from

@@ -105,6 +105,16 @@ function video(
   };
 }
 
+function v2Video(
+  body: Record<string, unknown> = { script: SCRIPT },
+): StepContext['video'] {
+  return {
+    ...video(),
+    kind: 'ai-video',
+    request: { kind: 'ai-video', body },
+  };
+}
+
 function harness(
   row: StepContext['video'] = video(),
   events: string[] = [],
@@ -486,5 +496,40 @@ describe('createCreateCaptionsWork', () => {
     });
     expect(persist).not.toHaveBeenCalled();
     expect(transactionCalls).toHaveLength(0);
+  });
+
+  it('captions a V2 video without a captions flag using the default template', async () => {
+    const events: string[] = [];
+    const { work, findTemplate, store } = deps({
+      events,
+      foundTemplate: { ...template, id: -1 },
+    });
+    const { context, advance, charge } = harness(
+      v2Video({ script: SCRIPT }),
+      events,
+    );
+
+    await work(context);
+
+    expect(findTemplate).toHaveBeenCalledWith(context.db, DEFAULT_CAPTION_TEMPLATE_ID);
+    expect(store).toHaveBeenCalledOnce();
+    expect(charge).toHaveBeenCalledWith({ action: 'subtitles', units: 1, unitCost: 20 });
+    // `render` was omitted, so the project completes as editable without an mp4.
+    expect(advance).not.toHaveBeenCalled();
+  });
+
+  it('advances a V2 video to render when a render was requested', async () => {
+    const events: string[] = [];
+    const { work, complete } = deps({ events, foundTemplate: { ...template, id: -1 } });
+    const { context, advance, charge } = harness(
+      v2Video({ script: SCRIPT, render: {} }),
+      events,
+    );
+
+    await work(context);
+
+    expect(charge).toHaveBeenCalledOnce();
+    expect(complete).not.toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledOnce();
   });
 });

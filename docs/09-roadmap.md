@@ -610,7 +610,11 @@ flow works at 375 px width.
 
 ## P9 — Remaining templates
 
-- [ ] AI Video V2 (16 image styles, `smooth`/`strong-swipe` transitions).
+- [~] AI Video V2 (16 image styles, `smooth`/`strong-swipe` transitions). Contract, route,
+      preset expansion and all five worker branches are implemented and tested 2026-11-17. The
+      **gate is still open**: no watchable 30 s V2 artifact has been produced (no Postgres/Redis/
+      worker in this environment), and `strong-swipe` is currently alternating lateral pans rather
+      than a real cross-fade.
 - [ ] Quiz video (`standard`, `multi-levels`, comments, question images).
 - [ ] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line).
 - [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).

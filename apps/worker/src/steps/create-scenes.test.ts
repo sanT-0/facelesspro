@@ -16,6 +16,7 @@ import type { VoiceoverDownload } from '../voiceover/download';
 import { VoiceoverDownloadError } from '../voiceover/download';
 import type { PlanFn } from '../ports/planner';
 import { PlannerChainError } from '../planner/chain';
+import { v2StyleProfile } from '../v2/style';
 import {
   createCreateScenesWork,
   planStyleFromProfile,
@@ -573,5 +574,112 @@ describe('createCreateScenesWork', () => {
       })(context),
     ).rejects.toMatchObject({ code: 'internal' });
     expect(planPort.plan).not.toHaveBeenCalled();
+  });
+});
+
+const V2_STYLE = planStyleFromProfile(v2StyleProfile('CREEPY_COMIC', 'portrait'));
+
+const V2_PLAN: ScenePlan = {
+  scenes: [
+    {
+      text: TAMIL_SENTENCE,
+      imagePrompt: imagePromptFor(TAMIL_SENTENCE, V2_STYLE),
+      motion: 'kenburns-in',
+      emphasis: [],
+      startMs: 0,
+      endMs: 2_400,
+    },
+    {
+      text: ENGLISH_SENTENCE,
+      imagePrompt: imagePromptFor(ENGLISH_SENTENCE, V2_STYLE),
+      motion: 'kenburns-out',
+      emphasis: [],
+      startMs: 2_400,
+      endMs: 6_000,
+    },
+  ],
+  adapter: 'heuristic',
+  degradedFrom: [],
+  totalMs: 6_000,
+};
+
+function v2Video(
+  body: Record<string, unknown> = { script: SCRIPT },
+): StepContext['video'] {
+  return {
+    ...video(),
+    kind: 'ai-video',
+    request: { kind: 'ai-video', body },
+  };
+}
+
+describe('V2 create-scenes', () => {
+  it('expands the imageStyle preset and never looks up an art style', async () => {
+    const findStyle = vi.fn(async (): Promise<ArtStyleRow | null> => {
+      throw new Error('V2 must not look up an art style');
+    });
+    const persistPlan = vi.fn(async () => {});
+    const requests: Array<{ readonly script: string; readonly style: unknown }> = [];
+    const planPort: PlanFn = {
+      plan: vi.fn(async (request) => {
+        requests.push(request);
+        return V2_PLAN;
+      }),
+    };
+    const { context, transactionCalls, advance } = harness(v2Video());
+
+    await createCreateScenesWork({ planner: planPort, findStyle, persistPlan })(context);
+
+    expect(findStyle).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.script).toBe(SCRIPT);
+    expect(requests[0]?.style).toEqual(V2_STYLE);
+    expect(persistPlan).toHaveBeenCalledOnce();
+    expect(transactionCalls).toHaveLength(1);
+    expect(advance).toHaveBeenCalledOnce();
+  });
+
+  it('maps strong-swipe to alternating lateral pans without changing the script', async () => {
+    const persisted: ScenePlan[] = [];
+    const persistPlan = vi.fn(
+      async (_tx: CommitTx, _videoId: string, value: ScenePlan) => {
+        persisted.push(value);
+      },
+    );
+    const { context } = harness(
+      v2Video({ script: SCRIPT, transition: 'strong-swipe' }),
+    );
+
+    await createCreateScenesWork({
+      planner: planner(V2_PLAN),
+      findStyle: vi.fn(),
+      persistPlan,
+    })(context);
+
+    expect(persisted[0]?.scenes.map((scene) => scene.motion)).toEqual([
+      'pan-left',
+      'pan-right',
+    ]);
+    expect(persisted[0]?.scenes.map((scene) => scene.text).join(' ')).toBe(SCRIPT);
+  });
+
+  it('keeps the planner motion for the smooth transition', async () => {
+    const persisted: ScenePlan[] = [];
+    const persistPlan = vi.fn(
+      async (_tx: CommitTx, _videoId: string, value: ScenePlan) => {
+        persisted.push(value);
+      },
+    );
+    const { context } = harness(v2Video({ script: SCRIPT, transition: 'smooth' }));
+
+    await createCreateScenesWork({
+      planner: planner(V2_PLAN),
+      findStyle: vi.fn(),
+      persistPlan,
+    })(context);
+
+    expect(persisted[0]?.scenes.map((scene) => scene.motion)).toEqual(
+      V2_PLAN.scenes.map((scene) => scene.motion),
+    );
   });
 });

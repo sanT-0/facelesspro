@@ -16,6 +16,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { ImageChainError } from '../image/chain';
 import { IMAGE_NATIVE_DIMENSIONS } from '../image/dimensions';
 import type { SceneFrame } from '../image/postprocess';
+import { v2StyleId, v2StyleProfile } from '../v2/style';
 import {
   createCreateImagesWork,
   framesManifestKey,
@@ -120,6 +121,16 @@ function request(
     editor_seen_at: null,
     created_at: NOW,
     updated_at: NOW,
+  };
+}
+
+function v2Request(
+  body: Record<string, unknown> = { script: SCRIPT },
+): StepContext['video'] {
+  return {
+    ...request(),
+    kind: 'ai-video',
+    request: { kind: 'ai-video', body },
   };
 }
 
@@ -682,5 +693,30 @@ describe('createCreateImagesWork — one-scene redraw', () => {
       code: 'internal',
     });
     expect(transactionCalls).toHaveLength(0);
+  });
+
+  it('resolves the V2 preset instead of an art style and records its stable id', async () => {
+    const findStyle = vi.fn(async (): Promise<ArtStyleRow | null> => {
+      throw new Error('V2 must not look up an art style');
+    });
+    const { work, processScene, storeFrames } = deps({ findStyle });
+    const { context } = harness(
+      v2Request({ script: SCRIPT, imageStyle: 'CUTE_ANIME', size: 'portrait' }),
+    );
+
+    await work(context);
+
+    expect(findStyle).not.toHaveBeenCalled();
+    const preset = v2StyleProfile('CUTE_ANIME', 'portrait');
+    const firstCall = vi.mocked(processScene).mock.calls[0]!;
+    expect(firstCall[0]).toMatchObject({
+      prompt: plan.scenes[0]!.imagePrompt,
+      size: 'portrait',
+      style: preset,
+    });
+
+    const storedInput = vi.mocked(storeFrames).mock.calls[0]![0];
+    expect(storedInput.manifest.styleId).toBe(v2StyleId('CUTE_ANIME'));
+    expect(storedInput.manifest.size).toBe('portrait');
   });
 });

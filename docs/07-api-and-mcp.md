@@ -89,6 +89,14 @@ All create responses are identical in shape:
   "createdAt": "2026-08-05T09:20:11.000Z", "editorUrl": "…/editor?id=uuid" }
 ```
 
+`POST /v1/ai-videos-v3` and `POST /v1/ai-videos` are implemented. Both validate their contract,
+reject a wordless script with `invalid_request`/`field: "script"`, and share one submit
+transaction (row insert + `create-scenes` enqueue). V2 applies its documented preset,
+`size=portrait`, `transition=smooth`, `voiceStyle={stability:38, similarityBoost:75, style:50,
+speed:100}` and always-on captions; V3 resolves `artStyleId` and keeps captions opt-in. `render`
+is optional on both: omitting it completes an editable project without an mp4. The remaining
+templates in the table are still `[P]`.
+
 ### 2.2 Read / act
 
 | Method | Path | Notes |

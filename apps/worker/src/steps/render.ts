@@ -13,6 +13,7 @@
 import {
   assetRowSchema,
   captionTrackRowSchema,
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   narrationRowSchema,
   sceneMotionSchema,
@@ -25,8 +26,10 @@ import type {
   FrameRate,
   NarrationRow,
   RenderFormat,
+  RenderOptions,
   Resolution,
   SceneRow,
+  Size,
 } from '@facelesspro/contracts';
 import { renderDimensions } from '@facelesspro/core';
 import type { RenderMotion, RenderPlanInput } from '@facelesspro/core';
@@ -143,17 +146,38 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' || row.data.request.kind !== 'ai-video-v3') {
-      throw new StepFailure('internal', 'render received a non-V3 video');
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
+      throw new StepFailure(
+        'internal',
+        `render received an unsupported video kind ${row.data.kind}`,
+      );
+    }
+    if (row.data.request.kind !== row.data.kind) {
+      throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
 
-    const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-    if (!request.success) {
-      throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-        cause: request.error,
-      });
+    let options: RenderOptions | undefined;
+    let size: Size;
+    if (row.data.kind === 'ai-video-v3') {
+      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      options = request.data.render;
+      size = request.data.size;
+    } else {
+      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      options = request.data.render;
+      size = request.data.size;
     }
-    const options = request.data.render;
+
     if (options === undefined) {
       throw new StepFailure('internal', 'render was enqueued for a video with no render request');
     }
@@ -242,7 +266,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       outputPath,
       resolution: options.resolution,
       fps: options.frameRate,
-      size: request.data.size,
+      size,
       format: options.format,
       ...(captionTrack === null
         ? {}
@@ -258,7 +282,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     };
 
     const result = await renderSafely(render, planInput);
-    const expected = renderDimensions(options.resolution, request.data.size);
+    const expected = renderDimensions(options.resolution, size);
     if (
       result.width !== expected.width ||
       result.height !== expected.height ||

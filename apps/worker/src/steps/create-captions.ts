@@ -14,6 +14,7 @@ import {
   captionCueSchema,
   captionJsonExportSchema,
   captionTemplateRowSchema,
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   narrationRowSchema,
   videoRowSchema,
@@ -23,6 +24,7 @@ import type {
   CaptionSpec,
   CaptionTemplateRow,
   NarrationRow,
+  RenderOptions,
   Size,
 } from '@facelesspro/contracts';
 import {
@@ -131,22 +133,54 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' || row.data.request.kind !== 'ai-video-v3') {
-      throw new StepFailure('internal', 'create-captions received a non-V3 video');
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
+      throw new StepFailure(
+        'internal',
+        `create-captions received an unsupported video kind ${row.data.kind}`,
+      );
+    }
+    if (row.data.request.kind !== row.data.kind) {
+      throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
 
-    const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-    if (!request.success) {
-      throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-        cause: request.error,
-      });
+    let withCaptions: boolean;
+    let templateId: number;
+    let captionSpec: CaptionSpec | undefined;
+    let size: Size;
+    let render: RenderOptions | undefined;
+
+    if (row.data.kind === 'ai-video-v3') {
+      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      withCaptions = request.data.captions;
+      templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
+      captionSpec = request.data.captionSpec;
+      size = request.data.size;
+      render = request.data.render;
+    } else {
+      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      // V2 always captions its narration; the artwork-first opt-out is V3-only.
+      withCaptions = true;
+      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+      captionSpec = undefined;
+      size = request.data.size;
+      render = request.data.render;
     }
 
     // V3 is artwork-first. The stable step remains in the cursor even when the
     // user opted out, but it produces no artifact and no zero-value charge.
-    if (!request.data.captions) {
+    if (!withCaptions) {
       await ctx.transaction(async (tx) => {
-        if (request.data.render === undefined) {
+        if (render === undefined) {
           await complete(tx, ctx.videoId);
         } else {
           await tx.advance();
@@ -155,7 +189,6 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
       return;
     }
 
-    const templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
     const candidateTemplate = await lookupTemplate(ctx.db, templateId);
     const selectedTemplate = parseUsableTemplate(
       candidateTemplate,
@@ -187,14 +220,14 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
     // The per-video override wins over the template's own spec, so the style
     // saved through `POST /v1/videos/:id/captions` reaches cues, sidecars and
     // the ASS that `render` burns.
-    const spec = { ...selectedTemplate.spec, ...(request.data.captionSpec ?? {}) };
-    const cues = buildCues(words, spec, request.data.size);
+    const spec = { ...selectedTemplate.spec, ...(captionSpec ?? {}) };
+    const cues = buildCues(words, spec, size);
     const artifacts = buildCaptionArtifacts(
       row.data.workspace_id,
       ctx.videoId,
       cues,
       spec,
-      request.data.size,
+      size,
     );
 
     await storeSafely(store, {
@@ -218,7 +251,7 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         artifacts,
       });
       await tx.charge({ action: 'subtitles', units: 1, unitCost });
-      if (request.data.render === undefined) {
+      if (render === undefined) {
         await complete(tx, ctx.videoId);
       } else {
         await tx.advance();

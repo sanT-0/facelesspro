@@ -1,4 +1,5 @@
 import {
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   type AssetRow,
   type CaptionTrackRow,
@@ -158,6 +159,20 @@ function video(overrides: Record<string, unknown> = {}): StepContext['video'] {
     editor_seen_at: null,
     created_at: NOW,
     updated_at: NOW,
+  };
+}
+
+function v2Video(overrides: Record<string, unknown> = {}): StepContext['video'] {
+  const parsed = createAiVideoRequestSchema.parse({
+    script: SCRIPT,
+    size: 'portrait',
+    render: { resolution: 1440, frameRate: 60, format: 'standard' },
+    ...overrides,
+  });
+  return {
+    ...video(),
+    kind: 'ai-video',
+    request: { kind: 'ai-video', body: parsed },
   };
 }
 
@@ -596,5 +611,43 @@ describe('createCreateRenderWork', () => {
 
     await expect(work(context)).rejects.toBeInstanceOf(StepFailure);
     expect(transactionCalls).toHaveLength(0);
+  });
+
+  it('renders a V2 request at its requested portrait size and 2K profile', async () => {
+    const inputs: RenderPlanInput[] = [];
+    const { work, persist } = deps({
+      renderVideo: async (input) => {
+        inputs.push(input);
+        const plan = buildRenderPlan(input);
+        return {
+          outputPath: input.outputPath,
+          width: plan.width,
+          height: plan.height,
+          fps: plan.fps,
+          durationMs: plan.durationMs,
+          totalFrames: plan.totalFrames,
+          bytes: 9_000,
+          plan,
+        };
+      },
+    });
+    const { context } = harness(v2Video());
+
+    await work(context);
+
+    expect(inputs[0]).toMatchObject({
+      size: 'portrait',
+      resolution: 1_440,
+      fps: 60,
+      format: 'standard',
+    });
+
+    const call = vi.mocked(persist).mock.calls[0];
+    expect(call?.[1]).toMatchObject({
+      resolution: 1_440,
+      fps: 60,
+      format: 'standard',
+      durationMs: 2_400,
+    });
   });
 });

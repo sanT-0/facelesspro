@@ -15,6 +15,7 @@
 
 import {
   MAX_MEDIA_SEGMENTS,
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   narrationPlanSchema,
   sceneRowSchema,
@@ -29,6 +30,7 @@ import { StepFailure, withStep } from '@facelesspro/queue';
 import type {
   CommitTx,
   StepBody,
+  StepContext,
   StepDeps,
   StepHandler,
 } from '@facelesspro/queue';
@@ -112,120 +114,165 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' || row.data.request.kind !== 'ai-video-v3') {
-      throw new StepFailure('internal', 'create-vocal received a non-V3 video');
-    }
-
-    const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-    if (!request.success) {
-      throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-        cause: request.error,
-      });
-    }
-    if (request.data.voiceoverUrl !== undefined) {
-      // Intake already downloaded, transcribed and stored the upload (docs/04
-      // §1b). No TTS runs and no characters are charged; the narration row and
-      // scene spans were written by `create-scenes`.
-      ctx.observe({ items: 0 });
-      await ctx.transaction(async (tx) => {
-        await tx.advance();
-      });
-      return;
-    }
-    const script = request.data.script;
-    if (script === undefined) {
-      throw new StepFailure(
-        'internal',
-        'stored V3 request has neither a script nor a voiceover',
-      );
-    }
-
-    const rows = await loadScenes(ctx.db, ctx.videoId);
-    if (rows.length === 0) {
-      throw new StepFailure('internal', 'create-vocal found no scenes to narrate');
-    }
-    const scenes = rows.map((value) => sceneRowSchema.parse(value));
-    assertScenesReconstructScript(scenes, script);
-
-    const pairId = request.data.voiceId ?? deps.defaultPairId;
-    const pair = await callTts(() => deps.tts.resolvePair(pairId), 'voice pair');
-
-    const plans = scenes.map((value, index) => {
-      const plan = buildNarrationPlan(value.text, {
-        ta: pair.ta,
-        en: pair.en,
-        pair: pair.id,
-      });
-      if (plan.runs.length === 0) {
-        throw new StepFailure('unprocessable', `scene ${index + 1} has no speakable words`);
+    if (row.data.kind === 'ai-video-v3' && row.data.request.kind === 'ai-video-v3') {
+      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+          cause: request.error,
+        });
       }
-      return plan;
-    });
-
-    const ranges: SceneRange[] = [];
-    const segments: NarrationSegment[] = [];
-    for (const plan of plans) {
-      const first = segments.length;
-      const planSegments = planToSegments(plan);
-      segments.push(...planSegments);
-      ranges.push({ first });
-    }
-    if (segments.length > MAX_MEDIA_SEGMENTS) {
-      throw new StepFailure(
-        'unprocessable',
-        `narration needs ${segments.length} runs; the media service accepts ${MAX_MEDIA_SEGMENTS}`,
-      );
-    }
-
-    const synthesis = await callTts(
-      () => deps.tts.synthesize({ segments }),
-      'synthesis',
-    );
-    assertSynthesis(synthesis, segments);
-    const timings = deriveSceneTimings(synthesis, ranges, scenes.length);
-
-    const merged = mergePlans(script, pair.id, pair.ta, pair.en, plans);
-    const stored = await storeBytes(store, {
-      workspaceId: row.data.workspace_id,
-      videoId: ctx.videoId,
-      bytes: synthesis.audio,
-    });
-    // A re-narrate charges only the scenes whose text changed. The rest of the
-    // master was served from the media cache, so it cost no provider call and
-    // must not cost a ledger unit.
-    const revocal = row.data.revocal ?? null;
-    const units = revocal === null
-      ? segments.reduce((total, segment) => total + [...segment.text].length, 0)
-      : chargedSceneUnits(segments, ranges, revocal.sceneIdxs);
-
-    ctx.observe({
-      items: segments.length,
-      bytes: stored.bytes,
-      costUnits: units,
-    });
-
-    await ctx.transaction(async (tx) => {
-      await persist(tx, {
-        videoId: ctx.videoId,
-        workspaceId: row.data.workspace_id,
-        synthesis,
-        voicePlan: merged,
-        timings,
-        stored,
-        clearRevocal: revocal !== null,
-      });
-      await tx.charge({ action: 'tts', units, unitCost });
-      if (revocal === null) {
-        await tx.advance();
+      if (request.data.voiceoverUrl !== undefined) {
+        // Intake already downloaded, transcribed and stored the upload (docs/04
+        // §1b). No TTS runs and no characters are charged; the narration row and
+        // scene spans were written by `create-scenes`.
+        ctx.observe({ items: 0 });
+        await ctx.transaction(async (tx) => {
+          await tx.advance();
+        });
         return;
       }
-      // Re-narrate keeps the existing artwork, so the cursor jumps past
-      // `create-images` to `create-captions`. `advance()` would send the video
-      // back through image generation.
-      await tx.setStep('create-captions');
-      await tx.enqueue('create-captions');
-    });
+      const script = request.data.script;
+      if (script === undefined) {
+        throw new StepFailure(
+          'internal',
+          'stored V3 request has neither a script nor a voiceover',
+        );
+      }
+      await narrate(ctx, {
+        script,
+        pairId: request.data.voiceId ?? deps.defaultPairId,
+        workspaceId: row.data.workspace_id,
+        revocal: row.data.revocal ?? null,
+        scenes: loadScenes,
+        store,
+        persist,
+        tts: deps.tts,
+        unitCost,
+      });
+    } else if (row.data.kind === 'ai-video' && row.data.request.kind === 'ai-video') {
+      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      await narrate(ctx, {
+        script: request.data.script,
+        pairId: request.data.voiceId ?? deps.defaultPairId,
+        workspaceId: row.data.workspace_id,
+        revocal: row.data.revocal ?? null,
+        scenes: loadScenes,
+        store,
+        persist,
+        tts: deps.tts,
+        unitCost,
+      });
+    } else {
+      throw new StepFailure(
+        'internal',
+        `create-vocal received an unsupported video kind ${row.data.kind}`,
+      );
+    }
   };
+}
+
+interface NarrateOptions {
+  readonly script: string;
+  readonly pairId: string;
+  readonly workspaceId: string;
+  readonly revocal: StepContext['video']['revocal'] | null;
+  readonly scenes: ListScenes;
+  readonly store: StoreNarration;
+  readonly persist: PersistNarration;
+  readonly tts: TtsPort;
+  readonly unitCost: number;
+}
+
+async function narrate(ctx: StepContext, opts: NarrateOptions): Promise<void> {
+  const rows = await opts.scenes(ctx.db, ctx.videoId);
+  if (rows.length === 0) {
+    throw new StepFailure('internal', 'create-vocal found no scenes to narrate');
+  }
+  const scenes = rows.map((value) => sceneRowSchema.parse(value));
+  assertScenesReconstructScript(scenes, opts.script);
+
+  const pair = await callTts(() => opts.tts.resolvePair(opts.pairId), 'voice pair');
+
+  const plans = scenes.map((value, index) => {
+    const plan = buildNarrationPlan(value.text, {
+      ta: pair.ta,
+      en: pair.en,
+      pair: pair.id,
+    });
+    if (plan.runs.length === 0) {
+      throw new StepFailure('unprocessable', `scene ${index + 1} has no speakable words`);
+    }
+    return plan;
+  });
+
+  const ranges: SceneRange[] = [];
+  const segments: NarrationSegment[] = [];
+  for (const plan of plans) {
+    const first = segments.length;
+    const planSegments = planToSegments(plan);
+    segments.push(...planSegments);
+    ranges.push({ first });
+  }
+  if (segments.length > MAX_MEDIA_SEGMENTS) {
+    throw new StepFailure(
+      'unprocessable',
+      `narration needs ${segments.length} runs; the media service accepts ${MAX_MEDIA_SEGMENTS}`,
+    );
+  }
+
+  const synthesis = await callTts(
+    () => opts.tts.synthesize({ segments }),
+    'synthesis',
+  );
+  assertSynthesis(synthesis, segments);
+  const timings = deriveSceneTimings(synthesis, ranges, scenes.length);
+
+  const merged = mergePlans(opts.script, pair.id, pair.ta, pair.en, plans);
+  const stored = await storeBytes(opts.store, {
+    workspaceId: opts.workspaceId,
+    videoId: ctx.videoId,
+    bytes: synthesis.audio,
+  });
+  // A re-narrate charges only the scenes whose text changed. The rest of the
+  // master was served from the media cache, so it cost no provider call and
+  // must not cost a ledger unit.
+  const revocal = opts.revocal;
+  const units = revocal === null
+    ? segments.reduce((total, segment) => total + [...segment.text].length, 0)
+    : chargedSceneUnits(segments, ranges, revocal.sceneIdxs);
+
+  ctx.observe({
+    items: segments.length,
+    bytes: stored.bytes,
+    costUnits: units,
+  });
+
+  await ctx.transaction(async (tx) => {
+    await opts.persist(tx, {
+      videoId: ctx.videoId,
+      workspaceId: opts.workspaceId,
+      synthesis,
+      voicePlan: merged,
+      timings,
+      stored,
+      clearRevocal: revocal !== null,
+    });
+    await tx.charge({ action: 'tts', units, unitCost: opts.unitCost });
+    if (revocal === null) {
+      await tx.advance();
+      return;
+    }
+    // Re-narrate keeps the existing artwork, so the cursor jumps past
+    // `create-images` to `create-captions`. `advance()` would send the video
+    // back through image generation.
+    await tx.setStep('create-captions');
+    await tx.enqueue('create-captions');
+  });
 }
 
 /** Queue handler: `withStep` owns locking, failures, idempotency and commit fencing. */

@@ -14,6 +14,7 @@
 
 import {
   MAX_IMAGE_PROMPT_CHARS,
+  createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   imageGenerationRequestSchema,
   sceneManifestSchema,
@@ -58,6 +59,7 @@ import {
   storageKey,
 } from '../art-style/storage';
 import type { ImageFn } from '../ports/image';
+import { v2StyleId, v2StyleProfile } from '../v2/style';
 import { ImageChainError } from '../image/chain';
 import { withRequiredNegatives } from '../image/negative';
 import { postprocessScene } from '../image/postprocess';
@@ -170,16 +172,50 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' || row.data.request.kind !== 'ai-video-v3') {
-      throw new StepFailure('internal', 'create-images received a non-V3 video');
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
+      throw new StepFailure(
+        'internal',
+        `create-images received an unsupported video kind ${row.data.kind}`,
+      );
+    }
+    if (row.data.request.kind !== row.data.kind) {
+      throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
 
-    const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-    if (!request.success) {
-      throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-        cause: request.error,
-      });
+    let profile: StyleProfile;
+    let size: Size;
+    let styleId: string;
+    if (row.data.kind === 'ai-video-v3') {
+      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const selectedStyle = await lookupStyle(ctx.db, request.data.artStyleId);
+      assertStyleUsable(selectedStyle, row.data.workspace_id, request.data.size);
+      const parsed = styleProfileSchema.safeParse(selectedStyle.profile);
+      if (!parsed.success) {
+        throw new StepFailure('internal', `art style ${selectedStyle.id} has an invalid profile`, {
+          cause: parsed.error,
+        });
+      }
+      profile = parsed.data;
+      size = request.data.size;
+      styleId = selectedStyle.id;
+    } else {
+      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      profile = v2StyleProfile(request.data.imageStyle, request.data.size);
+      size = request.data.size;
+      styleId = v2StyleId(request.data.imageStyle);
     }
+
     if (row.data.plan === null || row.data.plan === undefined) {
       throw new StepFailure('internal', 'create-images found no stored scene plan');
     }
@@ -193,15 +229,6 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       throw new StepFailure('internal', 'stored scene plan has no scenes');
     }
 
-    const selectedStyle = await lookupStyle(ctx.db, request.data.artStyleId);
-    assertStyleUsable(selectedStyle, row.data.workspace_id, request.data.size);
-    const profile = styleProfileSchema.safeParse(selectedStyle.profile);
-    if (!profile.success) {
-      throw new StepFailure('internal', `art style ${selectedStyle.id} has an invalid profile`, {
-        cause: profile.error,
-      });
-    }
-
     const rows = await loadScenes(ctx.db, ctx.videoId);
     const scenes = assertScenesMatchPlan(rows, plan.data);
 
@@ -211,9 +238,9 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         redraw,
         plan: plan.data,
         scenes,
-        profile: profile.data,
+        profile,
         workspaceId: row.data.workspace_id,
-        size: request.data.size,
+        size,
         draw: deps.image,
         process,
         readManifest: deps.readManifest ?? readSceneManifest,
@@ -228,8 +255,8 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
     const requests = buildRequests(
       ctx.videoId,
       plan.data,
-      profile.data,
-      request.data.size,
+      profile,
+      size,
     );
 
     const references: number[][] = [];
@@ -259,8 +286,8 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
     const manifest = sceneManifestSchema.parse({
       version: 1,
       videoId: ctx.videoId,
-      styleId: selectedStyle.id,
-      size: request.data.size,
+      styleId,
+      size,
       frames,
     });
 
