@@ -95,6 +95,7 @@ describe('art-style workspace visibility (Postgres)', () => {
   });
 
   afterEach(async () => {
+    await db.delete(artStyle).where(eq(artStyle.id, globalStyleId));
     await db.delete(artStyle).where(eq(artStyle.workspace_id, ownerId));
     await db.delete(artStyle).where(eq(artStyle.workspace_id, strangerId));
     await db.delete(workspace).where(eq(workspace.id, ownerId));

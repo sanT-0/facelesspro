@@ -42,7 +42,7 @@ import {
   queueFor,
   stopBoss,
 } from '@facelesspro/queue';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import type PgBoss from 'pg-boss';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -439,7 +439,7 @@ describe('create-vocal step (Postgres)', () => {
     await db
       .update(scene)
       .set({ text: replacement })
-      .where(eq(scene.video_id, videoId));
+      .where(and(eq(scene.video_id, videoId), eq(scene.idx, 1)));
     const current = videoRowSchema.parse(
       (await db.select().from(video).where(eq(video.id, videoId)))[0],
     );
@@ -450,7 +450,7 @@ describe('create-vocal step (Postgres)', () => {
     await db
       .update(video)
       .set({
-        status: 'completed',
+        status: 'processing',
         step: 'create-vocal',
         request: { kind: 'ai-video-v3', body },
         revocal: { sceneIdxs: [1] },

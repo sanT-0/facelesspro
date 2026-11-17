@@ -9,7 +9,7 @@
 import { randomUUID } from 'node:crypto';
 
 import { createAiVideoV3RequestSchema, scenePlanSchema } from '@facelesspro/contracts';
-import { eq } from 'drizzle-orm';
+import { asc, eq } from 'drizzle-orm';
 import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
@@ -259,7 +259,11 @@ describe('video workspace scoping (Postgres)', () => {
     expect(createAiVideoV3RequestSchema.parse(queued.video.request.body).script).toBe(
       'வேறு வரி Today fire!',
     );
-    const storedScenes = await db.select().from(scene).where(eq(scene.video_id, completedId));
+    const storedScenes = await db
+      .select()
+      .from(scene)
+      .where(eq(scene.video_id, completedId))
+      .orderBy(asc(scene.idx));
     expect(storedScenes.map((row) => row.text)).toEqual(['வேறு வரி', 'Today fire!']);
     expect(scenePlanSchema.parse(queued.video.plan).scenes.map((row) => row.text)).toEqual([
       'வேறு வரி',
