@@ -2156,8 +2156,16 @@ file stays the single "what is actually true today" view.
       1920×1080, H.264/yuv420p 30 fps + stereo AAC 48 kHz, 1.9 MB, 17 cues, real edge-tts
       Tamil/English narration. Extracted frames show the bundled Noto Sans Tamil glyphs intact
       (e.g. `வழிப்போக்கர்கள்` and `படித்து முடித்தபோது விளக்கின் வெளிச்சம்` are not split).
-      `npm run test:db` 16 files / 59 tests green; `npm run gate` 120 files / 1,505 tests green.
-      The fixture run is retained separately as `v2-30s-fixture.mp4` so neither overwrites the other.
+      `npm run test:db` 16 files / 59 tests green; `npm run gate` 120 files / 1,505 tests green;
+      media `pytest` 124 passed / 3 skipped. The fixture run is retained separately as
+      `v2-30s-fixture.mp4` so neither overwrites the other.
+      **Correction (same day):** this is a pipeline artifact, not production art. No image-model
+      credentials are configured (`CLOUDFLARE_*`, `POLLINATIONS_API_KEY`, `GEMINI_API_KEY` are
+      empty and no ComfyUI is listening), so the chain stops at the procedural floor. The summary
+      now records `images.adapters` and `productionReady: false`, and the P9 V2 item is back to
+      `[~]`. A screenshot with doubled captions and a `Made with VEED` mark is **not** this MP4:
+      the burned track shows one cue at a time and no watermark in the extracted contact sheet;
+      the second track was added by an editor.
       **Not verified:** nobody listened to the clip — the audio is observed as speech-shaped,
       30.6 s, −18.6 dB mean / −4.6 dB peak, not judged by ear, so the listening gate stays open.
       The stills are the offline procedural floor, not a model-authored cinematic look, and

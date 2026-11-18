@@ -13,6 +13,12 @@
  * subtitles and the render. What is faked: only the two providers that would
  * need a network (the planner model and TTS). The tone file is not speech; the
  * separate live listening gate is what proves narration quality.
+ *
+ * **This is a pipeline artifact, not production art.** With no image-model
+ * credentials the chain stops at the procedural floor, whose shapes are
+ * deliberately plain. The summary records the adapter and `productionReady:
+ * false`, so a green run is never mistaken for the P9 quality bar. Point
+ * `IMAGE` at a real provider and the same test exercises that path.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -547,6 +553,14 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
       Math.abs(Number(probe.format.duration) * 1_000 - narrationDurationMs),
     ).toBeLessThan(250);
 
+    // Provenance matters more than the fact that a file exists: the offline
+    // procedural floor keeps the pipeline runnable, but it is not production
+    // art. The summary says so explicitly so a smoke artifact cannot be
+    // mistaken for a production-quality video again.
+    const imageAdapters = [...new Set(manifest.frames.map((frame) => frame.adapter))];
+    const degradedFrom = [...new Set(manifest.frames.flatMap((frame) => frame.degradedFrom))];
+    const productionReady = imageAdapters.every((adapter) => adapter !== 'procedural');
+
     await mkdir(ARTIFACT_DIR, { recursive: true });
     // Keep the two runs apart: the offline fixture must never overwrite the
     // live-narrated gate artifact.
@@ -584,6 +598,7 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
             delta: row.delta,
           })),
           tts: { source: live ? 'media-service' : 'fixture', durationMs: narrationDurationMs },
+          images: { adapters: imageAdapters, degradedFrom, productionReady },
           mp4: { bytes: mp4.byteLength, sha256: sha256(mp4), durationMs: narrationDurationMs },
           thumbnail: { bytes: png.byteLength, sha256: sha256(png) },
           probe,
