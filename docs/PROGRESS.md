@@ -2142,12 +2142,34 @@ file stays the single "what is actually true today" view.
       (the P9 gate) was not produced; migrations, the shared submit transaction and a real
       end-to-end V2 render are typechecked/fake-tested only. `strong-swipe` is not a cross-fade.
 
+- [x] 2026-11-18 — **P9 AI Video V2 gate: live 30 s artifact** —
+      `apps/worker/src/steps/v2-pipeline.db.test.ts` drives one V2 request through all five
+      production handlers over Postgres + pg-boss + real ffmpeg (heuristic planner, TTS,
+      procedural images, captions, render). The default run uses a real 30 s ffmpeg MP3 fixture;
+      `LIVE=1` swaps it for the real media service (edge-tts, `valluvar`) and fails instead of
+      falling back when the service is unavailable. Assertions cover alternating `strong-swipe`
+      pans, `concat(scenes.text) === script`, scene spans re-derived from the narration and ending
+      on its duration, `v2StyleId('CINEMATIC')` in `frames/manifest.json`, four caption assets and
+      one track, one render + thumbnail, the four ledger actions, a duplicate render that adds
+      nothing, and ffprobe geometry/codecs.
+      **Observed:** `LIVE=1` retained `.data/artifacts/p9-v2/v2-30s-live.mp4` — 30.646 s,
+      1920×1080, H.264/yuv420p 30 fps + stereo AAC 48 kHz, 1.9 MB, 17 cues, real edge-tts
+      Tamil/English narration. Extracted frames show the bundled Noto Sans Tamil glyphs intact
+      (e.g. `வழிப்போக்கர்கள்` and `படித்து முடித்தபோது விளக்கின் வெளிச்சம்` are not split).
+      `npm run test:db` 16 files / 59 tests green; `npm run gate` 120 files / 1,505 tests green.
+      The fixture run is retained separately as `v2-30s-fixture.mp4` so neither overwrites the other.
+      **Not verified:** nobody listened to the clip — the audio is observed as speech-shaped,
+      30.6 s, −18.6 dB mean / −4.6 dB peak, not judged by ear, so the listening gate stays open.
+      The stills are the offline procedural floor, not a model-authored cinematic look, and
+      `strong-swipe` remains alternating lateral pans rather than a cross-fade.
+
 ---
 
 ## Decisions log
 
 | Date | Decision | Why |
 |---|---|---|
+| 2026-11-18 | The P9 template gate drives all five real handlers and keeps the MP4; `LIVE=1` only swaps narration | a mocked pipeline can be green without ever producing the artifact the gate names; one test for both modes means the live run proves the same path CI proves, and separate artifact file names stop a fixture rerun from overwriting the evidence |
 | 2026-11-05 | Use multiple public references when a FacelessPro behaviour or UX decision is unclear; no single product is the blueprint, and committed specs stay authoritative | comparing independent evidence reduces accidental cloning and exposes trade-offs; the resulting design must be original and any scope/contract change is written into the spec first |
 | 2026-11-02 | Docs de-anonymized from any third-party product: names and hosts replaced with neutral wording, "parity" reworded to "committed behaviour/compatibility", copy-guardrails generalized | the docs stand on their own spec; behavioural content unchanged |
 | 2026-10-26 | Keep `@stickman/*` code, rename scope in P0 | it is real prior work (segmenter + edge-tts + fonts), not scaffolding |
