@@ -16,6 +16,7 @@ import {
   MAX_IMAGE_PROMPT_CHARS,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createQuizVideoRequestSchema,
   imageGenerationRequestSchema,
   sceneManifestSchema,
   scenePlanSchema,
@@ -27,6 +28,7 @@ import type {
   ArtStyleRow,
   GeneratedImage,
   ImageGenerationRequest,
+  ImageStyle,
   RedrawState,
   SceneFrameManifest,
   SceneManifest,
@@ -60,6 +62,23 @@ import {
 } from '../art-style/storage';
 import type { ImageFn } from '../ports/image';
 import { v2StyleId, v2StyleProfile } from '../v2/style';
+
+/** Map quiz image style to V2 preset (fallback to CINEMATIC). */
+function mapQuizStyleToV2(quizStyle: string): ImageStyle {
+  const v2Styles: readonly ImageStyle[] = [
+    'CREEPY_COMIC', '90s_DISNEY', 'STUDIO_GHIBLI', 'ADULT_CARTOON', 'SIMPSONS',
+    'CINEMATIC', 'CUTE_ANIME', 'ULTRA_REALISM', 'DARK_COMIC', 'B&W_COMIC',
+    'COMIC', 'SATIRICAL_2D', 'PIXAR', '18TH_CENTURY_HISTORICAL', 'POLISHED_CARTOON', 'COMIC_REALISM',
+  ];
+  const directMatch = v2Styles.find((s) => s === quizStyle);
+  if (directMatch) return directMatch;
+  if (quizStyle === '3D') return 'ULTRA_REALISM';
+  if (quizStyle === 'CINEMATIC_DARK') return 'CINEMATIC';
+  if (quizStyle === 'ANIME_DARK') return 'CUTE_ANIME';
+  if (quizStyle === 'PUNK') return 'SATIRICAL_2D';
+  if (quizStyle === 'PSY') return 'COMIC_REALISM';
+  return 'CINEMATIC';
+}
 import { ImageChainError } from '../image/chain';
 import { withRequiredNegatives } from '../image/negative';
 import { postprocessScene } from '../image/postprocess';
@@ -172,12 +191,6 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
-      throw new StepFailure(
-        'internal',
-        `create-images received an unsupported video kind ${row.data.kind}`,
-      );
-    }
     if (row.data.request.kind !== row.data.kind) {
       throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
@@ -204,7 +217,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       profile = parsed.data;
       size = request.data.size;
       styleId = selectedStyle.id;
-    } else {
+    } else if (row.data.kind === 'ai-video') {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
         throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
@@ -214,6 +227,19 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       profile = v2StyleProfile(request.data.imageStyle, request.data.size);
       size = request.data.size;
       styleId = v2StyleId(request.data.imageStyle);
+    } else if (row.data.kind === 'quiz') {
+      const request = createQuizVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      const v2Style = mapQuizStyleToV2(request.data.imageStyle ?? 'CINEMATIC');
+      profile = v2StyleProfile(v2Style, request.data.size);
+      size = request.data.size;
+      styleId = `quiz:${v2Style}`;
+    } else {
+      throw new StepFailure('internal', `create-images received an unsupported video kind ${row.data.kind}`);
     }
 
     if (row.data.plan === null || row.data.plan === undefined) {
