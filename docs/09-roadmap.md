@@ -618,7 +618,7 @@ flow works at 375 px width.
       to heuristic; describer succeeded). `strong-swipe` is the documented alternating lateral
       pan; a real cross-fade transition is P5.3, and the listening gate is separate. Artifact at
       `.data/artifacts/p9-v2/v2-30s-live.mp4`.
-- [~] Quiz video (`standard`, `multi-levels`, comments, question images). API route + create-scenes + create-images (scene images) done 2026-11-20; create-images (background + question images conditional on flags) + create-captions + render + e2e test remaining.
+- [~] Quiz video (`standard`, `multi-levels`, comments, question images). API route + create-scenes + create-images (scene images + background/question images conditional on flags) done 2026-11-20; render (composite background + question images) + create-captions + e2e test remaining.
 - [ ] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line).
 - [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).
 - [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
