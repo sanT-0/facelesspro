@@ -96,7 +96,9 @@ Sub-steps:
    `estimateDuration()` (characters are not the budget — Tamil and English do not have the same
    chars-per-second), no empty scenes, text concatenation must equal the original script
    (modulo whitespace).
-   `imagePrompt` from a model is a **description only** — subject, action, setting, shot. The
+   `imagePrompt` from a model is a **description only** — subject, action, setting, shot — and it
+   is written in English even when the narration is Tamil, because image models are trained on
+   English and a Tamil-script prompt is near-random CLIP input. The
    art-style clauses (`prefix`/`suffix`/`negative`) are injected by the adapter around it
    (`composeImagePrompt()`), because one scene that loses the palette would look like it came
    from a different video. `buildPlannerPrompt()` states the rules the answer is checked
@@ -134,6 +136,13 @@ Sub-steps:
    offline fake. Its image prompts are a templated description of the scene's own words —
    literal, literal-minded, and honest about it: without a model it cannot say *what the picture
    is*, only what is being said, so an LLM image adapter is what makes prompts good.
+   With `PLANNER_DESCRIBE=ollama`, the same adapter keeps every cut and Tamil sentence and asks
+   a local model for one **English** visual sentence per scene (`planner/describe.ts`). That is
+   the one model-shaped hole: the model never moves a cut, never times a scene and never edits
+   `scenes.text`, and a failure or wrong-length answer keeps the deterministic prompt with a
+   logged warning. The plan still reports `adapter: heuristic`; the run summary records the
+   describer separately. This exists because small local models routinely fail to copy Tamil
+   verbatim, while describing a scene they were given is easy.
 6. **Image prompts** — one per scene, composed in one place (`planner/prompt.ts`) for both the
    heuristic and every model adapter:
    `"{style.prefix}, {scene description}, {style.suffix}, {negative}"`. The description is

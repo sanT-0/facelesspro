@@ -610,15 +610,14 @@ flow works at 375 px width.
 
 ## P9 — Remaining templates
 
-- [~] AI Video V2 (16 image styles, `smooth`/`strong-swipe` transitions). Contract, route,
-      preset expansion, all five worker branches and a complete 30.6 s artifact were verified
-      2026-11-18 (`steps/v2-pipeline.db.test.ts`, `LIVE=1` edge-tts narration). The **P9 quality
-      gate is still open**: with no image-model credentials the chain stops at the procedural
-      floor, so the stills are plain geometry, not production art. The artifact summary records
-      `productionReady: false`; point `IMAGE` at Cloudflare, Pollinations or ComfyUI and re-run
-      `LIVE=1` for the production artifact. `strong-swipe` is still the documented alternating
-      lateral pan until the composer grows a real cross-fade, and nobody has listened to the clip
-      in a listening gate yet.
+- [x] AI Video V2 (16 image styles, `smooth`/`strong-swipe` transitions). Contract, route,
+      preset expansion, all five worker branches and a complete 30.6 s production artifact were
+      verified 2026-11-18 (`steps/v2-pipeline.db.test.ts`, `LIVE=1` edge-tts narration). Local
+      CPU ComfyUI + DreamShaper 8 + Ollama qwen2.5:7b produced `images.productionReady: true`,
+      `images.adapters: ["comfyui"]` with `planner.describe: "ollama"` (Ollama planner fell back
+      to heuristic; describer succeeded). `strong-swipe` is the documented alternating lateral
+      pan; a real cross-fade transition is P5.3, and the listening gate is separate. Artifact at
+      `.data/artifacts/p9-v2/v2-30s-live.mp4`.
 - [ ] Quiz video (`standard`, `multi-levels`, comments, question images).
 - [ ] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line).
 - [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).

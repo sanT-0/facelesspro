@@ -17,6 +17,7 @@ import { createCloudflarePlanner, cloudflareOptionsFromEnv } from './cloudflare'
 import { createPlannerChain } from './chain';
 import { createGroqPlanner, groqOptionsFromEnv } from './groq';
 import { createHeuristicPlanner } from './heuristic';
+import { createOllamaDescriber, ollamaDescribeOptionsFromEnv } from './describe';
 import { createOllamaPlanner, ollamaOptionsFromEnv } from './ollama';
 
 export interface PlannerFactoryOptions {
@@ -40,10 +41,40 @@ const CREATORS: Record<PlannerAdapter, (env: Env, fetchImpl?: typeof fetch) => R
 const isAdapter = (name: string): name is PlannerAdapter =>
   Object.prototype.hasOwnProperty.call(CREATORS, name);
 
+/**
+ * `PLANNER_DESCRIBE=ollama` lets the deterministic planner ask a local model for
+ * English scene descriptions. It changes prompts only, never cuts or timings.
+ */
+function describerFromEnv(
+  env: Env,
+  fetchImpl: typeof fetch | undefined,
+  logger: (message: string) => void,
+) {
+  const name = (env.PLANNER_DESCRIBE ?? '').trim().toLowerCase();
+  if (name.length === 0 || name === 'none') return undefined;
+  if (name !== 'ollama') {
+    logger(`PLANNER_DESCRIBE names an unknown describer "${name}"; ignoring it`);
+    return undefined;
+  }
+  try {
+    return createOllamaDescriber({ ...ollamaDescribeOptionsFromEnv(env), fetchImpl });
+  } catch (error) {
+    logger(
+      `PLANNER_DESCRIBE adapter "ollama" is not available: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+    );
+    return undefined;
+  }
+}
+
 /** Build the chain described by `PLANNER`, degrading to the heuristic alone. */
 export function createPlannerChainFromEnv(options: PlannerFactoryOptions = {}): PlanFn {
   const env = options.env ?? process.env;
   const logger = options.logger ?? ((message: string) => console.warn(message));
+  const describe = describerFromEnv(env, options.fetchImpl, logger);
+  const heuristic = (): ReturnType<typeof createHeuristicPlanner> =>
+    createHeuristicPlanner({ describe, logger });
 
   const requested = (env.PLANNER ?? '')
     .split(',')
@@ -52,7 +83,7 @@ export function createPlannerChainFromEnv(options: PlannerFactoryOptions = {}): 
 
   if (requested.length === 0) {
     logger('PLANNER is not set; planning with the heuristic adapter only');
-    return createPlannerChain([createHeuristicPlanner()]);
+    return createPlannerChain([heuristic()]);
   }
 
   const adapters = [];
@@ -62,7 +93,7 @@ export function createPlannerChainFromEnv(options: PlannerFactoryOptions = {}): 
       continue;
     }
     try {
-      adapters.push(CREATORS[name](env, options.fetchImpl));
+      adapters.push(name === 'heuristic' ? heuristic() : CREATORS[name](env, options.fetchImpl));
     } catch (error) {
       logger(
         `PLANNER adapter "${name}" is not available: ${error instanceof Error ? error.message : String(error)}`,
@@ -72,7 +103,7 @@ export function createPlannerChainFromEnv(options: PlannerFactoryOptions = {}): 
 
   if (adapters.length === 0) {
     logger('no configured PLANNER adapter is available; planning with the heuristic adapter');
-    return createPlannerChain([createHeuristicPlanner()]);
+    return createPlannerChain([heuristic()]);
   }
 
   return createPlannerChain(adapters);

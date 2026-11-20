@@ -70,18 +70,24 @@ workspace's video and private art style, then proves a revoked key is `401` on t
 **Minimum viable local setup, no keys, no GPU:** Postgres + api + worker + media. Images come
 from the procedural renderer when `IMAGE` is unset (or when every adapter named in `IMAGE` is
 unconfigured), plans from the heuristic splitter if no LLM key exists, narration from edge-tts.
-Slow and plain, but it produces a real video.
+Slow and plain, but it produces a real video. Adding a local Ollama model and a ComfyUI
+checkpoint upgrades that to model-written English scene descriptions (`PLANNER_DESCRIBE=ollama`)
+and real generated frames, still without a key; a CPU-only ComfyUI is slow but works.
 
 **Image engine order:** `IMAGE=cloudflare,pollinations,comfyui,procedural` is tried left to right
 and the first success wins; the result's `degradedFrom` names providers that failed at runtime. A
 provider skipped for missing credentials/workflow logs a warning and is *not* degradation. To spend
 nothing, leave the hosted keys empty — the chain still completes on `procedural`.
 
-**Optional local GPU images:** start ComfyUI (default `127.0.0.1:8188`), export a workflow in API
-format, replace its positive/negative/seed/width/height values with the five placeholders in
-`fixtures/workflows/comfyui-sdxl-api.json`, then set `COMFYUI_WORKFLOW` and `COMFYUI_OUTPUT_NODE`.
-The fixture names `sd_xl_base_1.0.safetensors` as an example only; FacelessPro does not download a
-checkpoint or custom node. Keep plain HTTP on loopback/private networks; use HTTPS across machines.
+**Optional local images (GPU, or CPU while you wait):** start ComfyUI (default `127.0.0.1:8188`),
+export a workflow in API format, replace its positive/negative/seed/width/height values with the
+five placeholders in `fixtures/workflows/comfyui-sdxl-api.json`, then set `COMFYUI_WORKFLOW` and
+`COMFYUI_OUTPUT_NODE`. `fixtures/workflows/comfyui-sd15-api.json` is a complete SD1.5 shape that
+works on CPU: it samples at half the requested geometry and refines at full size, because SD1.5
+repeats subjects when asked for 1024px directly. Expect roughly 8–9 minutes per 1024×576 frame
+on eight CPU threads, so set `COMFYUI_TIMEOUT_MS` above the default and keep the chain ending in
+`procedural`. The fixtures name example checkpoints only; FacelessPro does not download a model
+or a custom node. Keep plain HTTP on loopback/private networks; use HTTPS across machines.
 
 ---
 

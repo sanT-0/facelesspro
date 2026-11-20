@@ -2,23 +2,22 @@
  * AI Video V2, end to end, over Postgres + pg-boss + real ffmpeg.
  *
  * The P9 gate asks for one watchable V2 artifact, not a unit-test opinion. This
- * drives a single V2 request through all five production step handlers — the
- * offline heuristic planner, a TTS fake that answers with a real 30 s MP3, the
- * procedural image adapter plus real ffmpeg post-processing, the caption step
- * and the real render — and keeps the resulting MP4, thumbnail, manifest and a
- * probe summary under `.data/artifacts/p9-v2/`.
+ * drives a single V2 request through all five production step handlers — a
+ * planner, a TTS port, an image chain, the caption step and the real render —
+ * and keeps the resulting MP4, thumbnail, manifest and a probe summary under
+ * `.data/artifacts/p9-v2/`.
  *
- * What is real here: the request contract, every transaction, locks,
- * idempotency, the ledger, Postgres, pg-boss, procedural frames, libass
- * subtitles and the render. What is faked: only the two providers that would
- * need a network (the planner model and TTS). The tone file is not speech; the
- * separate live listening gate is what proves narration quality.
+ * Offline (`npm run test:db`) the planner is the heuristic and the images are
+ * the procedural floor: real transactions, locks, idempotency, the ledger,
+ * Postgres, pg-boss, libass and ffmpeg, but no provider network. `LIVE=1`
+ * builds the planner and image chains from `.env` instead, so the artifact is
+ * produced by whatever models the deployment actually has. The tone file is
+ * not speech in either mode; the separate listening gate proves narration
+ * quality.
  *
- * **This is a pipeline artifact, not production art.** With no image-model
- * credentials the chain stops at the procedural floor, whose shapes are
- * deliberately plain. The summary records the adapter and `productionReady:
- * false`, so a green run is never mistaken for the P9 quality bar. Point
- * `IMAGE` at a real provider and the same test exercises that path.
+ * **A green run is not the quality bar.** The summary records the image
+ * adapters, what they degraded from, and `productionReady`, so a procedural or
+ * local-CPU artifact can never be mistaken for production art.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -58,15 +57,18 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from
 
 import { dataDir, resolveStorageKey } from '../art-style/storage';
 import { createImageChainFromEnv } from '../image/factory';
+import { createPlannerChainFromEnv } from '../planner/factory';
 import { createHeuristicPlanner } from '../planner/heuristic';
+import type { ImageFn } from '../ports/image';
+import type { PlanFn } from '../ports/planner';
 import type { TtsPort } from '../ports/tts';
 import { createMediaTtsPort } from '../tts/media';
+import { v2StyleId } from '../v2/style';
 import { createCreateCaptionsHandler } from './create-captions';
 import { createCreateImagesHandler, framesManifestKey } from './create-images';
 import { createCreateScenesHandler } from './create-scenes';
 import { createCreateVocalHandler } from './create-vocal';
 import { createCreateRenderHandler, renderKey, thumbnailKey } from './render';
-import { v2StyleId } from '../v2/style';
 
 /** Six sentences, ~53 words: about half a minute of Tamil/English speech. */
 const SCRIPT = [
@@ -87,6 +89,8 @@ const START_CREDITS = 1_000;
 const IMAGE_UNIT_COST = 5;
 const TTS_UNIT_COST = 1;
 const SUBTITLE_UNIT_COST = 2;
+/** `LIVE=1` uses the configured providers and a local CPU image model, which is slow. */
+const LIVE = process.env.LIVE === '1';
 
 const PAIR = {
   id: 'valluvar',
@@ -112,6 +116,25 @@ let fixtureDurationMs: number;
 function ttsFor(live: boolean): TtsPort {
   if (!live) return fakeTts();
   return createMediaTtsPort({ baseUrl: process.env.MEDIA_SERVICE_URL });
+}
+
+/**
+ * Same rule for the two model-backed steps: the offline run stays
+ * deterministic, and `LIVE=1` uses whatever `.env` configures. A live run
+ * therefore proves the configured provider path end to end — and when that
+ * chain falls back, the artifact summary records the adapter that actually
+ * drew each frame.
+ */
+function plannerFor(live: boolean): PlanFn {
+  if (!live) return createHeuristicPlanner();
+  return createPlannerChainFromEnv({ env: process.env });
+}
+
+function imageFor(live: boolean): ImageFn {
+  if (!live) {
+    return createImageChainFromEnv({ env: { IMAGE: 'procedural' }, logger: () => {} });
+  }
+  return createImageChainFromEnv({ env: process.env });
 }
 
 function sha256(bytes: Uint8Array): string {
@@ -300,12 +323,12 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
   });
 
   it('runs all five V2 steps and keeps a 30 s 1080p artifact', async () => {
-    const live = process.env.LIVE === '1';
+    const live = LIVE;
     const scenes = createCreateScenesHandler({
       db,
       pool,
       boss,
-      planner: createHeuristicPlanner(),
+      planner: plannerFor(live),
     });
     const vocal = createCreateVocalHandler({
       db,
@@ -319,7 +342,7 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
       db,
       pool,
       boss,
-      image: createImageChainFromEnv({ env: { IMAGE: 'procedural' }, logger: () => {} }),
+      image: imageFor(live),
       imageUnitCost: IMAGE_UNIT_COST,
     });
     const captions = createCreateCaptionsHandler({
@@ -598,6 +621,11 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
             delta: row.delta,
           })),
           tts: { source: live ? 'media-service' : 'fixture', durationMs: narrationDurationMs },
+          planner: {
+            adapter: plan.adapter,
+            degradedFrom: plan.degradedFrom,
+            describe: live ? (process.env.PLANNER_DESCRIBE?.trim() || null) : null,
+          },
           images: { adapters: imageAdapters, degradedFrom, productionReady },
           mp4: { bytes: mp4.byteLength, sha256: sha256(mp4), durationMs: narrationDurationMs },
           thumbnail: { bytes: png.byteLength, sha256: sha256(png) },
@@ -619,5 +647,5 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
     ).toHaveLength(4);
-  }, 300_000);
+  }, LIVE ? 3_600_000 : 300_000);
 });

@@ -101,6 +101,39 @@ describe('createPlannerChainFromEnv', () => {
     expect(messages.join('\n')).toContain('no configured PLANNER adapter is available');
   });
 
+  it('ignores an unknown PLANNER_DESCRIBE name with a warning', async () => {
+    const { messages, logger } = warnings();
+    const chain = createPlannerChainFromEnv({
+      env: { PLANNER: 'heuristic', PLANNER_DESCRIBE: 'bogus' },
+      logger,
+    });
+
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(plan.adapter).toBe('heuristic');
+    expect(messages.join('\n')).toContain('unknown describer "bogus"');
+  });
+
+  it('lets PLANNER_DESCRIBE=ollama write English prompts without moving the cut', async () => {
+    const fetchImpl = vi.fn(async () =>
+      json({ message: { content: '1. A desk by a window.' } }),
+    ) as unknown as typeof fetch;
+    const { logger } = warnings();
+    const chain = createPlannerChainFromEnv({
+      env: { PLANNER: 'heuristic', PLANNER_DESCRIBE: 'ollama' },
+      logger,
+      fetchImpl,
+    });
+
+    const plan = await chain.plan({ script: SENTENCE });
+
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.scenes).toHaveLength(1);
+    expect(plan.scenes[0]?.text).toBe(SENTENCE);
+    expect(plan.scenes[0]?.imagePrompt).toContain('A desk by a window.');
+  });
+
   it('does not consult the real environment when one is injected', async () => {
     const previous = process.env.PLANNER;
     process.env.PLANNER = 'groq';

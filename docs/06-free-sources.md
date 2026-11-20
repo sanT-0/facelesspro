@@ -24,6 +24,14 @@ Planner fallback ladder is `cloudflare → groq → ollama → heuristic`. The h
 toy: it packs sentences to a target duration and builds image prompts from noun phrases, so a
 video still completes when every model is down.
 
+**Local models and Tamil text.** A 3B–8B local model asked to copy a Tamil script verbatim
+into scenes is unreliable: it drops or rewords a sentence, `planFromBeats()` rejects the plan,
+and the chain falls through. What a local model does reliably is *describe*: with
+`PLANNER_DESCRIBE=ollama` the heuristic keeps every cut, timing and Tamil word (so
+`concat(scenes.text)` still holds) and asks the model for one English sentence per scene, which
+is what image models actually understand. The plan still reports `adapter: heuristic`; the
+description source is recorded in the run summary.
+
 ### 1.2 Images
 
 | Rank | Source | Access / allowance | Notes |
@@ -31,7 +39,7 @@ video still completes when every model is down.
 | 1 | **Cloudflare Workers AI** `@cf/black-forest-labs/flux-1-schnell` | free daily neurons | 4-ish steps, fast, 1024px class |
 | 2 | **Pollinations.ai** | account key + Pollen balance | current `gen.pollinations.ai/image/{…}`; legacy keyless output is watermarked and rejected |
 | 3 | **Hugging Face Inference** | small free quota | many SDXL/Flux endpoints |
-| 4 | **Local ComfyUI** (SDXL / Flux-schnell GGUF) | unlimited | needs a GPU to be usable |
+| 4 | **Local ComfyUI** (SD1.5 / SDXL / Flux-schnell GGUF) | unlimited | a GPU makes it fast; CPU works, slowly | see §1.2 |
 | 5 | **Procedural renderer** | unlimited | deterministic palette-only template PNG — plain but never fails |
 
 The procedural renderer matters more than it looks: it makes the *pipeline* testable without

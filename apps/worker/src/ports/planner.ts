@@ -42,6 +42,12 @@ export interface PlanFn {
   plan(request: PlanRequest): Promise<ScenePlan>;
 }
 
+/**
+ * Optional hook for adapters that decide cuts themselves: narration spans in,
+ * one English visual description per scene out, in the same order.
+ */
+export type DescribeScenes = (scenes: readonly string[]) => Promise<readonly string[]>;
+
 export interface PlannerPort extends PlanFn {
   /** Adapter id from `PLANNER_ADAPTERS`; the adapter's plans record the same id. */
   readonly name: PlannerAdapter;

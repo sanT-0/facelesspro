@@ -116,6 +116,74 @@ describe('heuristic planner', () => {
   });
 });
 
+describe('heuristic planner with a describer', () => {
+  it('uses the model descriptions but keeps cuts, timings and text', async () => {
+    const plain = await planner.plan({ script: SCRIPT });
+    const described = await createHeuristicPlanner({
+      describe: async (scenes) =>
+        scenes.map((_, index) => `scene ${index + 1}: a lit window in an old house`),
+      logger: () => {},
+    }).plan({ script: SCRIPT, style: { prefix: 'cinematic', negative: 'no text' } });
+
+    expect(described.scenes.map((scene) => scene.text)).toEqual(
+      plain.scenes.map((scene) => scene.text),
+    );
+    expect(described.scenes.map((scene) => [scene.startMs, scene.endMs])).toEqual(
+      plain.scenes.map((scene) => [scene.startMs, scene.endMs]),
+    );
+    expect(described.adapter).toBe('heuristic');
+    expect(described.degradedFrom).toEqual([]);
+    for (const [index, scene] of described.scenes.entries()) {
+      expect(scene.imagePrompt).toContain(`scene ${index + 1}: a lit window in an old house`);
+      expect(scene.imagePrompt.startsWith('cinematic, ')).toBe(true);
+      expect(scene.imagePrompt.endsWith(', no text')).toBe(true);
+    }
+  });
+
+  it('asks the describer with the scene texts in order', async () => {
+    const seen: string[][] = [];
+    await createHeuristicPlanner({
+      describe: async (scenes) => {
+        seen.push([...scenes]);
+        return scenes.map(() => 'a room');
+      },
+      logger: () => {},
+    }).plan({ script: SCRIPT });
+    const plain = await planner.plan({ script: SCRIPT });
+    expect(seen).toEqual([plain.scenes.map((scene) => scene.text)]);
+  });
+
+  it('keeps deterministic prompts and warns when the describer throws', async () => {
+    const warnings: string[] = [];
+    const plan = await createHeuristicPlanner({
+      describe: async () => {
+        throw new Error('ollama down');
+      },
+      logger: (message) => warnings.push(message),
+    }).plan({ script: SCRIPT });
+    const plain = await planner.plan({ script: SCRIPT });
+
+    expect(plan.scenes.map((scene) => scene.imagePrompt)).toEqual(
+      plain.scenes.map((scene) => scene.imagePrompt),
+    );
+    expect(warnings.join('\n')).toContain('ollama down');
+  });
+
+  it('ignores a describer that answers the wrong number of scenes', async () => {
+    const warnings: string[] = [];
+    const plan = await createHeuristicPlanner({
+      describe: async () => ['only one'],
+      logger: (message) => warnings.push(message),
+    }).plan({ script: SCRIPT });
+    const plain = await planner.plan({ script: SCRIPT });
+
+    expect(plan.scenes.map((scene) => scene.imagePrompt)).toEqual(
+      plain.scenes.map((scene) => scene.imagePrompt),
+    );
+    expect(warnings.join('\n')).toContain('descriptions for');
+  });
+});
+
 describe('buildFixedPlan', () => {
   it('keeps boundaries the caller already decided and describes each span', () => {
     const plan = buildFixedPlan(

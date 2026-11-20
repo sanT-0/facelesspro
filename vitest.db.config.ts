@@ -22,13 +22,15 @@ const alias = {
  * Separate from `npm run gate` on purpose: unit tests must run with no network
  * and no services, so a missing database can never be mistaken for a passing
  * gate. `DB_TESTS=1` is what tells a test file it may connect.
+ *
+ * Loads .env so that LIVE=1 uses the configured provider chains (planner/image/TTS).
  */
 export default defineConfig({
   resolve: { alias },
   test: {
     include: ['packages/**/*.db.test.ts', 'apps/**/*.db.test.ts'],
     environment: 'node',
-    env: { DB_TESTS: '1' },
+    env: { DB_TESTS: '1', DATABASE_URL: 'postgresql://faceless:faceless@127.0.0.1:5432/faceless' },
     // Suites isolate application rows by workspace, but pg-boss queue names are
     // global. Parallel files that both purge `create-vocal` can erase the other
     // suite's just-enqueued artifact and turn a good atomic commit into a false

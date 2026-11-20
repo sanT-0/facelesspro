@@ -201,8 +201,11 @@ RULES (checked automatically; a violation is rejected)
 3. Joining the scenes' texts with one space must reproduce the script exactly.
 4. Each scene must be ${minSeconds}–${maxSeconds} seconds of speech: about ${words.min}–${words.max} words.
    The whole script is ${total.seconds.toFixed(1)} s, so aim for ${count.min}–${count.max} scenes.
-5. "imagePrompt" describes what the camera sees: subject, action, setting, shot. 1–2 sentences,
-   no lettering or captions in the image. The art style is added for you:
+   If one sentence is shorter than ${minSeconds} s, merge it with the next sentence instead of
+   leaving it alone.
+5. "imagePrompt" describes what the camera sees: subject, action, setting, shot. Write it in
+   English even when the narration is Tamil — image models are trained on English — with no
+   lettering or captions in the picture. The art style is added for you:
    prefix "${prefix}", suffix "${suffix}", negative "${negative}".
 6. "motion" is one of: kenburns-in, kenburns-out, pan-left, pan-right, none. Vary it.
 7. "emphasis" is 0–${MAX_EMPHASIS_WORDS} words copied verbatim from that scene's text.
