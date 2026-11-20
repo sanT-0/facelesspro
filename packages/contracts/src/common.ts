@@ -267,6 +267,8 @@ export const assetKindSchema = z.enum([
   'thumbnail',
   'style-preview',
   'upload',
+  'quiz-background',
+  'quiz-question',
 ]);
 export type AssetKind = z.infer<typeof assetKindSchema>;
 

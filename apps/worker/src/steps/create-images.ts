@@ -17,6 +17,7 @@ import {
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
   createQuizVideoRequestSchema,
+  type CreateQuizVideoRequestParsed,
   imageGenerationRequestSchema,
   sceneManifestSchema,
   scenePlanSchema,
@@ -29,6 +30,7 @@ import type {
   GeneratedImage,
   ImageGenerationRequest,
   ImageStyle,
+  QuizItem,
   RedrawState,
   SceneFrameManifest,
   SceneManifest,
@@ -347,6 +349,137 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       });
       await tx.advance();
     });
+
+    // Quiz-specific: generate background and question images
+    if (row.data.kind === 'quiz') {
+      const quizRequest = row.data.request.body as CreateQuizVideoRequestParsed;
+      const quizImages: Array<{
+        kind: 'quiz-background' | 'quiz-question';
+        key: string;
+        bytes: Uint8Array;
+        prompt: string;
+        seed: number;
+        itemIndex?: number;
+      }> = [];
+
+      // Background image
+      if (quizRequest.generateBackgroundImage && quizRequest.backgroundImagePrompt) {
+        const bgKey = storageKey(
+          'ws',
+          row.data.workspace_id,
+          'videos',
+          ctx.videoId,
+          'quiz-background.png',
+        );
+        const bgSeed = sceneSeedFor(ctx.videoId, -1);
+        const bgRequest = imageGenerationRequestSchema.parse({
+          prompt: quizRequest.backgroundImagePrompt,
+          negativePrompt: withRequiredNegatives(profile.negative),
+          seed: bgSeed,
+          size,
+          style: profile,
+        });
+        const bgFrame = await process(bgRequest, { draw: deps.image, referenceHistograms: [] });
+        quizImages.push({
+          kind: 'quiz-background',
+          key: bgKey,
+          bytes: bgFrame.image.bytes,
+          prompt: quizRequest.backgroundImagePrompt,
+          seed: bgSeed,
+        });
+      }
+
+      // Question images (one per question item)
+      if (quizRequest.generateQuestionImage) {
+        const questionItems = quizRequest.items.filter((item): item is QuizItem => item.type === 'question');
+        for (let qIdx = 0; qIdx < questionItems.length; qIdx++) {
+          const item = questionItems[qIdx]!;
+          const prompt = item.imagePrompt ?? `quiz question illustration, ${item.text}`;
+          const qKey = storageKey(
+            'ws',
+            row.data.workspace_id,
+            'videos',
+            ctx.videoId,
+            `quiz-question-${qIdx}.png`,
+          );
+          const qSeed = sceneSeedFor(ctx.videoId, -2 - qIdx);
+          const qRequest = imageGenerationRequestSchema.parse({
+            prompt,
+            negativePrompt: withRequiredNegatives(profile.negative),
+            seed: qSeed,
+            size,
+            style: profile,
+          });
+          const qFrame = await process(qRequest, { draw: deps.image, referenceHistograms: [] });
+          quizImages.push({
+            kind: 'quiz-question',
+            key: qKey,
+            bytes: qFrame.image.bytes,
+            prompt,
+            seed: qSeed,
+            itemIndex: qIdx,
+          });
+        }
+      }
+
+      if (quizImages.length > 0) {
+        const root = dataDir();
+        for (const img of quizImages) {
+          const path = resolveStorageKey(root, img.key);
+          await ensureParentPath(path);
+          await writeFile(path, img.bytes);
+        }
+
+        // Store as assets and record IDs in request body
+        const inserted = await ctx.db
+          .insert(asset)
+          .values(
+            quizImages.map((img) => ({
+              workspace_id: row.data.workspace_id,
+              kind: img.kind,
+              key: img.key,
+              bytes: img.bytes.length,
+              mime: 'image/png',
+              meta: {
+                prompt: img.prompt,
+                seed: img.seed,
+                adapter: 'comfyui',
+                degradedFrom: [],
+                itemIndex: img.itemIndex,
+              },
+            })),
+          )
+          .returning({ id: asset.id, key: asset.key });
+
+        const byKey = new Map(inserted.map((v) => [v.key, v.id]));
+        const backgroundAssetId = quizImages.find((i) => i.kind === 'quiz-background')
+          ? byKey.get(quizImages.find((i) => i.kind === 'quiz-background')!.key)
+          : undefined;
+        const questionAssetIds = quizImages
+          .filter((i) => i.kind === 'quiz-question')
+          .map((i) => byKey.get(i.key))
+          .filter((id): id is string => id !== undefined);
+
+        // Update video request body with quiz asset IDs
+        const updatedBody = {
+          ...quizRequest,
+          _quizAssets: {
+            backgroundAssetId,
+            questionAssetIds,
+          },
+        };
+        await ctx.db
+          .update(video)
+          .set({ request: { kind: 'quiz', body: updatedBody } })
+          .where(eq(video.id, ctx.videoId));
+
+        ctx.observe({
+          quizImages: quizImages.length,
+          quizBackground: backgroundAssetId ? true : false,
+          quizQuestions: questionAssetIds.length,
+        });
+      }
+    }
   };
 }
 

@@ -147,6 +147,9 @@ export interface StepEventMetrics {
   readonly bytes?: number;
   readonly costUnits?: number;
   readonly degradedFrom?: string;
+  readonly quizImages?: number;
+  readonly quizBackground?: boolean;
+  readonly quizQuestions?: number;
 }
 
 export interface StepContext {
