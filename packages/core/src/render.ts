@@ -63,6 +63,16 @@ export interface RenderScene {
   imagePath: string;
   durationMs: number;
   motion: RenderMotion;
+  /** Optional overlay image that appears at the start of this scene. */
+  overlayPath?: string;
+  /** Overlay duration in ms; defaults to scene duration if not specified. */
+  overlayDurationMs?: number;
+}
+
+/** Optional persistent background for the entire video. */
+export interface RenderBackground {
+  /** Absolute or relative path to the background image. */
+  imagePath: string;
 }
 
 export interface RenderCaptions {
@@ -80,6 +90,10 @@ export interface RenderPlanInput {
   fps: RenderFps;
   size: RenderSize;
   format: RenderFormat;
+  /** Optional persistent background for the entire video (e.g., quiz background). */
+  background?: RenderBackground;
+  /** Optional per-scene overlay images (e.g., quiz question images). Overlays appear at the start of each scene. */
+  overlays?: ReadonlyArray<{ imagePath: string; durationMs: number }>;
   captions?: RenderCaptions;
   /** Overrides the ladder default (18 at 1080, 16 at 2K/4K). */
   crf?: number;
@@ -210,6 +224,8 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
   const durationMs = cumulativeMs;
 
   const captions = input.captions;
+  const background = input.background;
+  const overlays = input.overlays ?? [];
   const graphParts: string[] = [];
   let imageInputArgs: string[];
   let audioInputIndex: number;
@@ -229,21 +245,70 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
       );
     }
   } else {
+    // Scene images
     imageInputArgs = scenes.flatMap((scene) => ['-i', scene.imagePath]);
-    audioInputIndex = scenes.length;
+    // Background image (if provided)
+    if (background) {
+      imageInputArgs.push('-i', background.imagePath);
+    }
+    // Overlay images
+    if (overlays.length > 0) {
+      imageInputArgs.push(...overlays.flatMap((o) => ['-i', o.imagePath]));
+    }
+    audioInputIndex = imageInputArgs.length / 2; // Each -i takes 2 args
+
     const superWidth = width * 2;
     const superHeight = height * 2;
-    const clips = scenes.map((scene, index) => {
-      const frames = sceneFrames[index] ?? 0;
-      return (
-        `[${index}:v]scale=${superWidth}:${superHeight}:force_original_aspect_ratio=increase` +
-        `:flags=lanczos,crop=${superWidth}:${superHeight},` +
-        `${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps}` +
-        `,setsar=1[v${index}]`
+
+    // Background base layer (if provided)
+    let baseLabel: string;
+    if (background) {
+      const bgIndex = scenes.length; // Background is after all scenes
+      baseLabel = '[base]';
+      graphParts.push(
+        `[${bgIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,trim=end_frame=${totalFrames},setpts=N/(${fps}*TB)${baseLabel}`,
       );
-    });
-    graphParts.push(...clips);
-    const labels = scenes.map((_scene, index) => `[v${index}]`).join('');
+    } else {
+      // No background: first scene is the base
+      baseLabel = '[v0]';
+    }
+
+    // Process each scene
+    const sceneLabels: string[] = [];
+    for (const [index, scene] of scenes.entries()) {
+      const frames = sceneFrames[index] ?? 0;
+      const sceneInputIdx = index;
+
+      // Scale and crop scene image to super-resolution
+      let clip = `[${sceneInputIdx}:v]scale=${superWidth}:${superHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${superWidth}:${superHeight}`;
+
+      // Apply motion filter
+      clip += `,${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps},setsar=1`;
+
+      // If there's a background, overlay scene on background
+      if (background) {
+        // Scale scene to super-res, apply motion, then overlay on background
+        const bgClip = `${baseLabel}trim=start_frame=${sceneFrames.slice(0, index).reduce((a, b) => a + b, 0)},end_frame=${sceneFrames.slice(0, index + 1).reduce((a, b) => a + b, 0)},setpts=PTS-STARTPTS[bg${index}]`;
+        graphParts.push(bgClip);
+        clip += `[bg${index}]overlay=(W-w)/2:(H-h)/2`;
+      }
+
+      // If there's an overlay for this scene, overlay it
+      if (index < overlays.length && overlays[index]?.imagePath) {
+        const overlayIdx = scenes.length + (background ? 1 : 0) + index;
+        const overlayFrames = Math.min(frames, Math.round((overlays[index]?.durationMs ?? scene.durationMs) * fps / 1000));
+        const overlayLabel = `[ov${index}]`;
+        graphParts.push(`[${overlayIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},trim=end_frame=${overlayFrames},setpts=N/(${fps}*TB)${overlayLabel}`);
+        clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2:enable='between(t,0,${overlayFrames/fps})'`;
+      }
+
+      const outLabel = `[v${index}]`;
+      graphParts.push(clip + outLabel);
+      sceneLabels.push(outLabel);
+    }
+
+    // Concat all scenes
+    const labels = sceneLabels.join('');
     if (captions === undefined) {
       graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[vout]`);
     } else {

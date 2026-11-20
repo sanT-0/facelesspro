@@ -15,6 +15,7 @@ import {
   captionTrackRowSchema,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createQuizVideoRequestSchema,
   narrationRowSchema,
   sceneMotionSchema,
   sceneRowSchema,
@@ -146,7 +147,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz') {
       throw new StepFailure(
         'internal',
         `render received an unsupported video kind ${row.data.kind}`,
@@ -158,6 +159,8 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
 
     let options: RenderOptions | undefined;
     let size: Size;
+    let backgroundAssetId: string | undefined;
+    let questionAssetIds: string[] = [];
     if (row.data.kind === 'ai-video-v3') {
       const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
@@ -167,7 +170,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
-    } else {
+    } else if (row.data.kind === 'ai-video') {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
         throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
@@ -176,6 +179,24 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
+    } else if (row.data.kind === 'quiz') {
+      const request = createQuizVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      options = request.data.render;
+      size = request.data.size;
+
+      // Load quiz-specific assets from request body
+      const body = request.data as { _quizAssets?: { backgroundAssetId?: string; questionAssetIds?: string[] } };
+      if (body._quizAssets) {
+        backgroundAssetId = body._quizAssets.backgroundAssetId;
+        questionAssetIds = body._quizAssets.questionAssetIds ?? [];
+      }
+    } else {
+      throw new StepFailure('internal', `render received an unsupported video kind ${row.data.kind}`);
     }
 
     if (options === undefined) {
@@ -208,6 +229,8 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     const assetIds = [
       ...timeline.map((scene) => scene.imageAssetId),
       parsedNarration.data.asset_id,
+      ...(backgroundAssetId ? [backgroundAssetId] : []),
+      ...questionAssetIds,
     ];
     const assets = new Map<string, AssetRow>(
       (await loadAssets(ctx.db, assetIds)).map((stored) => [stored.id, stored]),
@@ -221,6 +244,12 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     );
     const images = timeline.map((scene, index) =>
       requireAsset(assets, scene.imageAssetId, row.data.workspace_id, 'image', `scene ${index}`),
+    );
+    const background = backgroundAssetId
+      ? requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'quiz-background', 'quiz background')
+      : undefined;
+    const questions = questionAssetIds.map((id, idx) =>
+      requireAsset(assets, id, row.data.workspace_id, 'quiz-question', `quiz question ${idx}`),
     );
 
     const storedCaption = await loadCaptionTrack(ctx.db, ctx.videoId);
@@ -268,6 +297,17 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       fps: options.frameRate,
       size,
       format: options.format,
+      ...(background
+        ? { background: { imagePath: resolveStorageKey(directory, background.key) } }
+        : {}),
+      ...(questions.length > 0
+        ? {
+            overlays: questions.map((q) => ({
+              imagePath: resolveStorageKey(directory, q.key),
+              durationMs: timeline[0]?.durationMs ?? 0, // Use first scene duration as default
+            })),
+          }
+        : {}),
       ...(captionTrack === null
         ? {}
         : {
