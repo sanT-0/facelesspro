@@ -13,6 +13,7 @@ import {
   MAX_SCENES,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createQuizVideoRequestSchema,
   narrationPlanSchema,
   scenePlanSchema,
   styleProfileSchema,
@@ -20,6 +21,8 @@ import {
 } from '@facelesspro/contracts';
 import type {
   ArtStyleRow,
+  ImageStyle,
+  QuizItem,
   ScenePlan,
   Size,
   StyleProfile,
@@ -129,6 +132,44 @@ interface NormalizedSceneRequest {
   readonly strongSwipe: boolean;
 }
 
+/** Extract the script from quiz items using the answer template. */
+function buildQuizScript(items: readonly QuizItem[], answerTemplate: string): string {
+  const parts: string[] = [];
+  for (const item of items) {
+    if (item.type === 'question') {
+      const answer = item.answers[item.correctIndex ?? 0] ?? '';
+      parts.push(answerTemplate.replace('{{answer}}', answer));
+    } else {
+      parts.push(item.text);
+    }
+  }
+  return parts.join(' ');
+}
+
+/** Map quiz image style to V2 preset (fallback to CINEMATIC). */
+function mapQuizStyleToV2(quizStyle: string): ImageStyle {
+  const v2Styles: readonly ImageStyle[] = [
+    'CREEPY_COMIC', '90s_DISNEY', 'STUDIO_GHIBLI', 'ADULT_CARTOON', 'SIMPSONS',
+    'CINEMATIC', 'CUTE_ANIME', 'ULTRA_REALISM', 'DARK_COMIC', 'B&W_COMIC',
+    'COMIC', 'SATIRICAL_2D', 'PIXAR', '18TH_CENTURY_HISTORICAL', 'POLISHED_CARTOON', 'COMIC_REALISM',
+  ];
+  const directMatch = v2Styles.find((s) => s === quizStyle);
+  if (directMatch) return directMatch;
+  // Map similar styles
+  if (quizStyle === '3D') return 'ULTRA_REALISM';
+  if (quizStyle === 'CINEMATIC_DARK') return 'CINEMATIC';
+  if (quizStyle === 'ANIME_DARK') return 'CUTE_ANIME';
+  if (quizStyle === 'PUNK') return 'SATIRICAL_2D';
+  if (quizStyle === 'PSY') return 'COMIC_REALISM';
+  return 'CINEMATIC';
+}
+
+/** Build a style profile for quiz from the preset. */
+function quizStyleProfile(quizStyle: string | undefined, size: Size): StyleProfile {
+  const v2Style = mapQuizStyleToV2(quizStyle ?? 'CINEMATIC');
+  return v2StyleProfile(v2Style, size);
+}
+
 /**
  * V2's transition is a scene-to-scene instruction, but the renderer's motion is
  * per scene. Until the composer grows real cross-fades, `strong-swipe` is
@@ -203,6 +244,24 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         size: request.data.size,
         style: planStyleFromProfile(profile),
         strongSwipe: request.data.transition === 'strong-swipe',
+      };
+    } else if (row.data.kind === 'quiz' && row.data.request.kind === 'quiz') {
+      const request = createQuizVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const body = request.data;
+      const profile = quizStyleProfile(body.imageStyle, body.size);
+      const quizScript = buildQuizScript(body.items, body.answerTemplate ?? '');
+
+      normalized = {
+        script: quizScript,
+        size: body.size,
+        style: planStyleFromProfile(profile),
+        strongSwipe: false,
       };
     } else {
       throw new StepFailure(

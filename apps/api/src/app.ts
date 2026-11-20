@@ -17,6 +17,7 @@ import { createCaptionTemplateRoutes } from './caption-templates';
 import type { CaptionTemplateDeps } from './caption-templates';
 import { createAiVideosV3Routes } from './ai-videos-v3';
 import { createAiVideosRoutes } from './ai-videos';
+import { createQuizVideosRoutes } from './quiz-videos';
 import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
 import { createFilesRoutes } from './files';
@@ -217,6 +218,13 @@ export function createApp(deps: ApiDeps): Hono {
    * instead of a cloned art style. Shares the same submit transaction.
    */
   app.route('/v1/ai-videos', createAiVideosRoutes(deps));
+
+  /**
+   * `POST /v1/quiz-videos` — create a Quiz video: items (questions/comments),
+   * answer template for narration, optional background and question image
+   * generation. Uses the quiz-specific image style set.
+   */
+  app.route('/v1/quiz-videos', createQuizVideosRoutes(deps));
 
   /**
    * `POST /v1/files` — multipart file upload. Auth and rate limits come from

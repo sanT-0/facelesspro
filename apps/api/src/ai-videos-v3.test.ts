@@ -320,7 +320,9 @@ describe('POST /v1/ai-videos-v3', () => {
       format: 'greenscreen',
     });
     expect(submission.body.body.webhookUrl).toBe(WEBHOOK);
-    expect(submission.body.body.size).toBe('portrait');
+    if (submission.body.kind === 'ai-video-v3') {
+      expect(submission.body.body.size).toBe('portrait');
+    }
   });
 
   it('accepts a voiceover instead of a script', async () => {

@@ -261,6 +261,7 @@ export const createQuizVideoRequestSchema = z.strictObject({
   backgroundImagePrompt: z.string().min(1).optional(),
   generateQuestionImage: z.boolean().default(false),
   imageStyle: quizImageStyleSchema.optional(),
+  size: sizeSchema.default('landscape'),
   render: renderOptionsSchema.optional(),
   webhookUrl: webhookUrlSchema.optional(),
 });
