@@ -10,6 +10,6 @@
   "dependencies": {
     "@resvg/resvg-js": "^2.6.2",
     "@facelesspro/core": "*",
-    "fontkit": "^2.0.4"
+    "fontkit": "^3.0.0"
   }
 }
