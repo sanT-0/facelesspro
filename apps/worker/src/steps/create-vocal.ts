@@ -17,6 +17,7 @@ import {
   MAX_MEDIA_SEGMENTS,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createQuizVideoRequestSchema,
   narrationPlanSchema,
   sceneRowSchema,
   videoRowSchema,
@@ -167,6 +168,43 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         tts: deps.tts,
         unitCost,
       });
+    } else if (row.data.kind === 'quiz' && row.data.request.kind === 'quiz') {
+      const request = createQuizVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      // Build the quiz narration script from items and answer template.
+      const answerTemplate = request.data.answerTemplate ?? '{{answer}}';
+      const script = request.data.items
+        .map((item) => {
+          if (item.type === 'question') {
+            const answer = item.answers[item.correctIndex ?? 0] ?? '';
+            return answerTemplate.replace('{{answer}}', answer);
+          }
+          return item.text;
+        })
+        .join(' ');
+
+      console.log('[create-vocal quiz] Starting narrate, script length:', script.length);
+      try {
+        await narrate(ctx, {
+          script,
+          pairId: request.data.voiceId ?? deps.defaultPairId,
+          workspaceId: row.data.workspace_id,
+          revocal: row.data.revocal ?? null,
+          scenes: loadScenes,
+          store,
+          persist,
+          tts: deps.tts,
+          unitCost,
+        });
+        console.log('[create-vocal quiz] narrate completed successfully');
+      } catch (err) {
+        console.error('[create-vocal quiz] narrate failed:', err instanceof Error ? err.message : err);
+        throw err;
+      }
     } else {
       throw new StepFailure(
         'internal',

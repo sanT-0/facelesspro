@@ -180,7 +180,9 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       options = request.data.render;
       size = request.data.size;
     } else if (row.data.kind === 'quiz') {
-      const request = createQuizVideoRequestSchema.safeParse(row.data.request.body);
+      // Strip internal `_quizAssets` key before schema validation, but keep it for asset loading.
+      const { _quizAssets, ...quizBody } = row.data.request.body as Record<string, unknown>;
+      const request = createQuizVideoRequestSchema.safeParse(quizBody);
       if (!request.success) {
         throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
           cause: request.error,
@@ -189,11 +191,11 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       options = request.data.render;
       size = request.data.size;
 
-      // Load quiz-specific assets from request body
-      const body = request.data as { _quizAssets?: { backgroundAssetId?: string; questionAssetIds?: string[] } };
-      if (body._quizAssets) {
-        backgroundAssetId = body._quizAssets.backgroundAssetId;
-        questionAssetIds = body._quizAssets.questionAssetIds ?? [];
+      // Load quiz-specific assets from original request body
+      if (_quizAssets && typeof _quizAssets === 'object' && _quizAssets !== null) {
+        const qa = _quizAssets as { backgroundAssetId?: string; questionAssetIds?: string[] };
+        backgroundAssetId = qa.backgroundAssetId;
+        questionAssetIds = qa.questionAssetIds ?? [];
       }
     } else {
       throw new StepFailure('internal', `render received an unsupported video kind ${row.data.kind}`);

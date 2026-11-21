@@ -103,10 +103,10 @@ describe('buildRenderPlan', () => {
       input({ scenes: [scene('a.png', 800, 'kenburns-in'), scene('b.png', 700)] }),
     );
     expect(plan.filterGraph).toContain(
-      "[0:v]scale=3840:2160:force_original_aspect_ratio=increase:flags=lanczos,crop=3840:2160,zoompan=z='1+0.10*on/24':x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':d=24:s=1920x1080:fps=30,setsar=1[v0]",
+      "[0:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z=1+0.10*on/24:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d=24:s=1920x1080:fps=30,setsar=1[v0]",
     );
     expect(plan.filterGraph).toContain(
-      "[1:v]scale=3840:2160:force_original_aspect_ratio=increase:flags=lanczos,crop=3840:2160,zoompan=z='1':x='0':y='0':d=21:s=1920x1080:fps=30,setsar=1[v1]",
+      "[1:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z=1:x=0:y=0:d=21:s=1920x1080:fps=30,setsar=1[v1]",
     );
     expect(plan.filterGraph).toContain('[v0][v1]concat=n=2:v=1:a=0[vout]');
   });
@@ -115,9 +115,9 @@ describe('buildRenderPlan', () => {
     const graphFor = (motion: 'kenburns-out' | 'pan-left' | 'pan-right') =>
       buildRenderPlan(input({ scenes: [scene('a.png', 1000, motion)] })).filterGraph;
 
-    expect(graphFor('kenburns-out')).toContain("z='1.10-0.10*on/30'");
-    expect(graphFor('pan-left')).toContain("z='1.08':x='(iw-iw/zoom)*(1-on/30)'");
-    expect(graphFor('pan-right')).toContain("z='1.08':x='(iw-iw/zoom)*on/30'");
+    expect(graphFor('kenburns-out')).toContain('z=1.10-0.10*on/30');
+    expect(graphFor('pan-left')).toContain('z=1.08:x=(iw-iw/zoom)*(1-on/30)');
+    expect(graphFor('pan-right')).toContain('z=1.08:x=(iw-iw/zoom)*on/30');
   });
 
   it('burns ASS only when a caption path and fonts directory are provided', () => {

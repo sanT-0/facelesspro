@@ -143,19 +143,19 @@ export function escapeFilterPath(path: string): string {
 }
 
 function motionFilter(motion: RenderMotion, frames: number): string {
-  const centreX = "x='iw/2-(iw/zoom/2)'";
-  const centreY = "y='ih/2-(ih/zoom/2)'";
+  const centreX = "x=iw/2-(iw/zoom/2)";
+  const centreY = "y=ih/2-(ih/zoom/2)";
   switch (motion) {
     case 'kenburns-in':
-      return `zoompan=z='1+0.10*on/${frames}':${centreX}:${centreY}`;
+      return `zoompan=z=1+0.10*on/${frames}:${centreX}:${centreY}`;
     case 'kenburns-out':
-      return `zoompan=z='1.10-0.10*on/${frames}':${centreX}:${centreY}`;
+      return `zoompan=z=1.10-0.10*on/${frames}:${centreX}:${centreY}`;
     case 'pan-left':
-      return `zoompan=z='1.08':x='(iw-iw/zoom)*(1-on/${frames})':${centreY}`;
+      return `zoompan=z=1.08:x=(iw-iw/zoom)*(1-on/${frames}):${centreY}`;
     case 'pan-right':
-      return `zoompan=z='1.08':x='(iw-iw/zoom)*on/${frames}':${centreY}`;
+      return `zoompan=z=1.08:x=(iw-iw/zoom)*on/${frames}:${centreY}`;
     case 'none':
-      return "zoompan=z='1':x='0':y='0'";
+      return "zoompan=z=1:x=0:y=0";
   }
 }
 
@@ -265,8 +265,10 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     if (background) {
       const bgIndex = scenes.length; // Background is after all scenes
       baseLabel = '[base]';
+      // Base layer is the background image repeated for the full duration.
+      // Scene-specific trims will extract the relevant portion for each scene.
       graphParts.push(
-        `[${bgIndex}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},setsar=1,trim=end_frame=${totalFrames},setpts=N/(${fps}*TB)${baseLabel}`,
+        `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,trim=end_frame=${totalFrames},setpts=N/(${fps}*TB)${baseLabel}`,
       );
     } else {
       // No background: first scene is the base
@@ -280,7 +282,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
       const sceneInputIdx = index;
 
       // Scale and crop scene image to super-resolution
-      let clip = `[${sceneInputIdx}:v]scale=${superWidth}:${superHeight}:force_original_aspect_ratio=increase:flags=lanczos,crop=${superWidth}:${superHeight}`;
+      let clip = `[${sceneInputIdx}:v]scale=${superWidth}:${superHeight}:flags=lanczos,crop=${superWidth}:${superHeight}`;
 
       // Apply motion filter
       clip += `,${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps},setsar=1`;
@@ -298,8 +300,13 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
         const overlayIdx = scenes.length + (background ? 1 : 0) + index;
         const overlayFrames = Math.min(frames, Math.round((overlays[index]?.durationMs ?? scene.durationMs) * fps / 1000));
         const overlayLabel = `[ov${index}]`;
-        graphParts.push(`[${overlayIdx}:v]scale=${width}:${height}:force_original_aspect_ratio=increase,crop=${width}:${height},trim=end_frame=${overlayFrames},setpts=N/(${fps}*TB)${overlayLabel}`);
-        clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2:enable='between(t,0,${overlayFrames/fps})'`;
+        graphParts.push(`[${overlayIdx}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},trim=end_frame=${overlayFrames},setpts=N/(${fps}*TB)${overlayLabel}`);
+        // Only add enable option if overlay is shorter than the scene; otherwise it covers the whole scene.
+        if (overlayFrames < frames) {
+          clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2:enable=between(t,0,${overlayFrames/fps})`;
+        } else {
+          clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2`;
+        }
       }
 
       const outLabel = `[v${index}]`;

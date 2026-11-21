@@ -239,7 +239,16 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       const v2Style = mapQuizStyleToV2(request.data.imageStyle ?? 'CINEMATIC');
       profile = v2StyleProfile(v2Style, request.data.size);
       size = request.data.size;
-      styleId = `quiz:${v2Style}`;
+      // Generate a deterministic UUID v4 for the quiz style to satisfy the manifest schema.
+      const styleHash = createHash('sha256').update(`quiz:${v2Style}`).digest('hex');
+      // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (y = 8/9/a/b)
+      styleId = [
+        styleHash.slice(0, 8),
+        styleHash.slice(8, 12),
+        `4${styleHash.slice(12, 15)}`,
+        `8${styleHash.slice(15, 18)}`,
+        styleHash.slice(18, 30),
+      ].join('-');
     } else {
       throw new StepFailure('internal', `create-images received an unsupported video kind ${row.data.kind}`);
     }
@@ -362,7 +371,14 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         itemIndex?: number;
       }> = [];
 
-      // Background image
+      /** Generate a deterministic seed for quiz-specific images using a hash. */
+function quizImageSeed(videoId: string, suffix: string): number {
+  const hash = createHash('sha256').update(`${videoId}:${suffix}`).digest('hex');
+  // Take first 8 hex chars and convert to a positive 32-bit integer
+  return parseInt(hash.slice(0, 8), 16) & 0x7fffffff;
+}
+
+// Background image
       if (quizRequest.generateBackgroundImage && quizRequest.backgroundImagePrompt) {
         const bgKey = storageKey(
           'ws',
@@ -371,7 +387,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           ctx.videoId,
           'quiz-background.png',
         );
-        const bgSeed = sceneSeedFor(ctx.videoId, -1);
+        const bgSeed = quizImageSeed(ctx.videoId, 'background');
         const bgRequest = imageGenerationRequestSchema.parse({
           prompt: quizRequest.backgroundImagePrompt,
           negativePrompt: withRequiredNegatives(profile.negative),
@@ -402,7 +418,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
             ctx.videoId,
             `quiz-question-${qIdx}.png`,
           );
-          const qSeed = sceneSeedFor(ctx.videoId, -2 - qIdx);
+          const qSeed = quizImageSeed(ctx.videoId, `question-${qIdx}`);
           const qRequest = imageGenerationRequestSchema.parse({
             prompt,
             negativePrompt: withRequiredNegatives(profile.negative),

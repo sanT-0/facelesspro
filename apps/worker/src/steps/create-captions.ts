@@ -16,6 +16,7 @@ import {
   captionTemplateRowSchema,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createQuizVideoRequestSchema,
   narrationRowSchema,
   videoRowSchema,
 } from '@facelesspro/contracts';
@@ -133,7 +134,7 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video') {
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz') {
       throw new StepFailure(
         'internal',
         `create-captions received an unsupported video kind ${row.data.kind}`,
@@ -159,6 +160,21 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
       withCaptions = request.data.captions;
       templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
       captionSpec = request.data.captionSpec;
+      size = request.data.size;
+      render = request.data.render;
+    } else if (row.data.kind === 'quiz') {
+      // Strip internal `_quizAssets` key added by create-images before schema validation.
+      const { _quizAssets: _ignored, ...quizBody } = row.data.request.body as Record<string, unknown>;
+      const request = createQuizVideoRequestSchema.safeParse(quizBody);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      // Quiz always captions its narration; same as V2.
+      withCaptions = true;
+      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+      captionSpec = undefined;
       size = request.data.size;
       render = request.data.render;
     } else {
