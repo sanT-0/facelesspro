@@ -23,6 +23,7 @@ import {
 import type {
   ArtStyleRow,
   ImageStyle,
+  SceneMotion,
   ScenePlan,
   Size,
   StyleProfile,
@@ -40,7 +41,7 @@ import type {
 import { eq } from 'drizzle-orm';
 import { writeFile } from 'node:fs/promises';
 
-import { buildFixedPlan } from '../planner/heuristic';
+import { buildFixedPlan, imagePromptFor, MOTION_CYCLE } from '../planner/heuristic';
 import type { FixedSceneSpan } from '../planner/heuristic';
 import type { PlanFn, PlanStyle } from '../ports/planner';
 import { AsrPortError } from '../ports/asr';
@@ -57,6 +58,10 @@ import {
 import { VoiceoverDownloadError, downloadVoiceover } from '../voiceover/download';
 import { v2StyleProfile } from '../v2/style';
 import { buildQuizScript } from './quiz-script';
+import {
+  splitFakeTextConversations,
+  buildFakeTextScripts,
+} from './fake-text-script';
 
 export type FindStyle = (db: Database, id: string) => Promise<ArtStyleRow | null>;
 export type PersistScenePlan = (
@@ -131,6 +136,20 @@ interface NormalizedSceneRequest {
   readonly style: PlanStyle;
   /** V2 only: `strong-swipe` turns the plan's motion into lateral pans. */
   readonly strongSwipe: boolean;
+  /** Pre-computed scenes (used by fake-text to bypass planner scene splitting). */
+  readonly plannedScenes?: readonly PlannedScene[];
+  /** Internal: fake-text scene data for create-images/create-vocal. */
+  readonly _fakeTextScenes?: unknown;
+}
+
+/** A pre-planned scene (used by fake-text). */
+interface PlannedScene {
+  readonly text: string;
+  readonly imagePrompt: string;
+  readonly motion: SceneMotion;
+  readonly emphasis: readonly string[];
+  readonly startMs: number;
+  readonly endMs: number;
 }
 
 /** Extract the script from quiz items using the answer template. */
@@ -261,25 +280,46 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
       }
 
       const body = request.data;
-      // For fake-text, the script is the concatenation of all messages with speaker names
-      const script = body.conversations
-        .flatMap((conversation) =>
-          conversation.messages.map((message) => {
-            const character = conversation.characters.find((c) => c.id === message.characterId);
-            const speaker = character?.name ?? 'Unknown';
-            return `${speaker}: ${message.text}`;
-          }),
-        )
-        .join(' ');
 
-      // Use a default style profile for fake-text (can be extended with template-specific styles later)
+      // Split conversations into scenes (respects autoSplit)
+      const sceneDataList = splitFakeTextConversations(body.conversations, body.conversations[0]?.autoSplit ?? false);
+
+      // Build narration scripts for each scene
+      const sceneScripts = buildFakeTextScripts(sceneDataList);
+      const fullScript = sceneScripts.join(' ');
+
+      // Store per-scene fake-text data in the request body for later steps
+      const fakeTextScenes = sceneDataList.map((data) => ({
+        template: data.template,
+        characters: data.characters,
+        messages: data.messages,
+        groupName: data.groupName,
+        groupPhoto: data.groupPhoto,
+        tinderMatch: data.tinderMatch,
+      }));
+
+      // Build the scene plan directly with our pre-split scenes.
+      // Timings will be re-derived by create-vocal from TTS output.
       const profile = v2StyleProfile('CINEMATIC', 'portrait');
+      const plannedScenes = sceneScripts.map((script, index) => ({
+        text: script,
+        imagePrompt: imagePromptFor(script, planStyleFromProfile(profile)),
+        motion: MOTION_CYCLE[index % MOTION_CYCLE.length]!,
+        emphasis: [],
+        startMs: 0, // Placeholder; create-vocal will re-derive
+        endMs: 0,   // Placeholder; create-vocal will re-derive
+      }));
+
       normalized = {
-        script,
-        size: 'portrait', // Fake text videos are typically portrait
+        script: fullScript,
+        size: 'portrait',
         style: planStyleFromProfile(profile),
         strongSwipe: false,
+        plannedScenes: plannedScenes as NormalizedSceneRequest['plannedScenes'],
       };
+
+      // Attach fake-text scene data to the normalized request for persistence
+      (normalized as NormalizedSceneRequest & { _fakeTextScenes?: unknown })._fakeTextScenes = fakeTextScenes;
     } else {
       throw new StepFailure(
         'internal',

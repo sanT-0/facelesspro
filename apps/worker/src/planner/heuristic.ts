@@ -24,7 +24,7 @@ import type { PlanRequest, PlanStyle, PlannerPort, DescribeScenes } from '../por
 import { composeImagePrompt } from './prompt';
 
 /** Cycled so consecutive scenes do not all move the same way. */
-const MOTION_CYCLE: readonly SceneMotion[] = [
+export const MOTION_CYCLE: readonly SceneMotion[] = [
   'kenburns-in',
   'pan-left',
   'kenburns-out',
