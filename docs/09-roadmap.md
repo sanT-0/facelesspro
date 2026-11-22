@@ -619,7 +619,7 @@ flow works at 375 px width.
       pan; a real cross-fade transition is P5.3, and the listening gate is separate. Artifact at
       `.data/artifacts/p9-v2/v2-30s-live.mp4`.
 - [x] Quiz video (`standard`, `multi-levels`, comments, question images). API route + create-scenes + create-images (scene images + background/question images conditional on flags) + create-captions + render (background + question cards) done 2026-11-20; e2e test produces a watchable 30 s artifact with background, question images as centred cards, and the five-step pipeline green.
-- [~] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line). API route + create-scenes (autoSplit scene splitting, per-scene data storage) done 2026-11-22; create-vocal (per-character voices), create-images (9 chat skin rendering), background video, e2e artifact remaining.
+- [~] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line). API route + create-scenes (autoSplit scene splitting, per-scene data storage) + create-vocal (per-character voice synthesis) done 2026-11-22; create-images (9 chat skin rendering), background video, e2e artifact remaining.
 - [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).
 - [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
 - [ ] Background video + sound effect libraries (CC0 assets, credited).

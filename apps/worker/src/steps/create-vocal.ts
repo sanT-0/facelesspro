@@ -200,29 +200,116 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         });
       }
 
-      const body = request.data;
-      // For fake-text, the script is the concatenation of all messages with speaker names
-      const script = body.conversations
-        .flatMap((conversation) =>
-          conversation.messages.map((message) => {
-            const character = conversation.characters.find((c) => c.id === message.characterId);
-            const speaker = character?.name ?? 'Unknown';
-            return `${speaker}: ${message.text}`;
-          }),
-        )
-        .join(' ');
+      const body = request.data as { _fakeTextScenes?: unknown };
 
-      // Use default voice pair for now; per-character voices will need a multi-voice TTS path
-      await narrate(ctx, {
-        script,
-        pairId: request.data.conversations[0]?.characters[0]?.voiceId ?? deps.defaultPairId,
+      // Get the stored per-scene fake-text data from create-scenes
+      const fakeTextScenes = body._fakeTextScenes as
+        | readonly {
+            template: string;
+            characters: readonly { id: string; name: string; side: 'left' | 'right'; voiceId?: string }[];
+            messages: readonly { text: string; characterId?: string }[];
+            groupName?: string;
+            groupPhoto?: string;
+            tinderMatch?: boolean;
+          }[]
+        | undefined;
+
+      if (!fakeTextScenes || fakeTextScenes.length === 0) {
+        throw new StepFailure('internal', 'fake-text scenes not found in stored request', {
+          cause: 'create-scenes did not store _fakeTextScenes',
+        });
+      }
+
+      // Build the script from the scene data (matching create-scenes derivation)
+      const sceneScripts = fakeTextScenes.map((sceneData) => {
+        const characterNames = new Map<string, string>();
+        for (const character of sceneData.characters) {
+          characterNames.set(character.id, character.name);
+        }
+        const parts: string[] = [];
+        for (const message of sceneData.messages) {
+          const speaker = message.characterId
+            ? characterNames.get(message.characterId) ?? 'Unknown'
+            : 'Unknown';
+          parts.push(`${speaker}: ${message.text}`);
+        }
+        return parts.join(' ');
+      });
+      const fullScript = sceneScripts.join(' ');
+
+      // Build narration segments with per-character voice pairs
+      const segments: Array<{ text: string; voice: string }> = [];
+      for (const sceneData of fakeTextScenes) {
+        const characterNames = new Map<string, string>();
+        for (const character of sceneData.characters) {
+          characterNames.set(character.id, character.name);
+        }
+        for (const message of sceneData.messages) {
+          const speaker = message.characterId
+            ? characterNames.get(message.characterId) ?? 'Unknown'
+            : 'Unknown';
+          const text = `${speaker}: ${message.text}`;
+          const voicePairId = message.characterId
+            ? sceneData.characters.find((c) => c.id === message.characterId)?.voiceId
+            : undefined;
+          segments.push({
+            text,
+            voice: voicePairId ?? 'valluvar', // default to valluvar if no voiceId
+          });
+        }
+      }
+
+      // Synthesize with per-character voice pairs
+      const synthesis = await callTts(
+        () => deps.tts.synthesize({ segments }),
+        'synthesis',
+      );
+
+      // Build voice plan for the full script (for persistence)
+      const voicePlan = buildNarrationPlan(fullScript, {
+        ta: 'ta-IN-ValluvarNeural',
+        en: 'ta-IN-ValluvarNeural',
+        pair: 'valluvar',
+      });
+
+      // Derive scene timings from synthesis
+      const timings: SceneTiming[] = [];
+      for (let i = 0; i < synthesis.segments.length; i++) {
+        const seg = synthesis.segments[i];
+        if (!seg) continue;
+        if (seg.text.length > 0) {
+          timings.push({
+            idx: i,
+            startMs: seg.startMs,
+            endMs: seg.startMs + seg.durationMs,
+          });
+        }
+      }
+
+      // Store the audio and advance
+      const stored = await storeBytes(store, {
         workspaceId: row.data.workspace_id,
-        revocal: row.data.revocal ?? null,
-        scenes: loadScenes,
-        store,
-        persist,
-        tts: deps.tts,
-        unitCost,
+        videoId: ctx.videoId,
+        bytes: synthesis.audio,
+      });
+
+      ctx.observe({
+        items: segments.length,
+        bytes: stored.bytes,
+        costUnits: segments.reduce((total, s) => total + [...s.text].length, 0),
+      });
+
+      await ctx.transaction(async (tx) => {
+        await persistNarration(tx, {
+          videoId: ctx.videoId,
+          workspaceId: row.data.workspace_id,
+          synthesis,
+          voicePlan,
+          timings,
+          stored,
+        });
+        await tx.charge({ action: 'tts', units: 0, unitCost });
+        await tx.advance();
       });
     } else {
       throw new StepFailure(
