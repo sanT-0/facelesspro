@@ -65,6 +65,15 @@ import {
 import type { ImageFn } from '../ports/image';
 import { v2StyleId, v2StyleProfile } from '../v2/style';
 
+/**
+ * Deterministic seed for a quiz-specific image. Hashing `(videoId, suffix)`
+ * keeps a retried step byte-identical without reading the clock or the DB.
+ */
+function quizImageSeed(videoId: string, suffix: string): number {
+  const hash = createHash('sha256').update(`${videoId}:${suffix}`).digest('hex');
+  return parseInt(hash.slice(0, 8), 16) & 0x7fffffff;
+}
+
 /** Map quiz image style to V2 preset (fallback to CINEMATIC). */
 function mapQuizStyleToV2(quizStyle: string): ImageStyle {
   const v2Styles: readonly ImageStyle[] = [
@@ -371,14 +380,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         itemIndex?: number;
       }> = [];
 
-      /** Generate a deterministic seed for quiz-specific images using a hash. */
-function quizImageSeed(videoId: string, suffix: string): number {
-  const hash = createHash('sha256').update(`${videoId}:${suffix}`).digest('hex');
-  // Take first 8 hex chars and convert to a positive 32-bit integer
-  return parseInt(hash.slice(0, 8), 16) & 0x7fffffff;
-}
-
-// Background image
+      // Background image
       if (quizRequest.generateBackgroundImage && quizRequest.backgroundImagePrompt) {
         const bgKey = storageKey(
           'ws',
@@ -407,7 +409,9 @@ function quizImageSeed(videoId: string, suffix: string): number {
 
       // Question images (one per question item)
       if (quizRequest.generateQuestionImage) {
-        const questionItems = quizRequest.items.filter((item): item is QuizItem => item.type === 'question');
+        const questionItems = quizRequest.items.filter(
+          (item): item is QuizItem => item.type === 'question',
+        );
         for (let qIdx = 0; qIdx < questionItems.length; qIdx++) {
           const item = questionItems[qIdx]!;
           const prompt = item.imagePrompt ?? `quiz question illustration, ${item.text}`;

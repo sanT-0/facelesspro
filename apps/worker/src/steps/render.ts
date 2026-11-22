@@ -26,6 +26,7 @@ import type {
   CaptionTrackRow,
   FrameRate,
   NarrationRow,
+  QuizItem,
   RenderFormat,
   RenderOptions,
   Resolution,
@@ -40,6 +41,7 @@ import {
   renderVideo as renderVideoAdapter,
 } from '@facelesspro/art';
 import type { RenderResult } from '@facelesspro/art';
+import { quizNarrationParts } from './quiz-script';
 import {
   asset,
   captionTrack as captionTrackTable,
@@ -161,6 +163,8 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     let size: Size;
     let backgroundAssetId: string | undefined;
     let questionAssetIds: string[] = [];
+    let quizItems: readonly QuizItem[] | undefined;
+    let quizAnswerTemplate = '{{answer}}';
     if (row.data.kind === 'ai-video-v3') {
       const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
@@ -190,6 +194,8 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
+      quizItems = request.data.items;
+      quizAnswerTemplate = request.data.answerTemplate ?? '{{answer}}';
 
       // Load quiz-specific assets from original request body
       if (_quizAssets && typeof _quizAssets === 'object' && _quizAssets !== null) {
@@ -287,12 +293,33 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     const outputPath = resolveStorageKey(directory, renderStorageKey);
     const thumbnailPath = resolveStorageKey(directory, thumbnailStorageKey);
 
+    // A question's image replaces that scene's planner still: both are
+    // full-frame illustrations, so the card would otherwise be hidden.
+    const questionByScene = new Map<number, number>();
+    if (quizItems !== undefined && questions.length > 0) {
+      const mapping = questionImageScenes(
+        quizItems,
+        sceneRows.map((scene) => scene.text),
+        quizAnswerTemplate,
+      );
+      for (const [questionIndex, sceneIndex] of mapping) {
+        const asset = questions[questionIndex];
+        if (asset !== undefined && timeline[sceneIndex] !== undefined) {
+          questionByScene.set(sceneIndex, questionIndex);
+        }
+      }
+    }
+
     const planInput: RenderPlanInput = {
-      scenes: timeline.map((scene, index) => ({
-        imagePath: resolveStorageKey(directory, images[index]!.key),
-        durationMs: scene.durationMs,
-        motion: scene.motion,
-      })),
+      scenes: timeline.map((scene, index) => {
+        const questionIndex = questionByScene.get(index);
+        const asset = questionIndex === undefined ? images[index]! : questions[questionIndex]!;
+        return {
+          imagePath: resolveStorageKey(directory, asset.key),
+          durationMs: scene.durationMs,
+          motion: scene.motion,
+        };
+      }),
       audioPath: resolveStorageKey(directory, audio.key),
       outputPath,
       resolution: options.resolution,
@@ -301,14 +328,6 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       format: options.format,
       ...(background
         ? { background: { imagePath: resolveStorageKey(directory, background.key) } }
-        : {}),
-      ...(questions.length > 0
-        ? {
-            overlays: questions.map((q) => ({
-              imagePath: resolveStorageKey(directory, q.key),
-              durationMs: timeline[0]?.durationMs ?? 0, // Use first scene duration as default
-            })),
-          }
         : {}),
       ...(captionTrack === null
         ? {}
@@ -601,6 +620,58 @@ function assertTimeline(
     );
   }
   return timeline;
+}
+
+/**
+ * Which scene shows each quiz question's image.
+ *
+ * The quiz narration is the item list joined with one space, and the planner
+ * splits that same string into contiguous scene spans (`concat(scenes.text)`
+ * reconstructs the script). So a question's image belongs to the scene that
+ * contains its first character — no timings need to be re-derived.
+ *
+ * Question images are stored in item order, so the returned map is
+ * `question asset index -> scene index`. Later items that start in a scene
+ * already claimed keep the first image, which avoids two cards in one scene.
+ */
+export function questionImageScenes(
+  items: readonly QuizItem[],
+  sceneTexts: readonly string[],
+  answerTemplate: string,
+): Map<number, number> {
+  const parts = quizNarrationParts(items, answerTemplate);
+  const itemOffsets: number[] = [];
+  let offset = 0;
+  for (const part of parts) {
+    itemOffsets.push(offset);
+    offset += part.length + 1;
+  }
+
+  // Scene start offsets in the same joined string.
+  const sceneStarts: number[] = [];
+  let sceneOffset = 0;
+  for (const text of sceneTexts) {
+    sceneStarts.push(sceneOffset);
+    sceneOffset += text.length + 1;
+  }
+
+  const mapped = new Map<number, number>();
+  const usedScenes = new Set<number>();
+  let questionIndex = 0;
+  for (const [itemIndex, item] of items.entries()) {
+    if (item.type !== 'question') continue;
+    const itemOffset = itemOffsets[itemIndex] ?? 0;
+    let sceneIndex = 0;
+    for (const [candidate, start] of sceneStarts.entries()) {
+      if (start <= itemOffset) sceneIndex = candidate;
+    }
+    if (!usedScenes.has(sceneIndex)) {
+      usedScenes.add(sceneIndex);
+      mapped.set(questionIndex, sceneIndex);
+    }
+    questionIndex += 1;
+  }
+  return mapped;
 }
 
 function requireAsset(

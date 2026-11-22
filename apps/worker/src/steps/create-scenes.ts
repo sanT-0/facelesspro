@@ -22,7 +22,6 @@ import {
 import type {
   ArtStyleRow,
   ImageStyle,
-  QuizItem,
   ScenePlan,
   Size,
   StyleProfile,
@@ -56,6 +55,7 @@ import {
 } from '../art-style/storage';
 import { VoiceoverDownloadError, downloadVoiceover } from '../voiceover/download';
 import { v2StyleProfile } from '../v2/style';
+import { buildQuizScript } from './quiz-script';
 
 export type FindStyle = (db: Database, id: string) => Promise<ArtStyleRow | null>;
 export type PersistScenePlan = (
@@ -133,18 +133,6 @@ interface NormalizedSceneRequest {
 }
 
 /** Extract the script from quiz items using the answer template. */
-function buildQuizScript(items: readonly QuizItem[], answerTemplate: string): string {
-  const parts: string[] = [];
-  for (const item of items) {
-    if (item.type === 'question') {
-      const answer = item.answers[item.correctIndex ?? 0] ?? '';
-      parts.push(answerTemplate.replace('{{answer}}', answer));
-    } else {
-      parts.push(item.text);
-    }
-  }
-  return parts.join(' ');
-}
 
 /** Map quiz image style to V2 preset (fallback to CINEMATIC). */
 function mapQuizStyleToV2(quizStyle: string): ImageStyle {
@@ -255,7 +243,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
 
       const body = request.data;
       const profile = quizStyleProfile(body.imageStyle, body.size);
-      const quizScript = buildQuizScript(body.items, body.answerTemplate ?? '');
+      const quizScript = buildQuizScript(body.items, body.answerTemplate);
 
       normalized = {
         script: quizScript,

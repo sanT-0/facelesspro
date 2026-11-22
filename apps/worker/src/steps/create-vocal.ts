@@ -46,6 +46,7 @@ import {
   resolveStorageKey,
   storageKey,
 } from '../art-style/storage';
+import { buildQuizScript } from './quiz-script';
 
 export type ListScenes = (db: Database, videoId: string) => Promise<SceneRow[]>;
 
@@ -175,36 +176,21 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
           cause: request.error,
         });
       }
-      // Build the quiz narration script from items and answer template.
-      const answerTemplate = request.data.answerTemplate ?? '{{answer}}';
-      const script = request.data.items
-        .map((item) => {
-          if (item.type === 'question') {
-            const answer = item.answers[item.correctIndex ?? 0] ?? '';
-            return answerTemplate.replace('{{answer}}', answer);
-          }
-          return item.text;
-        })
-        .join(' ');
+      // Same derivation as `create-scenes`; `narrate` refuses to continue if
+      // the stored scenes do not reconstruct this exact script.
+      const script = buildQuizScript(request.data.items, request.data.answerTemplate);
 
-      console.log('[create-vocal quiz] Starting narrate, script length:', script.length);
-      try {
-        await narrate(ctx, {
-          script,
-          pairId: request.data.voiceId ?? deps.defaultPairId,
-          workspaceId: row.data.workspace_id,
-          revocal: row.data.revocal ?? null,
-          scenes: loadScenes,
-          store,
-          persist,
-          tts: deps.tts,
-          unitCost,
-        });
-        console.log('[create-vocal quiz] narrate completed successfully');
-      } catch (err) {
-        console.error('[create-vocal quiz] narrate failed:', err instanceof Error ? err.message : err);
-        throw err;
-      }
+      await narrate(ctx, {
+        script,
+        pairId: request.data.voiceId ?? deps.defaultPairId,
+        workspaceId: row.data.workspace_id,
+        revocal: row.data.revocal ?? null,
+        scenes: loadScenes,
+        store,
+        persist,
+        tts: deps.tts,
+        unitCost,
+      });
     } else {
       throw new StepFailure(
         'internal',

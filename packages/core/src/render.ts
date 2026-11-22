@@ -63,17 +63,25 @@ export interface RenderScene {
   imagePath: string;
   durationMs: number;
   motion: RenderMotion;
-  /** Optional overlay image that appears at the start of this scene. */
-  overlayPath?: string;
-  /** Overlay duration in ms; defaults to scene duration if not specified. */
-  overlayDurationMs?: number;
 }
 
-/** Optional persistent background for the entire video. */
+/**
+ * Optional persistent background for the entire video.
+ *
+ * With a background present every scene still is drawn as a centred card at
+ * `BACKGROUND_CARD_SCALE` of the frame, so the backdrop stays visible around
+ * it. Without a background the stills stay full-bleed, exactly as before.
+ */
 export interface RenderBackground {
   /** Absolute or relative path to the background image. */
   imagePath: string;
 }
+
+/**
+ * Fraction of the frame a scene still occupies when it sits on a background.
+ * 0.8 leaves a 10% gutter on every side for the backdrop and the caption band.
+ */
+export const BACKGROUND_CARD_SCALE = 0.8;
 
 export interface RenderCaptions {
   /** ASS file to burn in. */
@@ -92,8 +100,6 @@ export interface RenderPlanInput {
   format: RenderFormat;
   /** Optional persistent background for the entire video (e.g., quiz background). */
   background?: RenderBackground;
-  /** Optional per-scene overlay images (e.g., quiz question images). Overlays appear at the start of each scene. */
-  overlays?: ReadonlyArray<{ imagePath: string; durationMs: number }>;
   captions?: RenderCaptions;
   /** Overrides the ladder default (18 at 1080, 16 at 2K/4K). */
   crf?: number;
@@ -147,15 +153,15 @@ function motionFilter(motion: RenderMotion, frames: number): string {
   const centreY = "y=ih/2-(ih/zoom/2)";
   switch (motion) {
     case 'kenburns-in':
-      return `zoompan=z=1+0.10*on/${frames}:${centreX}:${centreY}`;
+      return `zoompan=z='1+0.10*on/${frames}':${centreX}:${centreY}`;
     case 'kenburns-out':
-      return `zoompan=z=1.10-0.10*on/${frames}:${centreX}:${centreY}`;
+      return `zoompan=z='1.10-0.10*on/${frames}':${centreX}:${centreY}`;
     case 'pan-left':
-      return `zoompan=z=1.08:x=(iw-iw/zoom)*(1-on/${frames}):${centreY}`;
+      return `zoompan=z='1.08':x='(iw-iw/zoom)*(1-on/${frames})':${centreY}`;
     case 'pan-right':
-      return `zoompan=z=1.08:x=(iw-iw/zoom)*on/${frames}:${centreY}`;
+      return `zoompan=z='1.08':x='(iw-iw/zoom)*on/${frames}':${centreY}`;
     case 'none':
-      return "zoompan=z=1:x=0:y=0";
+      return "zoompan=z='1':x='0':y='0'";
   }
 }
 
@@ -225,7 +231,6 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
 
   const captions = input.captions;
   const background = input.background;
-  const overlays = input.overlays ?? [];
   const graphParts: string[] = [];
   let imageInputArgs: string[];
   let audioInputIndex: number;
@@ -251,67 +256,56 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     if (background) {
       imageInputArgs.push('-i', background.imagePath);
     }
-    // Overlay images
-    if (overlays.length > 0) {
-      imageInputArgs.push(...overlays.flatMap((o) => ['-i', o.imagePath]));
-    }
     audioInputIndex = imageInputArgs.length / 2; // Each -i takes 2 args
 
     const superWidth = width * 2;
     const superHeight = height * 2;
+    // Even dimensions keep libx264 and the overlay offsets on whole pixels.
+    const cardWidth = Math.round((width * BACKGROUND_CARD_SCALE) / 2) * 2;
+    const cardHeight = Math.round((height * BACKGROUND_CARD_SCALE) / 2) * 2;
 
-    // Background base layer (if provided)
-    let baseLabel: string;
+    // A still background only decodes one frame, so it is looped to the exact
+    // video length and then split once per scene. Every scene trims a disjoint
+    // window out of its own copy: ffmpeg streams are single-consumer, so
+    // reusing one trimmed label across scenes is not a legal graph.
     if (background) {
-      const bgIndex = scenes.length; // Background is after all scenes
-      baseLabel = '[base]';
-      // Base layer is the background image repeated for the full duration.
-      // Scene-specific trims will extract the relevant portion for each scene.
+      const bgIndex = scenes.length;
+      const splitLabels = scenes.map((_, index) => `[bgsrc${index}]`).join('');
       graphParts.push(
-        `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,trim=end_frame=${totalFrames},setpts=N/(${fps}*TB)${baseLabel}`,
+        `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,` +
+          `loop=loop=-1:size=1:start=0,fps=${fps},trim=end_frame=${totalFrames},` +
+          `setpts=N/(${fps}*TB),split=${scenes.length}${splitLabels}`,
       );
-    } else {
-      // No background: first scene is the base
-      baseLabel = '[v0]';
     }
 
     // Process each scene
     const sceneLabels: string[] = [];
+    let sceneStartFrame = 0;
     for (const [index, scene] of scenes.entries()) {
       const frames = sceneFrames[index] ?? 0;
-      const sceneInputIdx = index;
+      const sceneEndFrame = sceneStartFrame + frames;
 
-      // Scale and crop scene image to super-resolution
-      let clip = `[${sceneInputIdx}:v]scale=${superWidth}:${superHeight}:flags=lanczos,crop=${superWidth}:${superHeight}`;
+      // Scale and crop scene image to super-resolution, then apply motion.
+      let clip =
+        `[${index}:v]scale=${superWidth}:${superHeight}:flags=lanczos,` +
+        `crop=${superWidth}:${superHeight},${motionFilter(scene.motion, frames)}` +
+        `:d=${frames}:s=${width}x${height}:fps=${fps},setsar=1`;
 
-      // Apply motion filter
-      clip += `,${motionFilter(scene.motion, frames)}:d=${frames}:s=${width}x${height}:fps=${fps},setsar=1`;
-
-      // If there's a background, overlay scene on background
       if (background) {
-        // Scale scene to super-res, apply motion, then overlay on background
-        const bgClip = `${baseLabel}trim=start_frame=${sceneFrames.slice(0, index).reduce((a, b) => a + b, 0)},end_frame=${sceneFrames.slice(0, index + 1).reduce((a, b) => a + b, 0)},setpts=PTS-STARTPTS[bg${index}]`;
-        graphParts.push(bgClip);
-        clip += `[bg${index}]overlay=(W-w)/2:(H-h)/2`;
-      }
-
-      // If there's an overlay for this scene, overlay it
-      if (index < overlays.length && overlays[index]?.imagePath) {
-        const overlayIdx = scenes.length + (background ? 1 : 0) + index;
-        const overlayFrames = Math.min(frames, Math.round((overlays[index]?.durationMs ?? scene.durationMs) * fps / 1000));
-        const overlayLabel = `[ov${index}]`;
-        graphParts.push(`[${overlayIdx}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},trim=end_frame=${overlayFrames},setpts=N/(${fps}*TB)${overlayLabel}`);
-        // Only add enable option if overlay is shorter than the scene; otherwise it covers the whole scene.
-        if (overlayFrames < frames) {
-          clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2:enable=between(t,0,${overlayFrames/fps})`;
-        } else {
-          clip += `${overlayLabel}overlay=(W-w)/2:(H-h)/2`;
-        }
+        // The scene becomes a centred card on the backdrop segment for this scene.
+        clip += `,scale=${cardWidth}:${cardHeight}[card${index}]`;
+        graphParts.push(
+          `[bgsrc${index}]trim=start_frame=${sceneStartFrame}:end_frame=${sceneEndFrame},` +
+            `setpts=PTS-STARTPTS[bg${index}]`,
+        );
+        graphParts.push(clip);
+        clip = `[bg${index}][card${index}]overlay=(W-w)/2:(H-h)/2`;
       }
 
       const outLabel = `[v${index}]`;
       graphParts.push(clip + outLabel);
       sceneLabels.push(outLabel);
+      sceneStartFrame = sceneEndFrame;
     }
 
     // Concat all scenes

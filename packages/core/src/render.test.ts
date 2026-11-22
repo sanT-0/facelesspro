@@ -103,10 +103,10 @@ describe('buildRenderPlan', () => {
       input({ scenes: [scene('a.png', 800, 'kenburns-in'), scene('b.png', 700)] }),
     );
     expect(plan.filterGraph).toContain(
-      "[0:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z=1+0.10*on/24:x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d=24:s=1920x1080:fps=30,setsar=1[v0]",
+      "[0:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z='1+0.10*on/24':x=iw/2-(iw/zoom/2):y=ih/2-(ih/zoom/2):d=24:s=1920x1080:fps=30,setsar=1[v0]",
     );
     expect(plan.filterGraph).toContain(
-      "[1:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z=1:x=0:y=0:d=21:s=1920x1080:fps=30,setsar=1[v1]",
+      "[1:v]scale=3840:2160:flags=lanczos,crop=3840:2160,zoompan=z='1':x='0':y='0':d=21:s=1920x1080:fps=30,setsar=1[v1]",
     );
     expect(plan.filterGraph).toContain('[v0][v1]concat=n=2:v=1:a=0[vout]');
   });
@@ -115,9 +115,36 @@ describe('buildRenderPlan', () => {
     const graphFor = (motion: 'kenburns-out' | 'pan-left' | 'pan-right') =>
       buildRenderPlan(input({ scenes: [scene('a.png', 1000, motion)] })).filterGraph;
 
-    expect(graphFor('kenburns-out')).toContain('z=1.10-0.10*on/30');
-    expect(graphFor('pan-left')).toContain('z=1.08:x=(iw-iw/zoom)*(1-on/30)');
-    expect(graphFor('pan-right')).toContain('z=1.08:x=(iw-iw/zoom)*on/30');
+    expect(graphFor('kenburns-out')).toContain("z='1.10-0.10*on/30'");
+    expect(graphFor('pan-left')).toContain("z='1.08':x='(iw-iw/zoom)*(1-on/30)'");
+    expect(graphFor('pan-right')).toContain("z='1.08':x='(iw-iw/zoom)*on/30'");
+  });
+
+  it('draws each still as a centred card on a split background', () => {
+    const plan = buildRenderPlan(
+      input({
+        scenes: [scene('a.png', 800, 'kenburns-in'), scene('b.png', 700)],
+        background: { imagePath: 'bg.png' },
+      }),
+    );
+
+    // The backdrop is looped to the exact length once, then split per scene:
+    // ffmpeg streams are single-consumer, so scenes cannot share one trim.
+    expect(plan.filterGraph).toContain(
+      '[2:v]scale=1920:1080:flags=lanczos,crop=1920:1080,setsar=1,loop=loop=-1:size=1:start=0,fps=30,trim=end_frame=45,setpts=N/(30*TB),split=2[bgsrc0][bgsrc1];',
+    );
+    expect(plan.filterGraph).toContain(
+      '[bgsrc0]trim=start_frame=0:end_frame=24,setpts=PTS-STARTPTS[bg0]',
+    );
+    expect(plan.filterGraph).toContain(
+      '[bgsrc1]trim=start_frame=24:end_frame=45,setpts=PTS-STARTPTS[bg1]',
+    );
+    // 1920x1080 and 1080p landscape card at 0.8 → 1536x864, centred.
+    expect(plan.filterGraph).toContain(',scale=1536:864[card0];');
+    expect(plan.filterGraph).toContain('[bg0][card0]overlay=(W-w)/2:(H-h)/2[v0]');
+    expect(plan.filterGraph).toContain('[bg1][card1]overlay=(W-w)/2:(H-h)/2[v1]');
+    // The backdrop is an extra input, so the audio input index still counts it.
+    expect(plan.args).toContain('bg.png');
   });
 
   it('burns ASS only when a caption path and fonts directory are provided', () => {
