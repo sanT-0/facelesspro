@@ -16,6 +16,7 @@ import {
   captionTemplateRowSchema,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   narrationRowSchema,
   videoRowSchema,
@@ -134,7 +135,7 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz') {
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz' && row.data.kind !== 'fake-text') {
       throw new StepFailure(
         'internal',
         `create-captions received an unsupported video kind ${row.data.kind}`,
@@ -176,6 +177,19 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
       templateId = DEFAULT_CAPTION_TEMPLATE_ID;
       captionSpec = undefined;
       size = request.data.size;
+      render = request.data.render;
+    } else if (row.data.kind === 'fake-text') {
+      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      // Fake text always captions its narration
+      withCaptions = true;
+      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+      captionSpec = undefined;
+      size = 'portrait';
       render = request.data.render;
     } else {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);

@@ -343,6 +343,9 @@ export const createFakeTextVideoRequestSchema = z
 export type CreateFakeTextVideoRequest = z.input<
   typeof createFakeTextVideoRequestSchema
 >;
+export type CreateFakeTextVideoRequestParsed = z.output<
+  typeof createFakeTextVideoRequestSchema
+>;
 
 // --- §3.5 Roblox rant -------------------------------------------------------
 

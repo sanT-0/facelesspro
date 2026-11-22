@@ -15,6 +15,7 @@ import {
   captionTrackRowSchema,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   narrationRowSchema,
   sceneMotionSchema,
@@ -149,7 +150,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz') {
+    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz' && row.data.kind !== 'fake-text') {
       throw new StepFailure(
         'internal',
         `render received an unsupported video kind ${row.data.kind}`,
@@ -203,6 +204,18 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         backgroundAssetId = qa.backgroundAssetId;
         questionAssetIds = qa.questionAssetIds ?? [];
       }
+    } else if (row.data.kind === 'fake-text') {
+      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      options = request.data.render;
+      size = 'portrait';
+      // Fake text doesn't use background/question assets
+      backgroundAssetId = undefined;
+      questionAssetIds = [];
     } else {
       throw new StepFailure('internal', `render received an unsupported video kind ${row.data.kind}`);
     }

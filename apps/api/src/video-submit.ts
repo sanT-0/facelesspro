@@ -11,6 +11,7 @@
 import type {
   CreateAiVideoRequestParsed,
   CreateAiVideoV3RequestParsed,
+  CreateFakeTextVideoRequestParsed,
   CreateQuizVideoRequestParsed,
   VideoRow,
 } from '@facelesspro/contracts';
@@ -35,6 +36,13 @@ export type SubmitVideoInput =
       readonly body: {
         readonly kind: 'quiz';
         readonly body: CreateQuizVideoRequestParsed;
+      };
+    }
+  | {
+      readonly workspaceId: string;
+      readonly body: {
+        readonly kind: 'fake-text';
+        readonly body: CreateFakeTextVideoRequestParsed;
       };
     };
 

@@ -18,6 +18,7 @@ import type { CaptionTemplateDeps } from './caption-templates';
 import { createAiVideosV3Routes } from './ai-videos-v3';
 import { createAiVideosRoutes } from './ai-videos';
 import { createQuizVideosRoutes } from './quiz-videos';
+import { createFakeTextVideosRoutes } from './fake-text-videos';
 import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
 import { createFilesRoutes } from './files';
@@ -225,6 +226,13 @@ export function createApp(deps: ApiDeps): Hono {
    * generation. Uses the quiz-specific image style set.
    */
   app.route('/v1/quiz-videos', createQuizVideosRoutes(deps));
+
+  /**
+   * `POST /v1/fake-text-videos` — create a Fake Text video: conversations with
+   * characters, messages, chat templates, and optional background video.
+   * Uses per-character voices for TTS.
+   */
+  app.route('/v1/fake-text-videos', createFakeTextVideosRoutes(deps));
 
   /**
    * `POST /v1/files` — multipart file upload. Auth and rate limits come from

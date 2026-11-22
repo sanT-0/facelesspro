@@ -13,6 +13,7 @@ import {
   MAX_SCENES,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   narrationPlanSchema,
   scenePlanSchema,
@@ -248,6 +249,34 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
       normalized = {
         script: quizScript,
         size: body.size,
+        style: planStyleFromProfile(profile),
+        strongSwipe: false,
+      };
+    } else if (row.data.kind === 'fake-text' && row.data.request.kind === 'fake-text') {
+      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const body = request.data;
+      // For fake-text, the script is the concatenation of all messages with speaker names
+      const script = body.conversations
+        .flatMap((conversation) =>
+          conversation.messages.map((message) => {
+            const character = conversation.characters.find((c) => c.id === message.characterId);
+            const speaker = character?.name ?? 'Unknown';
+            return `${speaker}: ${message.text}`;
+          }),
+        )
+        .join(' ');
+
+      // Use a default style profile for fake-text (can be extended with template-specific styles later)
+      const profile = v2StyleProfile('CINEMATIC', 'portrait');
+      normalized = {
+        script,
+        size: 'portrait', // Fake text videos are typically portrait
         style: planStyleFromProfile(profile),
         strongSwipe: false,
       };

@@ -16,6 +16,7 @@ import {
   MAX_IMAGE_PROMPT_CHARS,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   type CreateQuizVideoRequestParsed,
   imageGenerationRequestSchema,
@@ -251,6 +252,24 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       // Generate a deterministic UUID v4 for the quiz style to satisfy the manifest schema.
       const styleHash = createHash('sha256').update(`quiz:${v2Style}`).digest('hex');
       // UUID v4 format: xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx (y = 8/9/a/b)
+      styleId = [
+        styleHash.slice(0, 8),
+        styleHash.slice(8, 12),
+        `4${styleHash.slice(12, 15)}`,
+        `8${styleHash.slice(15, 18)}`,
+        styleHash.slice(18, 30),
+      ].join('-');
+    } else if (row.data.kind === 'fake-text') {
+      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      profile = v2StyleProfile('CINEMATIC', 'portrait');
+      size = 'portrait';
+      // Generate a deterministic UUID for fake-text style
+      const styleHash = createHash('sha256').update('fake-text:CINEMATIC').digest('hex');
       styleId = [
         styleHash.slice(0, 8),
         styleHash.slice(8, 12),

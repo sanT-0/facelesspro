@@ -17,6 +17,7 @@ import {
   MAX_MEDIA_SEGMENTS,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   narrationPlanSchema,
   sceneRowSchema,
@@ -183,6 +184,38 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
       await narrate(ctx, {
         script,
         pairId: request.data.voiceId ?? deps.defaultPairId,
+        workspaceId: row.data.workspace_id,
+        revocal: row.data.revocal ?? null,
+        scenes: loadScenes,
+        store,
+        persist,
+        tts: deps.tts,
+        unitCost,
+      });
+    } else if (row.data.kind === 'fake-text' && row.data.request.kind === 'fake-text') {
+      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const body = request.data;
+      // For fake-text, the script is the concatenation of all messages with speaker names
+      const script = body.conversations
+        .flatMap((conversation) =>
+          conversation.messages.map((message) => {
+            const character = conversation.characters.find((c) => c.id === message.characterId);
+            const speaker = character?.name ?? 'Unknown';
+            return `${speaker}: ${message.text}`;
+          }),
+        )
+        .join(' ');
+
+      // Use default voice pair for now; per-character voices will need a multi-voice TTS path
+      await narrate(ctx, {
+        script,
+        pairId: request.data.conversations[0]?.characters[0]?.voiceId ?? deps.defaultPairId,
         workspaceId: row.data.workspace_id,
         revocal: row.data.revocal ?? null,
         scenes: loadScenes,
