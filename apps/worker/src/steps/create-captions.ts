@@ -18,8 +18,10 @@ import {
   createAiVideoV3RequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
+  createRobloxVideoRequestSchema,
   narrationRowSchema,
   videoRowSchema,
+  type VideoKind,
 } from '@facelesspro/contracts';
 import type {
   CaptionCue,
@@ -135,14 +137,19 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz' && row.data.kind !== 'fake-text') {
+    // TypeScript narrowing: cast to the full VideoKind union so all branches
+    // are reachable in the switch statement.
+    const kind: VideoKind = row.data.kind;
+
+    if (row.data.request.kind !== kind) {
+      throw new StepFailure('internal', 'stored request kind does not match the video kind');
+    }
+
+    if (kind === 'caption' || kind === 'commentary') {
       throw new StepFailure(
         'internal',
-        `create-captions received an unsupported video kind ${row.data.kind}`,
+        `create-captions received an unsupported video kind ${kind}`,
       );
-    }
-    if (row.data.request.kind !== row.data.kind) {
-      throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
 
     let withCaptions: boolean;
@@ -151,61 +158,88 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
     let size: Size;
     let render: RenderOptions | undefined;
 
-    if (row.data.kind === 'ai-video-v3') {
-      const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
-      if (!request.success) {
-        throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
-          cause: request.error,
-        });
+    switch (kind) {
+      case 'ai-video-v3': {
+        const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
+        if (!request.success) {
+          throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
+            cause: request.error,
+          });
+        }
+        withCaptions = request.data.captions;
+        templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
+        captionSpec = request.data.captionSpec;
+        size = request.data.size;
+        render = request.data.render;
+        break;
       }
-      withCaptions = request.data.captions;
-      templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
-      captionSpec = request.data.captionSpec;
-      size = request.data.size;
-      render = request.data.render;
-    } else if (row.data.kind === 'quiz') {
-      // Strip internal `_quizAssets` key added by create-images before schema validation.
-      const { _quizAssets: _ignored, ...quizBody } = row.data.request.body as Record<string, unknown>;
-      const request = createQuizVideoRequestSchema.safeParse(quizBody);
-      if (!request.success) {
-        throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
-          cause: request.error,
-        });
+      case 'roblox': {
+        const request = createRobloxVideoRequestSchema.safeParse(row.data.request.body);
+        if (!request.success) {
+          throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
+            cause: request.error,
+          });
+        }
+        withCaptions = true;
+        templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+        captionSpec = {
+          wordLimit: request.data.captionWordLimit,
+          emoji: request.data.autoAddEmoji,
+        };
+        size = 'portrait';
+        render = request.data.render;
+        break;
       }
-      // Quiz always captions its narration; same as V2.
-      withCaptions = true;
-      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
-      captionSpec = undefined;
-      size = request.data.size;
-      render = request.data.render;
-    } else if (row.data.kind === 'fake-text') {
-      // Strip internal `_fakeTextScenes` key before schema validation.
-      const { _fakeTextScenes: _ignored, ...fakeTextBody } = row.data.request.body as Record<string, unknown>;
-      const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
-      if (!request.success) {
-        throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
-          cause: request.error,
-        });
+      case 'quiz': {
+        // Strip internal `_quizAssets` key added by create-images before schema validation.
+        const { _quizAssets: _ignored, ...quizBody } = row.data.request.body as Record<string, unknown>;
+        const request = createQuizVideoRequestSchema.safeParse(quizBody);
+        if (!request.success) {
+          throw new StepFailure('internal', 'stored quiz request does not match the request contract', {
+            cause: request.error,
+          });
+        }
+        // Quiz always captions its narration; same as V2.
+        withCaptions = true;
+        templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+        captionSpec = undefined;
+        size = request.data.size;
+        render = request.data.render;
+        break;
       }
-      // Fake text always captions its narration
-      withCaptions = true;
-      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
-      captionSpec = undefined;
-      size = 'portrait';
-      render = request.data.render;
-    } else {
-      const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
-      if (!request.success) {
-        throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
-          cause: request.error,
-        });
+      case 'fake-text': {
+        // Strip internal `_fakeTextScenes` key before schema validation.
+        const { _fakeTextScenes: _ignored, ...fakeTextBody } = row.data.request.body as Record<string, unknown>;
+        const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
+        if (!request.success) {
+          throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
+            cause: request.error,
+          });
+        }
+        // Fake text always captions its narration
+        withCaptions = true;
+        templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+        captionSpec = undefined;
+        size = 'portrait';
+        render = request.data.render;
+        break;
       }
-      // V2 always captions its narration; the artwork-first opt-out is V3-only.
-      withCaptions = true;
-      templateId = DEFAULT_CAPTION_TEMPLATE_ID;
-      captionSpec = undefined;
-      size = request.data.size;
-      render = request.data.render;
+      default: {
+        // V2 / caption / commentary
+        const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
+        if (!request.success) {
+          throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
+            cause: request.error,
+          });
+        }
+        // V2 always captions its narration; the artwork-first opt-out is V3-only.
+        withCaptions = true;
+        templateId = DEFAULT_CAPTION_TEMPLATE_ID;
+        captionSpec = undefined;
+        size = request.data.size;
+        render = request.data.render;
+        break;
+      }
     }
 
     // V3 is artwork-first. The stable step remains in the cursor even when the
