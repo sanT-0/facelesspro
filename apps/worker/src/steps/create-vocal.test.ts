@@ -75,6 +75,14 @@ function v2Request(body: Record<string, unknown> = { script: SCRIPT }): StepCont
   };
 }
 
+function robloxRequest(body: Record<string, unknown> = { script: SCRIPT }): StepContext['video'] {
+  return {
+    ...request(),
+    kind: 'roblox',
+    request: { kind: 'roblox', body },
+  };
+}
+
 function harness(row: StepContext['video'] = request()) {
   const calls: string[] = [];
   const advance = vi.fn(async () => {
@@ -154,9 +162,9 @@ interface PlannerOutput {
   durationMs: number;
 }
 
-function fakeTts(plan?: (request: { segments: { text: string }[] }) => PlannerOutput) {
+function fakeTts(plan?: (request: { segments: { text: string }[]; pitch_percent?: number }) => PlannerOutput) {
   const resolvePair = vi.fn(async () => PAIR);
-  const synthesize = vi.fn(async (input: { segments: { text: string }[] }) => {
+  const synthesize = vi.fn(async (input: { segments: { text: string }[]; pitch_percent?: number }) => {
     const output =
       plan?.(input) ??
       {
@@ -475,5 +483,62 @@ describe('createCreateVocalWork', () => {
     )[1];
     expect(input.voicePlan.script).toBe(SCRIPT);
     expect(input.voicePlan.runs).toHaveLength(2);
+  });
+});
+
+describe('Roblox create-vocal', () => {
+  it('narrates a roblox rant with the default pitch (140 -> 0%)', async () => {
+    const { work, tts } = deps({});
+    const { context, charge, advance } = harness(robloxRequest());
+
+    await work(context);
+
+    expect(tts.resolvePair).toHaveBeenCalledWith('valluvar');
+    expect(tts.synthesize).toHaveBeenCalledOnce();
+    const synthesisRequest = tts.synthesize.mock.calls[0]![0];
+    expect(synthesisRequest.pitch_percent).toBe(0);
+    expect(charge).toHaveBeenCalledWith(
+      expect.objectContaining({ action: 'tts', unitCost: 0, units: expect.any(Number) })
+    );
+    expect(advance).toHaveBeenCalledOnce();
+  });
+
+  it('passes the pitch percent for a non-default voicePitch', async () => {
+    const { work, tts } = deps({});
+    const { context } = harness(robloxRequest({ script: SCRIPT, voicePitch: 165 }));
+
+    await work(context);
+
+    const synthesisRequest = tts.synthesize.mock.calls[0]![0];
+    // 165 is 25 units above 140, upper span is 40 -> 25/40 * 100 = 62.5 -> 63%
+    expect(synthesisRequest.pitch_percent).toBe(63);
+  });
+
+  it('passes negative pitch percent below the default', async () => {
+    const { work, tts } = deps({});
+    const { context } = harness(robloxRequest({ script: SCRIPT, voicePitch: 100 }));
+
+    await work(context);
+
+    const synthesisRequest = tts.synthesize.mock.calls[0]![0];
+    // 100 is 40 units below 140, lower span is 90 -> 40/90 * 100 = 44.4 -> 44%
+    expect(synthesisRequest.pitch_percent).toBe(-44);
+  });
+
+  it('uses an explicit voiceId when provided', async () => {
+    const { work, tts } = deps({});
+    const { context } = harness(robloxRequest({ script: SCRIPT, voiceId: 'pallavi' }));
+
+    await work(context);
+
+    expect(tts.resolvePair).toHaveBeenCalledWith('pallavi');
+  });
+
+  it('fails loudly when the stored roblox request is not the contract', async () => {
+    const { work } = deps({});
+    const { context, calls } = harness(robloxRequest({ script: '' }));
+
+    await expect(work(context)).rejects.toMatchObject({ code: 'internal' });
+    expect(calls).not.toContain('charge');
   });
 });

@@ -22,7 +22,13 @@ class Synthesis:
 
 
 class TTSEngine(Protocol):
-    async def synthesize(self, text: str, voice: str) -> Synthesis: ...
+    async def synthesize(
+        self,
+        text: str,
+        voice: str,
+        *,
+        pitch_percent: int | None = None,
+    ) -> Synthesis: ...
 
 
 class EdgeTTSEngine:
@@ -32,8 +38,23 @@ class EdgeTTSEngine:
     # different avoids reusing these entries.
     name = "edge"
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
-        communicate = edge_tts.Communicate(text, voice, boundary="WordBoundary")
+    async def synthesize(
+        self,
+        text: str,
+        voice: str,
+        *,
+        pitch_percent: int | None = None,
+    ) -> Synthesis:
+        # Edge speaks percent ("+25%") or hertz ("+10Hz"). Percent keeps the
+        # shift relative to whatever fundamental the chosen voice has, which is
+        # what a 50–180 slider means.
+        options: dict[str, str] = {}
+        if pitch_percent is not None and pitch_percent != 0:
+            options["pitch"] = f"{pitch_percent:+d}%"
+
+        communicate = edge_tts.Communicate(
+            text, voice, boundary="WordBoundary", **options
+        )
 
         audio = bytearray()
         words: list[WordTiming] = []

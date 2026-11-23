@@ -130,6 +130,12 @@ export {
 } from './duration';
 export type { DurationEstimate, DurationOptions, DurationRates } from './duration';
 export {
+  VOICE_PITCH_DEFAULT,
+  VOICE_PITCH_MAX,
+  VOICE_PITCH_MIN,
+  voicePitchPercent,
+} from './pitch';
+export {
   DEFAULT_MAX_SCENES,
   DEFAULT_SCENE_MAX_SECONDS,
   DEFAULT_SCENE_MIN_SECONDS,

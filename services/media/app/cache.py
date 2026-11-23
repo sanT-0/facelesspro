@@ -42,10 +42,25 @@ class CacheStats:
     bytes: int
 
 
-def cache_key(*, engine: str, voice: str, text: str) -> str:
-    """Stable across processes and platforms: canonical JSON, then SHA-256."""
+def cache_key(
+    *, engine: str, voice: str, text: str, pitch_percent: int | None = None
+) -> str:
+    """Stable across processes and platforms: canonical JSON, then SHA-256.
+
+    An untouched voice omits the pitch field entirely, so every key written
+    before pitch existed still resolves to the same entry.
+    """
+    document: dict[str, object] = {
+        "v": CACHE_FORMAT,
+        "engine": engine,
+        "voice": voice,
+        "text": text,
+    }
+    if pitch_percent:
+        document["pitch"] = pitch_percent
+
     payload = json.dumps(
-        {"v": CACHE_FORMAT, "engine": engine, "voice": voice, "text": text},
+        document,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),
@@ -223,8 +238,19 @@ class CachingTTSEngine:
         self.cache = cache
         self.name = name or getattr(inner, "name", type(inner).__name__)
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
-        key = cache_key(engine=self.name, voice=voice, text=text)
+    async def synthesize(
+        self,
+        text: str,
+        voice: str,
+        *,
+        pitch_percent: int | None = None,
+    ) -> Synthesis:
+        key = cache_key(
+            engine=self.name,
+            voice=voice,
+            text=text,
+            pitch_percent=pitch_percent,
+        )
         try:
             cached = self.cache.get(key)
         except OSError:
@@ -232,7 +258,9 @@ class CachingTTSEngine:
         if cached is not None:
             return cached
 
-        synthesis = await self.inner.synthesize(text, voice)
+        synthesis = await self.inner.synthesize(
+            text, voice, pitch_percent=pitch_percent
+        )
         try:
             self.cache.put(key, synthesis)
         except OSError:

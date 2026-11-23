@@ -16,6 +16,10 @@ class SynthesizeRequest(BaseModel):
     # Explicit override for every join. When omitted, the gap comes from the
     # punctuation between runs (see `app/boundaries.py`).
     gap_ms: int | None = Field(default=None, ge=0, le=2_000)
+    # Engine pitch shift for every run, in percent. `0` (or omitted) is the
+    # voice untouched; `±100` is all the headroom the engine gives us. The
+    # caller maps a product slider to this (`voicePitchPercent` in core).
+    pitch_percent: int | None = Field(default=None, ge=-100, le=100)
 
 
 class WordTiming(BaseModel):

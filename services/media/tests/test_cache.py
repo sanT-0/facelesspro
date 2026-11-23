@@ -33,17 +33,23 @@ class CountingEngine:
 
     def __init__(self, audio: bytes = b"RIFFfake") -> None:
         self.calls: list[tuple[str, str]] = []
+        self.pitches: list[int | None] = []
         self.audio = audio
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
+    async def synthesize(
+        self, text: str, voice: str, *, pitch_percent: int | None = None
+    ) -> Synthesis:
         self.calls.append((text, voice))
+        self.pitches.append(pitch_percent)
         return make_synthesis(self.audio, text)
 
 
 class BrokenEngine:
     name = "broken"
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
+    async def synthesize(
+        self, text: str, voice: str, *, pitch_percent: int | None = None
+    ) -> Synthesis:
         raise TTSError("provider exploded")
 
 
@@ -221,3 +227,35 @@ def test_cache_can_be_disabled(tmp_path: Path, tone_wav) -> None:
     assert len(engine.calls) == 2
     assert client.get("/cache").json() == {"enabled": False}
     assert client.get("/health").json()["cache"] is False
+
+
+def test_pitch_is_part_of_the_key_but_an_unpitched_key_is_unchanged() -> None:
+    flat = cache_key(engine="edge", voice=VOICE, text="hello")
+    pitched = cache_key(engine="edge", voice=VOICE, text="hello", pitch_percent=50)
+
+    assert flat != pitched
+    # Omitting the shift and asking for 0% produce the same audio, so they share
+    # an entry; the pre-pitch key stays valid too.
+    assert cache_key(
+        engine="edge", voice=VOICE, text="hello", pitch_percent=0
+    ) == flat
+    assert cache_key(
+        engine="edge", voice=VOICE, text="hello", pitch_percent=None
+    ) == flat
+
+
+def test_a_pitched_run_does_not_reuse_the_flat_entry(tmp_path: Path) -> None:
+    inner = CountingEngine()
+    engine = CachingTTSEngine(inner, SynthesisCache(tmp_path))
+
+    async def run() -> None:
+        await engine.synthesize("hello", VOICE, pitch_percent=50)
+        await engine.synthesize("hello", VOICE, pitch_percent=50)
+        await engine.synthesize("hello", VOICE)
+
+    import asyncio
+
+    asyncio.run(run())
+
+    assert len(inner.calls) == 2
+    assert inner.pitches == [50, None]

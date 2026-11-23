@@ -15,6 +15,7 @@ import {
   createAiVideoV3RequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
+  createRobloxVideoRequestSchema,
   narrationPlanSchema,
   scenePlanSchema,
   styleProfileSchema,
@@ -367,6 +368,25 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         await tx.advance();
       });
       return;
+    } else if (row.data.kind === 'roblox' && row.data.request.kind === 'roblox') {
+      const request = createRobloxVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      // A rant is one script over a gameplay background: no art-style row to
+      // look up, portrait, and the planner's own motion cycle (a swipe pan
+      // would fight the background video). The preset only feeds image prompts;
+      // when a background video is supplied the stills stay hidden at render.
+      const profile = v2StyleProfile('CINEMATIC', 'portrait');
+      normalized = {
+        script: request.data.script,
+        size: 'portrait',
+        style: planStyleFromProfile(profile),
+        strongSwipe: false,
+      };
     } else {
       throw new StepFailure(
         'internal',

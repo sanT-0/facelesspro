@@ -42,6 +42,13 @@ export const synthesizeRequestSchema = z.strictObject({
    * gap from the punctuation between runs.
    */
   gap_ms: z.int().min(0).max(MAX_GAP_MS).optional(),
+  /**
+   * Engine pitch shift applied to every run, in percent of the voice's natural
+   * fundamental. `0` is the unmodified voice; the contract allows the engine's
+   * full ±100% headroom. The caller converts a product slider (Roblox Rant's
+   * `voicePitch`) with `voicePitchPercent` in `@facelesspro/core`.
+   */
+  pitch_percent: z.int().min(-100).max(100).optional(),
 });
 export type SynthesizeRequest = z.infer<typeof synthesizeRequestSchema>;
 

@@ -158,7 +158,7 @@ def create_app(
         for index, segment in enumerate(request.segments):
             try:
                 synthesis = await app.state.engine.synthesize(
-                    segment.text, segment.voice
+                    segment.text, segment.voice, pitch_percent=request.pitch_percent
                 )
             except TTSError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc

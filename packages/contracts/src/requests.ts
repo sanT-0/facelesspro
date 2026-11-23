@@ -364,6 +364,9 @@ export const createRobloxVideoRequestSchema = z.strictObject({
 export type CreateRobloxVideoRequest = z.input<
   typeof createRobloxVideoRequestSchema
 >;
+export type CreateRobloxVideoRequestParsed = z.output<
+  typeof createRobloxVideoRequestSchema
+>;
 
 // --- §3.6 Caption video -----------------------------------------------------
 

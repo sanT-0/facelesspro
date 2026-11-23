@@ -19,12 +19,13 @@ import {
   createAiVideoV3RequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
+  createRobloxVideoRequestSchema,
   narrationPlanSchema,
   sceneRowSchema,
   videoRowSchema,
 } from '@facelesspro/contracts';
 import type { NarrationPlan, SceneRow } from '@facelesspro/contracts';
-import { buildNarrationPlan, normalizeScript, planToSegments } from '@facelesspro/core';
+import { buildNarrationPlan, normalizeScript, planToSegments, voicePitchPercent } from '@facelesspro/core';
 import type { NarrationSegment } from '@facelesspro/core';
 import { asset, narration, scene, video } from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
@@ -317,6 +318,31 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         await tx.charge({ action: 'tts', units: segments.reduce((total, s) => total + [...s.text].length, 0), unitCost });
         await tx.advance();
       });
+    } else if (row.data.kind === 'roblox' && row.data.request.kind === 'roblox') {
+      // Roblox Rant: one script, one voice pair, pitch from voicePitch.
+      // The default 140 maps to 0% (voice untouched); 50 -> -100%, 180 -> +100%.
+      const request = createRobloxVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      const pitchPercent = voicePitchPercent(request.data.voicePitch);
+      const script = request.data.script;
+
+      await narrate(ctx, {
+        script,
+        pairId: request.data.voiceId ?? deps.defaultPairId,
+        workspaceId: row.data.workspace_id,
+        revocal: row.data.revocal ?? null,
+        scenes: loadScenes,
+        store,
+        persist,
+        tts: deps.tts,
+        unitCost,
+        pitchPercent,
+      });
     } else {
       throw new StepFailure(
         'internal',
@@ -336,6 +362,7 @@ interface NarrateOptions {
   readonly persist: PersistNarration;
   readonly tts: TtsPort;
   readonly unitCost: number;
+  readonly pitchPercent?: number;
 }
 
 async function narrate(ctx: StepContext, opts: NarrateOptions): Promise<void> {
@@ -376,7 +403,7 @@ async function narrate(ctx: StepContext, opts: NarrateOptions): Promise<void> {
   }
 
   const synthesis = await callTts(
-    () => opts.tts.synthesize({ segments }),
+    () => opts.tts.synthesize({ segments, pitch_percent: opts.pitchPercent }),
     'synthesis',
   );
   assertSynthesis(synthesis, segments);

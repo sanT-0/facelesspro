@@ -19,6 +19,7 @@ import { createAiVideosV3Routes } from './ai-videos-v3';
 import { createAiVideosRoutes } from './ai-videos';
 import { createQuizVideosRoutes } from './quiz-videos';
 import { createFakeTextVideosRoutes } from './fake-text-videos';
+import { createRobloxVideosRoutes } from './roblox-videos';
 import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
 import { createFilesRoutes } from './files';
@@ -233,6 +234,12 @@ export function createApp(deps: ApiDeps): Hono {
    * Uses per-character voices for TTS.
    */
   app.route('/v1/fake-text-videos', createFakeTextVideosRoutes(deps));
+
+  /**
+   * `POST /v1/roblox-videos` — create a Roblox Rant: one script read over a
+   * gameplay background, with a pitch, a caption word limit and emoji.
+   */
+  app.route('/v1/roblox-videos', createRobloxVideosRoutes(deps));
 
   /**
    * `POST /v1/files` — multipart file upload. Auth and rate limits come from

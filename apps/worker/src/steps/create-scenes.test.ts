@@ -683,3 +683,74 @@ describe('V2 create-scenes', () => {
     );
   });
 });
+
+function robloxVideo(
+  body: Record<string, unknown> = { script: SCRIPT },
+): StepContext['video'] {
+  return {
+    ...video(),
+    kind: 'roblox',
+    request: { kind: 'roblox', body },
+  };
+}
+
+describe('Roblox create-scenes', () => {
+  const ROBLOX_STYLE = planStyleFromProfile(v2StyleProfile('CINEMATIC', 'portrait'));
+
+  it('plans the script with the portrait cinematic preset and no style lookup', async () => {
+    const findStyle = vi.fn(async (): Promise<ArtStyleRow | null> => {
+      throw new Error('Roblox must not look up an art style');
+    });
+    const requests: Array<{ readonly script: string; readonly style: unknown }> = [];
+    const planPort: PlanFn = {
+      plan: vi.fn(async (request) => {
+        requests.push(request);
+        return V2_PLAN;
+      }),
+    };
+    const persistPlan = vi.fn(async () => {});
+    const { context, transactionCalls, advance } = harness(
+      robloxVideo({ script: SCRIPT, voicePitch: 140, captionWordLimit: 6, autoAddEmoji: true }),
+    );
+
+    await createCreateScenesWork({ planner: planPort, findStyle, persistPlan })(context);
+
+    expect(findStyle).not.toHaveBeenCalled();
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.script).toBe(SCRIPT);
+    expect(requests[0]?.style).toEqual(ROBLOX_STYLE);
+    expect(persistPlan).toHaveBeenCalledOnce();
+    expect(transactionCalls).toHaveLength(1);
+    expect(advance).toHaveBeenCalledOnce();
+  });
+
+  it('keeps the planner motion rather than forcing swipe pans', async () => {
+    const persisted: ScenePlan[] = [];
+    const persistPlan = vi.fn(
+      async (_tx: CommitTx, _videoId: string, value: ScenePlan) => {
+        persisted.push(value);
+      },
+    );
+    const { context } = harness(robloxVideo());
+
+    await createCreateScenesWork({
+      planner: planner(V2_PLAN),
+      findStyle: vi.fn(),
+      persistPlan,
+    })(context);
+
+    expect(persisted[0]?.scenes.map((scene) => scene.motion)).toEqual(
+      V2_PLAN.scenes.map((scene) => scene.motion),
+    );
+  });
+
+  it('fails loudly when the stored roblox request is not the contract', async () => {
+    const { context, transactionCalls } = harness(robloxVideo({ script: '' }));
+    const persistPlan = vi.fn(async () => {});
+
+    await expect(
+      createCreateScenesWork({ planner: planner(), findStyle: vi.fn(), persistPlan })(context),
+    ).rejects.toMatchObject({ code: 'internal' });
+    expect(transactionCalls).toHaveLength(0);
+  });
+});

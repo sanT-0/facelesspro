@@ -26,9 +26,13 @@ class FakeEngine:
         self.tone = tone
         self.fail_contains = fail_contains
         self.calls: list[tuple[str, str]] = []
+        self.pitches: list[int | None] = []
 
-    async def synthesize(self, text: str, voice: str) -> Synthesis:
+    async def synthesize(
+        self, text: str, voice: str, *, pitch_percent: int | None = None
+    ) -> Synthesis:
         self.calls.append((text, voice))
+        self.pitches.append(pitch_percent)
         if self.fail_contains and self.fail_contains in text:
             raise TTSError("provider exploded")
         words = [
@@ -223,3 +227,54 @@ def test_timeline_file_is_written(tmp_path: Path, tone_wav) -> None:
     assert timeline["gaps_ms"] == [0, 300]
     assert timeline["boundaries"] == ["start", "sentence"]
     assert timeline["master_path"] == body["master_path"]
+
+
+def test_pitch_percent_reaches_the_engine(tmp_path: Path, tone_wav) -> None:
+    engine = FakeEngine(tone_wav)
+    client = make_client(tmp_path, tone_wav, engine)
+
+    res = client.post(
+        "/synthesize",
+        json={
+            "segments": [
+                {"text": "this game is broken", "voice": "en-IN-NeerjaNeural"},
+                {"text": "and I mean it", "voice": "en-IN-NeerjaNeural"},
+            ],
+            "pitch_percent": 50,
+        },
+    )
+
+    assert res.status_code == 200
+    # Every run gets the same shift; a per-run pitch would make one rant two
+    # different people.
+    assert engine.pitches == [50, 50]
+
+
+def test_an_untouched_voice_sends_no_pitch(tmp_path: Path, tone_wav) -> None:
+    engine = FakeEngine(tone_wav)
+    client = make_client(tmp_path, tone_wav, engine)
+
+    res = client.post(
+        "/synthesize",
+        json={"segments": [{"text": "hello", "voice": "en-IN-NeerjaNeural"}]},
+    )
+
+    assert res.status_code == 200
+    assert engine.pitches == [None]
+
+
+@pytest.mark.parametrize("pitch", [-101, 101])
+def test_rejects_a_pitch_outside_the_engine_range(
+    tmp_path: Path, tone_wav, pitch: int
+) -> None:
+    client = make_client(tmp_path, tone_wav)
+
+    res = client.post(
+        "/synthesize",
+        json={
+            "segments": [{"text": "hello", "voice": "en-IN-NeerjaNeural"}],
+            "pitch_percent": pitch,
+        },
+    )
+
+    assert res.status_code == 422
