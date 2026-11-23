@@ -17,10 +17,12 @@ import {
   createAiVideoV3RequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
+  createRobloxVideoRequestSchema,
   narrationRowSchema,
   sceneMotionSchema,
   sceneRowSchema,
   videoRowSchema,
+  type VideoKind,
 } from '@facelesspro/contracts';
 import type {
   AssetRow,
@@ -150,23 +152,23 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         cause: row.error,
       });
     }
-    if (row.data.kind !== 'ai-video-v3' && row.data.kind !== 'ai-video' && row.data.kind !== 'quiz' && row.data.kind !== 'fake-text') {
-      throw new StepFailure(
-        'internal',
-        `render received an unsupported video kind ${row.data.kind}`,
-      );
+
+    // TypeScript narrowing: extract kind early so all branches are reachable.
+    const kind: VideoKind = row.data.kind;
+    if (kind === 'caption' || kind === 'commentary') {
+      throw new StepFailure('internal', `render received an unsupported video kind ${kind}`);
     }
-    if (row.data.request.kind !== row.data.kind) {
+    if (row.data.request.kind !== kind) {
       throw new StepFailure('internal', 'stored request kind does not match the video kind');
     }
 
     let options: RenderOptions | undefined;
-    let size: Size = 'portrait'; // Default; all valid kinds override, invalid kinds throw
+    let size: Size = 'portrait';
     let backgroundAssetId: string | undefined;
     let questionAssetIds: string[] = [];
     let quizItems: readonly QuizItem[] | undefined;
     let quizAnswerTemplate = '{{answer}}';
-    if (row.data.kind === 'ai-video-v3') {
+    if (kind === 'ai-video-v3') {
       const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
         throw new StepFailure('internal', 'stored V3 request does not match the request contract', {
@@ -175,7 +177,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
-    } else if (row.data.kind === 'ai-video') {
+    } else if (kind === 'ai-video') {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
         throw new StepFailure('internal', 'stored V2 request does not match the request contract', {
@@ -184,7 +186,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
-    } else if (row.data.kind === 'quiz') {
+    } else if (kind === 'quiz') {
       // Strip internal `_quizAssets` key before schema validation, but keep it for asset loading.
       const { _quizAssets, ...quizBody } = row.data.request.body as Record<string, unknown>;
       const request = createQuizVideoRequestSchema.safeParse(quizBody);
@@ -209,7 +211,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     // Track background video start time for fake-text (initialized here so it's in scope later)
     let backgroundVideoStartFrom: number | undefined;
 
-    if (row.data.kind === 'fake-text') {
+    if (kind === 'fake-text') {
       // Strip internal `_fakeTextScenes` key before schema validation.
       const { _fakeTextScenes: _ignored, ...fakeTextBody } = row.data.request.body as Record<string, unknown>;
       const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
@@ -224,6 +226,27 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       backgroundAssetId = request.data.backgroundVideoId;
       backgroundVideoStartFrom = request.data.backgroundVideoStartFrom;
       questionAssetIds = [];
+    } else if (kind === 'roblox' && row.data.request.kind === 'roblox') {
+      // Strip internal `_robloxAssets` key before schema validation, but keep it for asset loading.
+      const { _robloxAssets, ...robloxBody } = row.data.request.body as Record<string, unknown>;
+      const request = createRobloxVideoRequestSchema.safeParse(robloxBody);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+      options = request.data.render;
+      size = 'portrait';
+      // Load background video asset if provided
+      backgroundAssetId = request.data.backgroundVideoId;
+      backgroundVideoStartFrom = request.data.backgroundVideoStartFrom;
+      questionAssetIds = [];
+
+      // Load roblox-specific assets from original request body
+      if (_robloxAssets && typeof _robloxAssets === 'object' && _robloxAssets !== null) {
+        const ra = _robloxAssets as { backgroundAssetId?: string };
+        backgroundAssetId = ra.backgroundAssetId ?? backgroundAssetId;
+      }
     } else if (
       row.data.kind !== 'ai-video-v3' &&
       row.data.kind !== 'ai-video' &&
