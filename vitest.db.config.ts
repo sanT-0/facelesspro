@@ -1,5 +1,13 @@
 import { fileURLToPath } from 'node:url';
+import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
+
+/** `.env` wins, then the documented compose default. */
+const fileEnv = loadEnv('test', process.cwd(), '');
+const databaseUrl =
+  process.env.DATABASE_URL ??
+  fileEnv.DATABASE_URL ??
+  'postgresql://faceless:faceless@127.0.0.1:5432/faceless';
 
 const alias = {
   '@facelesspro/core': fileURLToPath(
@@ -30,7 +38,7 @@ export default defineConfig({
   test: {
     include: ['packages/**/*.db.test.ts', 'apps/**/*.db.test.ts'],
     environment: 'node',
-    env: { DB_TESTS: '1', DATABASE_URL: 'postgresql://faceless:faceless@127.0.0.1:5432/faceless' },
+    env: { DB_TESTS: '1', DATABASE_URL: databaseUrl },
     // Suites isolate application rows by workspace, but pg-boss queue names are
     // global. Parallel files that both purge `create-vocal` can erase the other
     // suite's just-enqueued artifact and turn a good atomic commit into a false
