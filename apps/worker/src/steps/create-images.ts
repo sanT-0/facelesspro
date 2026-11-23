@@ -63,6 +63,7 @@ import {
   resolveStorageKey,
   storageKey,
 } from '../art-style/storage';
+import { renderChatSkin, chatSkinSvgToPng, type ChatTemplate, type ChatRenderOptions } from '@facelesspro/art';
 import type { ImageFn } from '../ports/image';
 import { v2StyleId, v2StyleProfile } from '../v2/style';
 
@@ -277,6 +278,114 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         `8${styleHash.slice(15, 18)}`,
         styleHash.slice(18, 30),
       ].join('-');
+
+      // For fake-text, render chat skins instead of generating images
+      const body = request.data as { _fakeTextScenes?: unknown };
+      const fakeTextScenes = body._fakeTextScenes as
+        | readonly {
+            template: string;
+            characters: readonly { id: string; name: string; side: 'left' | 'right'; voiceId?: string }[];
+            messages: readonly { text: string; characterId?: string; side: 'left' | 'right' }[];
+            groupName?: string;
+            groupPhoto?: string;
+            tinderMatch?: boolean;
+          }[]
+        | undefined;
+
+      if (!fakeTextScenes || fakeTextScenes.length === 0) {
+        throw new StepFailure('internal', 'fake-text scenes not found in stored request', {
+          cause: 'create-scenes did not store _fakeTextScenes',
+        });
+      }
+
+      const frameBytes: Array<{ key: string; bytes: Uint8Array }> = [];
+      const frames: SceneFrameManifest[] = [];
+
+      for (let idx = 0; idx < fakeTextScenes.length; idx++) {
+        const sceneData = fakeTextScenes[idx]!;
+        const template = sceneData.template as ChatTemplate;
+
+        // Build chat messages in the format expected by the renderer
+        const chatMessages = sceneData.messages.map((msg) => ({
+          text: msg.text,
+          side: msg.side,
+          name: sceneData.characters.find((c) => c.id === msg.characterId)?.name,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+        }));
+
+        const chatOptions: ChatRenderOptions = {
+          template,
+          characters: sceneData.characters,
+          messages: chatMessages,
+          groupName: sceneData.groupName,
+          groupPhoto: sceneData.groupPhoto,
+          tinderMatch: sceneData.tinderMatch,
+          width: 1080, // Portrait width
+          height: 1920, // Portrait height
+        };
+
+        const svg = renderChatSkin(chatOptions);
+        const png = await chatSkinSvgToPng(svg, 1080, 1920);
+
+        const key = frameKey(row.data.workspace_id, ctx.videoId, idx);
+        await ensureParentPath(resolveStorageKey(dataDir(), key));
+        await writeFile(resolveStorageKey(dataDir(), key), png);
+
+        frameBytes.push({ key, bytes: png });
+        frames.push({
+          idx,
+          key,
+          prompt: `fake-text chat skin: ${template}`,
+          seed: 0,
+          adapter: 'procedural',
+          degradedFrom: [],
+          width: 1080,
+          height: 1920,
+          bytes: png.length,
+          sha256: createHash('sha256').update(png).digest('hex'),
+          correction: { deltaE: 0, maxDeltaE: 6 },
+          consistency: { distance: null, outlier: false, regenerated: false, finalDistance: null },
+        });
+      }
+
+      const manifest = sceneManifestSchema.parse({
+        version: 1,
+        videoId: ctx.videoId,
+        styleId: 'chat-skin',
+        size,
+        frames,
+      });
+
+      await storeFramesSafely(store, {
+        workspaceId: row.data.workspace_id,
+        videoId: ctx.videoId,
+        frames: frameBytes,
+        manifest,
+      });
+
+      ctx.observe({
+        adapter: 'chat-skin',
+        items: fakeTextScenes.length,
+        ok: fakeTextScenes.length,
+        bytes: frameBytes.reduce((total, frame) => total + frame.bytes.length, 0),
+        costUnits: 0, // Chat skin rendering doesn't cost image credits
+        degradedFrom: '',
+      });
+
+      await ctx.transaction(async (tx) => {
+        await persist(tx, {
+          videoId: ctx.videoId,
+          workspaceId: row.data.workspace_id,
+          frames,
+        });
+        await tx.charge({
+          action: 'image',
+          units: 0,
+          unitCost,
+        });
+        await tx.advance();
+      });
+      return;
     } else {
       throw new StepFailure('internal', `create-images received an unsupported video kind ${row.data.kind}`);
     }

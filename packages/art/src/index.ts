@@ -20,3 +20,4 @@ export { renderVideo } from './render';
 export type { RenderResult } from './render';
 export { extractThumbnail } from './thumbnail';
 export type { ThumbnailResult } from './thumbnail';
+export { renderChatSkin, chatSkinSvgToPng, chatSkinSeed, type ChatTemplate, type ChatRenderOptions } from './chat-skin';
