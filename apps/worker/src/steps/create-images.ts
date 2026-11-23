@@ -18,6 +18,7 @@ import {
   createAiVideoV3RequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
+  createRobloxVideoRequestSchema,
   type CreateQuizVideoRequestParsed,
   imageGenerationRequestSchema,
   sceneManifestSchema,
@@ -399,6 +400,30 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           units: 0,
           unitCost,
         });
+        await tx.advance();
+      });
+      return;
+    } else if (row.data.kind === 'roblox' && row.data.request.kind === 'roblox') {
+      // Roblox Rant: no generated images; the visual is the gameplay background video.
+      // Store the background video asset ID for the render step.
+      const request = createRobloxVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      // Record the background video asset ID in the request body for render
+      if (request.data.backgroundVideoId) {
+        const updatedBody = { ...row.data.request.body, _robloxAssets: { backgroundAssetId: request.data.backgroundVideoId } };
+        await ctx.db.update(video).set({ request: { kind: 'roblox', body: updatedBody } }).where(eq(video.id, ctx.videoId));
+      }
+
+      ctx.observe({ adapter: 'background-video', items: 0, ok: 0, bytes: 0, costUnits: 0, degradedFrom: '' });
+
+      await ctx.transaction(async (tx) => {
+        // No frames to persist for roblox (background video handled at render)
+        await tx.charge({ action: 'image', units: 0, unitCost });
         await tx.advance();
       });
       return;
