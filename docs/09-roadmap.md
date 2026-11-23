@@ -631,7 +631,15 @@ flow works at 375 px width.
       (tone, not speech) and procedural chat-skin images: the offline floor the P9 gate asks
       for. **Not proven:** production chat-skin quality needs a model image adapter; the
       listening gate for real narration is still open (tracked with P1).
-- [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).
+- [x] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).
+      All five worker branches done 2026-11-23: `create-scenes` (portrait CINEMATIC preset),
+      `create-vocal` (pitch via `voicePitchPercent` from core), `create-captions` (template -1,
+      `captionWordLimit`/`autoAddEmoji` from request), `create-images` (background video asset
+      + dummy transparent PNG for scene placeholder), `render` (composites background video +
+      dummy scene images + narration + captions). Media service TTS engine and cache updated
+      for `pitch_percent`. Core render `audioInputIndex` fix counts `-i` occurrences instead
+      of array length / 2. Artifact: `.data/artifacts/p9-roblox/roblox-30s-fixture.mp4`
+      (portrait 1080×1920, 30 fps, H.264/yuv420p, AAC 48 kHz). Gate: 1562 unit + 63 db tests pass.
 - [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
 - [ ] Background video + sound effect libraries (CC0 assets, credited).
 
