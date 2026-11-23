@@ -300,15 +300,25 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
 
       // Build the scene plan directly with our pre-split scenes.
       // Timings will be re-derived by create-vocal from TTS output.
+      // Estimate duration: ~150 words/minute = 2.5 words/sec for English.
       const profile = v2StyleProfile('CINEMATIC', 'portrait');
-      const plannedScenes = sceneScripts.map((script, index) => ({
-        text: script,
-        imagePrompt: imagePromptFor(script, planStyleFromProfile(profile)),
-        motion: MOTION_CYCLE[index % MOTION_CYCLE.length]!,
-        emphasis: [],
-        startMs: 0, // Placeholder; create-vocal will re-derive
-        endMs: 0,   // Placeholder; create-vocal will re-derive
-      }));
+      const WORDS_PER_SECOND = 2.5;
+      let currentTimeMs = 0;
+      const plannedScenes = sceneScripts.map((script, index) => {
+        const words = script.trim().split(/\s+/).length;
+        const estimatedDurationMs = Math.max(1000, Math.round((words / WORDS_PER_SECOND) * 1000));
+        const startMs = currentTimeMs;
+        const endMs = currentTimeMs + estimatedDurationMs;
+        currentTimeMs = endMs;
+        return {
+          text: script,
+          imagePrompt: imagePromptFor(script, planStyleFromProfile(profile)),
+          motion: MOTION_CYCLE[index % MOTION_CYCLE.length]!,
+          emphasis: [],
+          startMs,
+          endMs,
+        };
+      });
 
       normalized = {
         script: fullScript,
@@ -320,6 +330,43 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
 
       // Attach fake-text scene data to the normalized request for persistence
       (normalized as NormalizedSceneRequest & { _fakeTextScenes?: unknown })._fakeTextScenes = fakeTextScenes;
+
+      // For fake-text, use pre-planned scenes directly (skip planner)
+      const plan = {
+        scenes: plannedScenes,
+        adapter: 'heuristic' as const,
+        degradedFrom: [] as ('cloudflare' | 'heuristic' | 'groq' | 'ollama')[],
+        totalMs: plannedScenes.at(-1)?.endMs ?? 0,
+      };
+      const reconstructed = normalizeScript(plan.scenes.map((planned) => planned.text).join(' '));
+      if (reconstructed !== normalizeScript(fullScript)) {
+        throw new StepFailure(
+          'internal',
+          'fake-text pre-planned scene text does not reconstruct the normalized script',
+        );
+      }
+
+      ctx.observe({
+        adapter: plan.adapter,
+        items: plan.scenes.length,
+        degradedFrom: undefined,
+      });
+
+      await ctx.transaction(async (tx) => {
+        await persist(tx, ctx.videoId, plan);
+        // Store fake-text scene data in request body for create-images/create-vocal
+        const fakeTextScenes = (normalized as NormalizedSceneRequest & { _fakeTextScenes?: unknown })._fakeTextScenes;
+        if (fakeTextScenes !== undefined) {
+          const videoRow = await tx.db.select().from(video).where(eq(video.id, ctx.videoId)).limit(1);
+          if (videoRow[0]?.request) {
+            const currentBody = videoRow[0].request.body as Record<string, unknown>;
+            const updatedBody = { ...currentBody, _fakeTextScenes: fakeTextScenes };
+            await tx.db.update(video).set({ request: { kind: 'fake-text', body: updatedBody } }).where(eq(video.id, ctx.videoId));
+          }
+        }
+        await tx.advance();
+      });
+      return;
     } else {
       throw new StepFailure(
         'internal',
@@ -418,6 +465,16 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
 
     await ctx.transaction(async (tx) => {
       await persist(tx, ctx.videoId, plan);
+      // Store fake-text scene data in request body for create-images/create-vocal
+      const fakeTextScenes = (normalized as NormalizedSceneRequest & { _fakeTextScenes?: unknown })._fakeTextScenes;
+      if (fakeTextScenes !== undefined) {
+        const videoRow = await tx.db.select().from(video).where(eq(video.id, ctx.videoId)).limit(1);
+        if (videoRow[0]?.request) {
+          const currentBody = videoRow[0].request.body as Record<string, unknown>;
+          const updatedBody = { ...currentBody, _fakeTextScenes: fakeTextScenes };
+          await tx.db.update(video).set({ request: { kind: 'fake-text', body: updatedBody } }).where(eq(video.id, ctx.videoId));
+        }
+      }
       await tx.advance();
     });
   };

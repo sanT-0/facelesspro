@@ -619,7 +619,18 @@ flow works at 375 px width.
       pan; a real cross-fade transition is P5.3, and the listening gate is separate. Artifact at
       `.data/artifacts/p9-v2/v2-30s-live.mp4`.
 - [x] Quiz video (`standard`, `multi-levels`, comments, question images). API route + create-scenes + create-images (scene images + background/question images conditional on flags) + create-captions + render (background + question cards) done 2026-11-20; e2e test produces a watchable 30 s artifact with background, question images as centred cards, and the five-step pipeline green.
-- [~] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line). API route + create-scenes (autoSplit scene splitting, per-scene data storage) + create-vocal (per-character voice synthesis) + create-images (9 chat skin rendering via SVG/resvg) done 2026-11-23; create-captions, render, background video, e2e artifact remaining.
+- [x] Fake Text video (9 skins, group chats, `autoSplit`, per-character voices, Tinder match line).
+      All five worker branches done 2026-11-23: `create-scenes` (autoSplit at
+      `FAKE_TEXT_SCENE_CHAR_LIMIT`), `create-vocal` (per-character voice from
+      `character.voiceId`), `create-images` (9 chat skin templates, iPhone/WhatsApp/Instagram/
+      Tinder/Cantina + dark variants, SVG→PNG via resvg), `create-captions` (template `-1`),
+      `render` (portrait 1080×1920, optional `backgroundVideoId` + `backgroundVideoStartFrom`
+      video background with seek/trim). Two artifacts: `.data/artifacts/p9-fake-text/
+      fake-text-30s-fixture.mp4` (single scene) and `.data/artifacts/p9-fake-text-autosplit/
+      fake-text-autosplit-60s-fixture.mp4` (20 messages → 4 scenes). Both are fixture TTS
+      (tone, not speech) and procedural chat-skin images: the offline floor the P9 gate asks
+      for. **Not proven:** production chat-skin quality needs a model image adapter; the
+      listening gate for real narration is still open (tracked with P1).
 - [ ] Roblox Rant (`voicePitch`, `captionWordLimit`, emoji, gameplay background).
 - [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
 - [ ] Background video + sound effect libraries (CC0 assets, credited).

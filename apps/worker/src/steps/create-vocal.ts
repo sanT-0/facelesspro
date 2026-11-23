@@ -193,17 +193,17 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
         unitCost,
       });
     } else if (row.data.kind === 'fake-text' && row.data.request.kind === 'fake-text') {
-      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      // Extract `_fakeTextScenes` before schema validation.
+      const originalBody = row.data.request.body as Record<string, unknown>;
+      const { _fakeTextScenes: fakeTextScenesRaw, ...fakeTextBody } = originalBody;
+      const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
       if (!request.success) {
         throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
           cause: request.error,
         });
       }
 
-      const body = request.data as { _fakeTextScenes?: unknown };
-
-      // Get the stored per-scene fake-text data from create-scenes
-      const fakeTextScenes = body._fakeTextScenes as
+      const fakeTextScenes = fakeTextScenesRaw as
         | readonly {
             template: string;
             characters: readonly { id: string; name: string; side: 'left' | 'right'; voiceId?: string }[];
@@ -237,26 +237,32 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
       });
       const fullScript = sceneScripts.join(' ');
 
-      // Build narration segments with per-character voice pairs
+      // Build narration segments - one per scene (matching fakeTextScenes)
+      // Each scene gets one segment with its full script, using the first character's voice as default
       const segments: Array<{ text: string; voice: string }> = [];
       for (const sceneData of fakeTextScenes) {
         const characterNames = new Map<string, string>();
+        const voiceByCharacter = new Map<string, string>();
         for (const character of sceneData.characters) {
           characterNames.set(character.id, character.name);
+          if (character.voiceId) {
+            voiceByCharacter.set(character.id, character.voiceId);
+          }
         }
+        const parts: string[] = [];
         for (const message of sceneData.messages) {
           const speaker = message.characterId
             ? characterNames.get(message.characterId) ?? 'Unknown'
             : 'Unknown';
-          const text = `${speaker}: ${message.text}`;
-          const voicePairId = message.characterId
-            ? sceneData.characters.find((c) => c.id === message.characterId)?.voiceId
-            : undefined;
-          segments.push({
-            text,
-            voice: voicePairId ?? 'valluvar', // default to valluvar if no voiceId
-          });
+          parts.push(`${speaker}: ${message.text}`);
         }
+        const sceneScript = parts.join(' ');
+        // Use the first character's voiceId as default for the scene, fallback to valluvar
+        const defaultVoice = sceneData.characters[0]?.voiceId ?? 'valluvar';
+        segments.push({
+          text: sceneScript,
+          voice: defaultVoice,
+        });
       }
 
       // Synthesize with per-character voice pairs
@@ -308,7 +314,7 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
           timings,
           stored,
         });
-        await tx.charge({ action: 'tts', units: 0, unitCost });
+        await tx.charge({ action: 'tts', units: segments.reduce((total, s) => total + [...s.text].length, 0), unitCost });
         await tx.advance();
       });
     } else {

@@ -179,7 +179,9 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
       size = request.data.size;
       render = request.data.render;
     } else if (row.data.kind === 'fake-text') {
-      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      // Strip internal `_fakeTextScenes` key before schema validation.
+      const { _fakeTextScenes: _ignored, ...fakeTextBody } = row.data.request.body as Record<string, unknown>;
+      const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
       if (!request.success) {
         throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
           cause: request.error,

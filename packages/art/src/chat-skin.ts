@@ -296,7 +296,7 @@ function renderBubble(
   // Name label (for left bubbles with character name)
   if (characterName && !isRight) {
     svg += `<text x="${x + style.bubblePadding.horizontal}" y="${y + 14}" ` +
-      `font-family="${style.fontFamily}" font-size="11" fill="${style.nameColor || '#8E8E93'}">` +
+      `font-family='${style.fontFamily}' font-size="11" fill="${style.nameColor || '#8E8E93'}">` +
       `${escapeXml(characterName)}</text>`;
   }
 
@@ -319,7 +319,7 @@ function renderBubble(
     const textX = bubbleX + style.bubblePadding.horizontal;
     const textY = bubbleY + style.bubblePadding.vertical + i * lineHeight + style.fontSize * 0.8;
     svg += `<text x="${textX}" y="${textY}" ` +
-      `font-family="${style.fontFamily}" font-size="${style.fontSize}" fill="${bubbleStyle.text}">` +
+      `font-family='${style.fontFamily}' font-size="${style.fontSize}" fill="${bubbleStyle.text}">` +
       `${escapeXml(line)}</text>`;
   });
 
@@ -341,7 +341,7 @@ function renderHeader(style: TemplateStyle, options: { template: string; message
     const avatarBg = '#FF6B35'; // Default
     svg += `<circle cx="${avatarX + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" fill="${avatarBg}"/>`;
     svg += `<text x="${avatarX + avatarSize + 12}" y="${avatarY + avatarSize / 2 + 5}" ` +
-      `font-family="${style.fontFamily}" font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
+      `font-family='${style.fontFamily}' font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
       `${escapeXml(options.messages[0]?.name || 'Group')}</text>`;
   } else if (options.messages.length > 0 && options.messages[0]?.name) {
     // Single chat header with name
@@ -351,11 +351,11 @@ function renderHeader(style: TemplateStyle, options: { template: string; message
     const avatarBg = '#FF6B35'; // Default
     svg += `<circle cx="${avatarX + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" fill="${avatarBg}"/>`;
     svg += `<text x="${avatarX + avatarSize + 12}" y="${avatarY + avatarSize / 2 + 5}" ` +
-      `font-family="${style.fontFamily}" font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
+      `font-family='${style.fontFamily}' font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
       `${escapeXml(options.messages[0]?.name || 'Contact')}</text>`;
   }
   // Online status
-  svg += `<text x="${width - 60}" y="36" font-family="${style.fontFamily}" font-size="12" fill="${style.headerTextColor || '#000'}" opacity="0.7">Online</text>`;
+  svg += `<text x="${width - 60}" y="36" font-family='${style.fontFamily}' font-size="12" fill="${style.headerTextColor || '#000'}" opacity="0.7">Online</text>`;
 
   return { svg, height };
 }

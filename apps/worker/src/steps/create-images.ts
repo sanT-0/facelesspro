@@ -261,7 +261,10 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         styleHash.slice(18, 30),
       ].join('-');
     } else if (row.data.kind === 'fake-text') {
-      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+      // Extract `_fakeTextScenes` before schema validation.
+      const originalBody = row.data.request.body as Record<string, unknown>;
+      const { _fakeTextScenes: fakeTextScenesRaw, ...fakeTextBody } = originalBody;
+      const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
       if (!request.success) {
         throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
           cause: request.error,
@@ -279,9 +282,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         styleHash.slice(18, 30),
       ].join('-');
 
-      // For fake-text, render chat skins instead of generating images
-      const body = request.data as { _fakeTextScenes?: unknown };
-      const fakeTextScenes = body._fakeTextScenes as
+      const fakeTextScenes = fakeTextScenesRaw as
         | readonly {
             template: string;
             characters: readonly { id: string; name: string; side: 'left' | 'right'; voiceId?: string }[];
@@ -300,6 +301,16 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
 
       const frameBytes: Array<{ key: string; bytes: Uint8Array }> = [];
       const frames: SceneFrameManifest[] = [];
+
+      // Deterministic UUID for chat-skin style (same for all frames in this video)
+      const chatSkinStyleHash = createHash('sha256').update('chat-skin:whatsapp').digest('hex');
+      const chatSkinStyleId = [
+        chatSkinStyleHash.slice(0, 8),
+        chatSkinStyleHash.slice(8, 12),
+        `4${chatSkinStyleHash.slice(12, 15)}`,
+        `8${chatSkinStyleHash.slice(15, 18)}`,
+        chatSkinStyleHash.slice(18, 30),
+      ].join('-');
 
       for (let idx = 0; idx < fakeTextScenes.length; idx++) {
         const sceneData = fakeTextScenes[idx]!;
@@ -331,12 +342,17 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         await ensureParentPath(resolveStorageKey(dataDir(), key));
         await writeFile(resolveStorageKey(dataDir(), key), png);
 
+        // Deterministic seed for chat skin frame
+        const chatSkinSeed = createHash('sha256').update(`${ctx.videoId}:chat-skin:${idx}`).digest('hex');
+        const seed = parseInt(chatSkinSeed.slice(0, 8), 16) & 0x7fffffff;
+        const finalSeed = seed === 0 ? 1 : seed;
+
         frameBytes.push({ key, bytes: png });
         frames.push({
           idx,
           key,
           prompt: `fake-text chat skin: ${template}`,
-          seed: 0,
+          seed: finalSeed,
           adapter: 'procedural',
           degradedFrom: [],
           width: 1080,
@@ -351,7 +367,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       const manifest = sceneManifestSchema.parse({
         version: 1,
         videoId: ctx.videoId,
-        styleId: 'chat-skin',
+        styleId: chatSkinStyleId,
         size,
         frames,
       });

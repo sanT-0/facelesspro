@@ -71,10 +71,17 @@ export interface RenderScene {
  * With a background present every scene still is drawn as a centred card at
  * `BACKGROUND_CARD_SCALE` of the frame, so the backdrop stays visible around
  * it. Without a background the stills stay full-bleed, exactly as before.
+ *
+ * Provide either `imagePath` (static image) or `videoPath` (video background).
+ * For video backgrounds, `videoStartFrom` specifies the start time in seconds.
  */
 export interface RenderBackground {
   /** Absolute or relative path to the background image. */
-  imagePath: string;
+  imagePath?: string;
+  /** Absolute or relative path to the background video. */
+  videoPath?: string;
+  /** Start time in seconds for video background. */
+  videoStartFrom?: number;
 }
 
 /**
@@ -252,9 +259,17 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
   } else {
     // Scene images
     imageInputArgs = scenes.flatMap((scene) => ['-i', scene.imagePath]);
-    // Background image (if provided)
+    // Background (image or video) if provided
+    const hasVideoBackground = background?.videoPath !== undefined;
     if (background) {
-      imageInputArgs.push('-i', background.imagePath);
+      if (hasVideoBackground) {
+        // Video background: seek to start time
+        const startFrom = background.videoStartFrom ?? 0;
+        imageInputArgs.push('-ss', String(startFrom), '-i', background.videoPath!);
+      } else {
+        // Static image background
+        imageInputArgs.push('-i', background.imagePath!);
+      }
     }
     audioInputIndex = imageInputArgs.length / 2; // Each -i takes 2 args
 
@@ -264,18 +279,26 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     const cardWidth = Math.round((width * BACKGROUND_CARD_SCALE) / 2) * 2;
     const cardHeight = Math.round((height * BACKGROUND_CARD_SCALE) / 2) * 2;
 
-    // A still background only decodes one frame, so it is looped to the exact
-    // video length and then split once per scene. Every scene trims a disjoint
-    // window out of its own copy: ffmpeg streams are single-consumer, so
-    // reusing one trimmed label across scenes is not a legal graph.
+    // Background handling: image (looped) or video (trimmed to video length)
     if (background) {
       const bgIndex = scenes.length;
       const splitLabels = scenes.map((_, index) => `[bgsrc${index}]`).join('');
-      graphParts.push(
-        `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,` +
-          `loop=loop=-1:size=1:start=0,fps=${fps},trim=end_frame=${totalFrames},` +
-          `setpts=N/(${fps}*TB),split=${scenes.length}${splitLabels}`,
-      );
+      if (hasVideoBackground) {
+        // Video background: trim to totalFrames and split
+        graphParts.push(
+          `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,` +
+            `fps=${fps},trim=end_frame=${totalFrames},` +
+            `setpts=N/(${fps}*TB),split=${scenes.length}${splitLabels}`,
+        );
+      } else {
+        // Static image: loop to exact video length and split
+        const splitLabels = scenes.map((_, index) => `[bgsrc${index}]`).join('');
+        graphParts.push(
+          `[${bgIndex}:v]scale=${width}:${height}:flags=lanczos,crop=${width}:${height},setsar=1,` +
+            `loop=loop=-1:size=1:start=0,fps=${fps},trim=end_frame=${totalFrames},` +
+            `setpts=N/(${fps}*TB),split=${scenes.length}${splitLabels}`,
+        );
+      }
     }
 
     // Process each scene

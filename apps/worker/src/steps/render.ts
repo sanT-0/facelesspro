@@ -161,7 +161,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     }
 
     let options: RenderOptions | undefined;
-    let size: Size;
+    let size: Size = 'portrait'; // Default; all valid kinds override, invalid kinds throw
     let backgroundAssetId: string | undefined;
     let questionAssetIds: string[] = [];
     let quizItems: readonly QuizItem[] | undefined;
@@ -204,8 +204,15 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         backgroundAssetId = qa.backgroundAssetId;
         questionAssetIds = qa.questionAssetIds ?? [];
       }
-    } else if (row.data.kind === 'fake-text') {
-      const request = createFakeTextVideoRequestSchema.safeParse(row.data.request.body);
+    }
+
+    // Track background video start time for fake-text (initialized here so it's in scope later)
+    let backgroundVideoStartFrom: number | undefined;
+
+    if (row.data.kind === 'fake-text') {
+      // Strip internal `_fakeTextScenes` key before schema validation.
+      const { _fakeTextScenes: _ignored, ...fakeTextBody } = row.data.request.body as Record<string, unknown>;
+      const request = createFakeTextVideoRequestSchema.safeParse(fakeTextBody);
       if (!request.success) {
         throw new StepFailure('internal', 'stored fake-text request does not match the request contract', {
           cause: request.error,
@@ -213,10 +220,15 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = 'portrait';
-      // Fake text doesn't use background/question assets
-      backgroundAssetId = undefined;
+      // Load background video asset if provided
+      backgroundAssetId = request.data.backgroundVideoId;
+      backgroundVideoStartFrom = request.data.backgroundVideoStartFrom;
       questionAssetIds = [];
-    } else {
+    } else if (
+      row.data.kind !== 'ai-video-v3' &&
+      row.data.kind !== 'ai-video' &&
+      row.data.kind !== 'quiz'
+    ) {
       throw new StepFailure('internal', `render received an unsupported video kind ${row.data.kind}`);
     }
 
@@ -266,9 +278,6 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     const images = timeline.map((scene, index) =>
       requireAsset(assets, scene.imageAssetId, row.data.workspace_id, 'image', `scene ${index}`),
     );
-    const background = backgroundAssetId
-      ? requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'quiz-background', 'quiz background')
-      : undefined;
     const questions = questionAssetIds.map((id, idx) =>
       requireAsset(assets, id, row.data.workspace_id, 'quiz-question', `quiz question ${idx}`),
     );
@@ -289,6 +298,21 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     }
 
     const directory = root();
+    let background: { imagePath?: string; videoPath?: string; videoStartFrom?: number } | undefined;
+    if (backgroundAssetId) {
+      const asset = requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'quiz-background', 'background');
+      // Determine if it's a video or image based on mime type
+      if (asset.mime.startsWith('video/')) {
+        background = {
+          videoPath: resolveStorageKey(directory, asset.key),
+          videoStartFrom: backgroundVideoStartFrom,
+        };
+      } else {
+        background = {
+          imagePath: resolveStorageKey(directory, asset.key),
+        };
+      }
+    }
     const renderStorageKey = renderKey(
       row.data.workspace_id,
       ctx.videoId,
@@ -335,12 +359,12 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }),
       audioPath: resolveStorageKey(directory, audio.key),
       outputPath,
-      resolution: options.resolution,
-      fps: options.frameRate,
+      resolution: options!.resolution,
+      fps: options!.frameRate,
       size,
-      format: options.format,
+      format: options!.format,
       ...(background
-        ? { background: { imagePath: resolveStorageKey(directory, background.key) } }
+        ? { background }
         : {}),
       ...(captionTrack === null
         ? {}
