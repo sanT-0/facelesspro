@@ -174,7 +174,9 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         break;
       }
       case 'roblox': {
-        const request = createRobloxVideoRequestSchema.safeParse(row.data.request.body);
+        // Strip internal `_robloxAssets` key added by create-images before schema validation.
+        const { _robloxAssets: _ignored, ...robloxBody } = row.data.request.body as Record<string, unknown>;
+        const request = createRobloxVideoRequestSchema.safeParse(robloxBody);
         if (!request.success) {
           throw new StepFailure('internal', 'stored roblox request does not match the request contract', {
             cause: request.error,

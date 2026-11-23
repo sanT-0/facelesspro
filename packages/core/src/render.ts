@@ -271,7 +271,10 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
         imageInputArgs.push('-i', background.imagePath!);
       }
     }
-    audioInputIndex = imageInputArgs.length / 2; // Each -i takes 2 args
+    // Count actual inputs (each '-i' introduces one input), not array elements.
+    // Input options like '-ss' before '-i' add extra array elements but not inputs.
+    const inputCount = imageInputArgs.filter((arg) => arg === '-i').length;
+    audioInputIndex = inputCount; // Audio is the next input after all image/background inputs
 
     const superWidth = width * 2;
     const superHeight = height * 2;

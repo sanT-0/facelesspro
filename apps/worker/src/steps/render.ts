@@ -58,6 +58,7 @@ import { StepFailure, withStep } from '@facelesspro/queue';
 import type { CommitTx, StepBody, StepDeps, StepHandler } from '@facelesspro/queue';
 import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
+import { readFile } from 'node:fs/promises';
 
 import {
   dataDir,
@@ -280,6 +281,140 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     }
 
     const sceneRows = await listScenes(ctx.db, ctx.videoId);
+
+    // Roblox Rant: no per-scene images, background video is the visual.
+    if (kind === 'roblox') {
+      const timeline = assertRobloxTimeline(sceneRows, parsedNarration.data);
+
+      // Load dummy image asset ID from request body (stored by create-images)
+      let dummyAssetId: string | undefined;
+      if (row.data.request.body._robloxAssets &&
+          typeof row.data.request.body._robloxAssets === 'object' &&
+          row.data.request.body._robloxAssets !== null) {
+        const ra = row.data.request.body._robloxAssets as { dummyAssetId?: string };
+        dummyAssetId = ra.dummyAssetId;
+      }
+
+      const assetIds = [
+        parsedNarration.data.asset_id,
+        ...(backgroundAssetId ? [backgroundAssetId] : []),
+        ...(dummyAssetId ? [dummyAssetId] : []),
+      ];
+      const assets = new Map<string, AssetRow>(
+        (await loadAssets(ctx.db, assetIds)).map((stored) => [stored.id, stored]),
+      );
+      const audio = requireAsset(
+        assets,
+        parsedNarration.data.asset_id,
+        row.data.workspace_id,
+        'audio',
+        'narration',
+      );
+      const dummyAsset = dummyAssetId
+        ? requireAsset(assets, dummyAssetId, row.data.workspace_id, 'image', 'dummy scene image')
+        : undefined;
+
+      const storedCaption = await loadCaptionTrack(ctx.db, ctx.videoId);
+      let captionTrack: CaptionTrackRow | null = null;
+      if (storedCaption !== null) {
+        const parsed = captionTrackRowSchema.safeParse(storedCaption);
+        if (!parsed.success) {
+          throw new StepFailure('internal', 'stored caption track does not match its contract', {
+            cause: parsed.error,
+          });
+        }
+        if (parsed.data.video_id !== ctx.videoId) {
+          throw new StepFailure('internal', 'stored caption track belongs to a different video');
+        }
+        captionTrack = parsed.data;
+      }
+
+      const directory = root();
+      let background: { imagePath?: string; videoPath?: string; videoStartFrom?: number } | undefined;
+      if (backgroundAssetId) {
+        const asset = requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'video', 'background');
+        if (asset.mime.startsWith('video/')) {
+          background = {
+            videoPath: resolveStorageKey(directory, asset.key),
+            videoStartFrom: backgroundVideoStartFrom,
+          };
+        } else {
+          background = {
+            imagePath: resolveStorageKey(directory, asset.key),
+          };
+        }
+      }
+      const renderStorageKey = renderKey(
+        row.data.workspace_id,
+        ctx.videoId,
+        options.resolution,
+        options.frameRate,
+        options.format,
+      );
+      const thumbnailStorageKey = thumbnailKey(
+        row.data.workspace_id,
+        ctx.videoId,
+        options.resolution,
+        options.frameRate,
+        options.format,
+      );
+      const outputPath = resolveStorageKey(directory, renderStorageKey);
+      const thumbnailPath = resolveStorageKey(directory, thumbnailStorageKey);
+
+      const planInput: RenderPlanInput = {
+        scenes: timeline.map((scene) => ({
+          // For roblox, use the dummy transparent image for scenes; background video is the visual.
+          imagePath: dummyAsset ? resolveStorageKey(directory, dummyAsset.key) : '',
+          durationMs: scene.durationMs,
+          motion: scene.motion,
+        })),
+        audioPath: resolveStorageKey(directory, audio.key),
+        outputPath,
+        resolution: options.resolution,
+        fps: options.frameRate,
+        size,
+        format: options.format,
+        background,
+        captions: captionTrack
+          ? { path: resolveStorageKey(directory, captionKey(row.data.workspace_id, ctx.videoId, 'ass')), fontsDir: fonts }
+          : undefined,
+      };
+
+      const result = await renderSafely(render, planInput);
+      const thumbnailResult = await thumbnailSafely(thumbnail, outputPath, thumbnailPath);
+
+      const renderBytes = new Uint8Array(await readFile(outputPath));
+      const thumbnailBytes = new Uint8Array(await readFile(thumbnailPath));
+
+      await ctx.transaction(async (tx) => {
+        await persist(tx, {
+          workspaceId: row.data.workspace_id,
+          videoId: ctx.videoId,
+          resolution: options.resolution,
+          fps: options.frameRate,
+          format: options.format,
+          durationMs: parsedNarration.data.duration_ms,
+          render: {
+            key: renderStorageKey,
+            bytes: renderBytes.byteLength,
+            width: result.width,
+            height: result.height,
+            fps: result.fps,
+            frames: result.totalFrames,
+          },
+          thumbnail: {
+            key: thumbnailStorageKey,
+            bytes: thumbnailBytes.byteLength,
+            width: thumbnailResult.width,
+            height: thumbnailResult.height,
+          },
+        });
+        await tx.charge({ action: 'render', units: result.totalFrames, unitCost });
+        await tx.advance();
+      });
+      return;
+    }
+
     const timeline = assertTimeline(sceneRows, parsedNarration.data);
 
     const assetIds = [
@@ -627,6 +762,55 @@ interface TimelineScene {
   readonly imageAssetId: string;
   readonly durationMs: number;
   readonly motion: RenderMotion;
+}
+
+/**
+ * Roblox Rant timeline: scenes have no image assets; the background video
+ * is the visual. Only timing and motion are validated.
+ */
+function assertRobloxTimeline(
+  scenes: readonly SceneRow[],
+  narration: NarrationRow,
+): TimelineScene[] {
+  if (scenes.length === 0) {
+    throw new StepFailure('internal', 'render found no scenes');
+  }
+
+  const timeline: TimelineScene[] = [];
+  let previousEnd = 0;
+  for (const [index, scene] of scenes.entries()) {
+    if (scene.idx !== index) {
+      throw new StepFailure('internal', `scene ${index} is stored out of order`);
+    }
+    if (scene.text.length === 0) {
+      throw new StepFailure('internal', `scene ${index} has empty text`);
+    }
+    if (scene.start_ms !== previousEnd) {
+      throw new StepFailure('internal', `scene ${index} is not contiguous with the previous scene`);
+    }
+    if (scene.end_ms <= scene.start_ms) {
+      throw new StepFailure('internal', `scene ${index} has an empty timing span`);
+    }
+    const preset = (scene.motion as Record<string, unknown>).preset;
+    const motion = sceneMotionSchema.safeParse(preset);
+    if (!motion.success) {
+      throw new StepFailure('internal', `scene ${index} has an unsupported render motion`);
+    }
+    timeline.push({
+      imageAssetId: '', // No per-scene image for roblox
+      durationMs: scene.end_ms - scene.start_ms,
+      motion: motion.data,
+    });
+    previousEnd = scene.end_ms;
+  }
+
+  if (previousEnd !== narration.duration_ms) {
+    throw new StepFailure(
+      'internal',
+      `scene spans end at ${previousEnd}ms but the master is ${narration.duration_ms}ms`,
+    );
+  }
+  return timeline;
 }
 
 /**
