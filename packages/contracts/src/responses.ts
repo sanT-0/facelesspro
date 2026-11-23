@@ -488,6 +488,10 @@ export const soundEffectSchema = z.strictObject({
   url: urlOrPathSchema,
   durationMs: z.int().min(0).optional(),
   tags: z.array(z.string()).optional(),
+  /** Attribution for CC0/licensed assets. */
+  license: z.enum(['CC0', 'CC-BY-3.0', 'CC-BY-4.0', 'custom']).optional(),
+  author: z.string().optional(),
+  sourceUrl: z.string().url().optional(),
 });
 export type SoundEffect = z.infer<typeof soundEffectSchema>;
 
@@ -503,6 +507,10 @@ export const backgroundVideoSchema = z.strictObject({
   durationMs: z.int().min(0).optional(),
   thumbnailUrl: urlOrPathSchema.optional(),
   tags: z.array(z.string()).optional(),
+  /** Attribution for CC0/licensed assets. */
+  license: z.enum(['CC0', 'CC-BY-3.0', 'CC-BY-4.0', 'custom']).optional(),
+  author: z.string().optional(),
+  sourceUrl: z.string().url().optional(),
 });
 export type BackgroundVideo = z.infer<typeof backgroundVideoSchema>;
 

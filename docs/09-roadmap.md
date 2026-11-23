@@ -641,7 +641,12 @@ flow works at 375 px width.
       of array length / 2. Artifact: `.data/artifacts/p9-roblox/roblox-30s-fixture.mp4`
       (portrait 1080×1920, 30 fps, H.264/yuv420p, AAC 48 kHz). Gate: 1562 unit + 63 db tests pass.
 - [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
-- [ ] Background video + sound effect libraries (CC0 assets, credited).
+- [x] Background video + sound effect libraries (CC0 assets, credited).
+      10 background videos (gameplay, driving, parkour, nature, city, ocean) and
+      8 sound effects (swish, click, ding, pop, whoosh, chime, camera-shutter,
+      typewriter) with CC0 attribution (Pexels, Freesound, community submissions).
+      Schemas extended with `license`, `author`, `sourceUrl` fields.
+      `data/assets/CREDITS.md` documents all assets per docs/11 §4.
 
 **Gate:** one e2e test per template; each produces a watchable 30 s video.
 

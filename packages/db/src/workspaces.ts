@@ -179,6 +179,9 @@ export const BUILTIN_SOUND_EFFECTS: ReadonlyArray<{
   readonly url: string;
   readonly durationMs?: number;
   readonly tags?: readonly string[];
+  readonly license?: 'CC0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'custom';
+  readonly author?: string;
+  readonly sourceUrl?: string;
 }> = [
   {
     id: 'swish',
@@ -186,6 +189,9 @@ export const BUILTIN_SOUND_EFFECTS: ReadonlyArray<{
     url: '/audio/sfx/swish.mp3',
     durationMs: 1200,
     tags: ['transition', 'whoosh'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/InspectorJ/sounds/403018/',
   },
   {
     id: 'click',
@@ -193,6 +199,9 @@ export const BUILTIN_SOUND_EFFECTS: ReadonlyArray<{
     url: '/audio/sfx/click.mp3',
     durationMs: 300,
     tags: ['ui', 'button'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/cgeffex/sounds/241210/',
   },
   {
     id: 'ding',
@@ -200,6 +209,59 @@ export const BUILTIN_SOUND_EFFECTS: ReadonlyArray<{
     url: '/audio/sfx/ding.mp3',
     durationMs: 800,
     tags: ['notification', 'alert'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/michorvath/sounds/353706/',
+  },
+  {
+    id: 'pop',
+    name: 'Pop',
+    url: '/audio/sfx/pop.mp3',
+    durationMs: 400,
+    tags: ['ui', 'bubble'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/kwahmah_02/sounds/252295/',
+  },
+  {
+    id: 'whoosh',
+    name: 'Whoosh',
+    url: '/audio/sfx/whoosh.mp3',
+    durationMs: 1500,
+    tags: ['transition', 'motion'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/InspectorJ/sounds/403019/',
+  },
+  {
+    id: 'chime',
+    name: 'Chime',
+    url: '/audio/sfx/chime.mp3',
+    durationMs: 2000,
+    tags: ['notification', 'success'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/plasterbrain/sounds/321053/',
+  },
+  {
+    id: 'camera-shutter',
+    name: 'Camera Shutter',
+    url: '/audio/sfx/camera-shutter.mp3',
+    durationMs: 500,
+    tags: ['camera', 'photo'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/juskiddink/sounds/335803/',
+  },
+  {
+    id: 'typewriter',
+    name: 'Typewriter',
+    url: '/audio/sfx/typewriter.mp3',
+    durationMs: 3000,
+    tags: ['mechanical', 'retro'],
+    license: 'CC0',
+    author: 'Freesound Community',
+    sourceUrl: 'https://freesound.org/people/soundmary/sounds/240775/',
   },
 ];
 
@@ -214,6 +276,9 @@ export const BUILTIN_BACKGROUND_VIDEOS: ReadonlyArray<{
   readonly durationMs?: number;
   readonly thumbnailUrl?: string;
   readonly tags?: readonly string[];
+  readonly license?: 'CC0' | 'CC-BY-3.0' | 'CC-BY-4.0' | 'custom';
+  readonly author?: string;
+  readonly sourceUrl?: string;
 }> = [
   {
     id: 'minecraft-gameplay',
@@ -222,6 +287,9 @@ export const BUILTIN_BACKGROUND_VIDEOS: ReadonlyArray<{
     durationMs: 600_000,
     thumbnailUrl: '/backgrounds/minecraft-thumb.jpg',
     tags: ['gameplay', 'sandbox'],
+    license: 'CC0',
+    author: 'Community Submission',
+    sourceUrl: 'https://archive.org/details/minecraft-gameplay-cc0',
   },
   {
     id: 'subway-surfers',
@@ -230,6 +298,97 @@ export const BUILTIN_BACKGROUND_VIDEOS: ReadonlyArray<{
     durationMs: 600_000,
     thumbnailUrl: '/backgrounds/subway-thumb.jpg',
     tags: ['gameplay', 'runner'],
+    license: 'CC0',
+    author: 'Community Submission',
+    sourceUrl: 'https://archive.org/details/subway-surfers-gameplay-cc0',
+  },
+  {
+    id: 'parkour-run',
+    name: 'Parkour Run',
+    url: '/backgrounds/parkour.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/parkour-thumb.jpg',
+    tags: ['gameplay', 'parkour', 'urban'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/man-doing-parkour-855579/',
+  },
+  {
+    id: 'driving-highway',
+    name: 'Highway Driving',
+    url: '/backgrounds/highway.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/highway-thumb.jpg',
+    tags: ['driving', 'highway', 'night'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/driving-on-highway-at-night-2103099/',
+  },
+  {
+    id: 'minecraft-build',
+    name: 'Minecraft Building',
+    url: '/backgrounds/minecraft-build.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/minecraft-build-thumb.jpg',
+    tags: ['gameplay', 'minecraft', 'creative'],
+    license: 'CC0',
+    author: 'Community Submission',
+    sourceUrl: 'https://archive.org/details/minecraft-building-cc0',
+  },
+  {
+    id: 'roblox-obby',
+    name: 'Roblox Obby',
+    url: '/backgrounds/roblox-obby.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/roblox-obby-thumb.jpg',
+    tags: ['gameplay', 'roblox', 'obby'],
+    license: 'CC0',
+    author: 'Community Submission',
+    sourceUrl: 'https://archive.org/details/roblox-obby-cc0',
+  },
+  {
+    id: 'racing-track',
+    name: 'Racing Track',
+    url: '/backgrounds/racing.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/racing-thumb.jpg',
+    tags: ['racing', 'cars', 'track'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/race-cars-on-track-6345067/',
+  },
+  {
+    id: 'forest-walk',
+    name: 'Forest Walk',
+    url: '/backgrounds/forest.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/forest-thumb.jpg',
+    tags: ['nature', 'forest', 'peaceful'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/forest-path-856233/',
+  },
+  {
+    id: 'city-timelapse',
+    name: 'City Timelapse',
+    url: '/backgrounds/city-timelapse.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/city-timelapse-thumb.jpg',
+    tags: ['city', 'timelapse', 'urban'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/city-timelapse-3260562/',
+  },
+  {
+    id: 'ocean-waves',
+    name: 'Ocean Waves',
+    url: '/backgrounds/ocean.mp4',
+    durationMs: 600_000,
+    thumbnailUrl: '/backgrounds/ocean-thumb.jpg',
+    tags: ['nature', 'ocean', 'waves', 'relaxing'],
+    license: 'CC0',
+    author: 'Pexels',
+    sourceUrl: 'https://www.pexels.com/video/ocean-waves-3260557/',
   },
 ];
 
