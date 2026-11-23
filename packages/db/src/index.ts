@@ -21,6 +21,7 @@ export {
   listVoices,
   listSoundEffects,
   listBackgroundVideos,
+  importVoice,
 } from './workspaces';
 export type {
   WorkspaceWithOwner,

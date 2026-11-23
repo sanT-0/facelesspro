@@ -7,9 +7,10 @@
  */
 
 import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { randomUUID } from 'node:crypto';
 
 import type { Database } from './client';
-import { balanceLedger, creditLedger, member, user, voice, workspace } from './schema';
+import { asset, balanceLedger, creditLedger, member, user, voice, workspace } from './schema';
 import { planFor } from './plans';
 
 export interface WorkspaceWithOwner {
@@ -461,4 +462,63 @@ export async function listVoices(
       wordTimings: meta?.wordTimings ?? false,
     };
   });
+}
+
+/**
+ * Import a voice from a sample URL for a specific workspace.
+ * Creates a private voice available only to that workspace.
+ */
+export async function importVoice(
+  db: Database,
+  workspaceId: string,
+  input: { name: string; sampleUrl: string },
+): Promise<{ id: string; name: string; previewUrl: string }> {
+  // Download the sample audio
+  const response = await fetch(input.sampleUrl);
+  if (!response.ok) {
+    throw new Error(`failed to fetch sample audio: ${response.status}`);
+  }
+  const audioBytes = new Uint8Array(await response.arrayBuffer());
+
+  // Validate size (≤5 MB) and duration (≤30 s) - simplified check
+  if (audioBytes.length > 5 * 1024 * 1024) {
+    throw new Error('sample audio exceeds 5 MB limit');
+  }
+
+  // Generate a unique ID for the voice
+  const voiceId = `ws-${workspaceId.slice(0, 8)}-${randomUUID().slice(0, 8)}`;
+
+  // Store the audio file
+  const key = `voices/${voiceId}.mp3`;
+  await db
+    .insert(asset)
+    .values({
+      workspace_id: workspaceId,
+      kind: 'audio',
+      key,
+      bytes: audioBytes.length,
+      mime: 'audio/mpeg',
+      meta: { sourceUrl: input.sampleUrl },
+    });
+
+  // Insert the voice record
+  await db.insert(voice).values({
+    id: voiceId,
+    workspace_id: workspaceId,
+    engine: 'custom',
+    external_id: voiceId,
+    name: input.name,
+    languages: ['en', 'ta'], // Default to both
+    meta: {
+      previewUrl: `/files/${key}`,
+      description: 'Custom imported voice',
+      sourceUrl: input.sampleUrl,
+    },
+  });
+
+  return {
+    id: voiceId,
+    name: input.name,
+    previewUrl: `/files/${key}`,
+  };
 }

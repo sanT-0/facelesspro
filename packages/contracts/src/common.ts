@@ -280,7 +280,7 @@ export const renderStatusSchema = z.enum([
 ]);
 export type RenderStatus = z.infer<typeof renderStatusSchema>;
 
-export const engineSchema = z.enum(['edge', 'indicf5', 'piper']);
+export const engineSchema = z.enum(['edge', 'indicf5', 'piper', 'custom']);
 export type Engine = z.infer<typeof engineSchema>;
 
 /** Negative ids are built-in caption templates (parity); 0 does not exist. */

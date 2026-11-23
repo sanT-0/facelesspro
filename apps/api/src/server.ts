@@ -19,6 +19,7 @@ import {
   findVideo,
   findVisibleArtStyle,
   findWorkspace,
+  importVoice,
   insertVideo,
   listApiKeys,
   listBalanceLogs,
@@ -205,6 +206,8 @@ async function main(): Promise<void> {
     readArtStyle: (workspaceId, id) => findVisibleArtStyle(db, workspaceId, id),
     listCaptionTemplates: () => listBuiltInCaptionTemplates(db),
     listVoices: (workspaceId) => listVoices(db, workspaceId),
+    importVoice: (workspaceId: string, input: { name: string; sampleUrl: string }) =>
+      importVoice(db, workspaceId, input),
     listSoundEffects: listSoundEffects,
     listBackgroundVideos: listBackgroundVideos,
     findWorkspace: (workspaceId) => findWorkspace(db, workspaceId),

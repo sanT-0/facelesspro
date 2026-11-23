@@ -424,6 +424,27 @@ export type FakeTextScreenshotRequest = z.input<
   typeof fakeTextScreenshotRequestSchema
 >;
 
+// --- §2.5 voice import ----------------------------------------------------------
+
+/**
+ * `POST /v1/voices/import` — consent-gated voice import.
+ *
+ * The client uploads a voice sample (MP3/WAV, ≤5 MB, ≤30 s) and the server
+ * creates a private voice available only to the importing workspace.
+ * Requires explicit consent via a boolean flag (opt-in for data processing).
+ */
+export const voiceImportRequestSchema = z.strictObject({
+  name: z.string().min(1).max(100),
+  sampleUrl: httpsUrlSchema.refine((url) => url.endsWith('.mp3') || url.endsWith('.wav'), {
+    message: 'sampleUrl must be an MP3 or WAV file',
+  }),
+  consent: z.boolean().refine((v) => v === true, {
+    message: 'voice import requires explicit consent',
+  }),
+});
+export type VoiceImportRequest = z.input<typeof voiceImportRequestSchema>;
+export type VoiceImportRequestParsed = z.output<typeof voiceImportRequestSchema>;
+
 // --- §2.4 dry-run plan ------------------------------------------------------
 
 /**

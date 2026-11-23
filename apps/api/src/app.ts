@@ -19,6 +19,7 @@ import { createAiVideosV3Routes } from './ai-videos-v3';
 import { createAiVideosRoutes } from './ai-videos';
 import { createQuizVideosRoutes } from './quiz-videos';
 import { createFakeTextVideosRoutes } from './fake-text-videos';
+import { createFakeTextScreenshotRoutes } from './fake-text-screenshot';
 import { createRobloxVideosRoutes } from './roblox-videos';
 import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
@@ -26,6 +27,7 @@ import { createFilesRoutes } from './files';
 import { createSoundEffectsRoutes } from './sound-effects';
 import { createTtsRoutes } from './text-to-speech';
 import { createVoicesRoutes } from './voices';
+import { createVoicesImportRoutes } from './voices-import';
 import { createWorkspaceRoutes } from './workspaces';
 import type { WorkspaceRouteDeps } from './workspaces';
 import { createVideoRoutes } from './videos';
@@ -105,6 +107,15 @@ export interface ApiDeps
     readonly audioUrl: string;
     readonly durationMs: number;
     readonly voiceId: string;
+  }>;
+  /** Import a voice from a sample URL for a workspace. */
+  readonly importVoice?: (
+    workspaceId: string,
+    input: { name: string; sampleUrl: string },
+  ) => Promise<{
+    readonly id: string;
+    readonly name: string;
+    readonly previewUrl: string;
   }>;
 }
 
@@ -236,6 +247,12 @@ export function createApp(deps: ApiDeps): Hono {
   app.route('/v1/fake-text-videos', createFakeTextVideosRoutes(deps));
 
   /**
+   * `POST /v1/fake-text-screenshot` — renders a chat conversation as a PNG image.
+   * Returns the image directly as `image/png` (not a video creation).
+   */
+  app.route('/v1/fake-text-screenshot', createFakeTextScreenshotRoutes(deps));
+
+  /**
    * `POST /v1/roblox-videos` — create a Roblox Rant: one script read over a
    * gameplay background, with a pitch, a caption word limit and emoji.
    */
@@ -251,6 +268,12 @@ export function createApp(deps: ApiDeps): Hono {
    * `GET /v1/voices` — voice library for the authenticated workspace.
    */
   app.route('/v1/voices', createVoicesRoutes(deps));
+
+  /**
+   * `POST /v1/voices/import` — consent-gated voice import.
+   * Uploads a voice sample and creates a private voice for the workspace.
+   */
+  app.route('/v1/voices/import', createVoicesImportRoutes(deps));
 
   /**
    * `GET /v1/sound-effects` — built-in sound effect library.
