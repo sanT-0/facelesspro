@@ -14,6 +14,12 @@
 
 import { Resvg } from '@resvg/resvg-js';
 
+import {
+  CAPTION_FONT_FALLBACK_FAMILY,
+  DEFAULT_CAPTION_FONT_FAMILY,
+  bundledCaptionFontFiles,
+} from './fonts';
+
 export type ChatTemplate =
   | 'iphone'
   | 'iphone-dark'
@@ -409,11 +415,47 @@ export function renderChatSkin(options: {
   return svg;
 }
 
+/**
+ * Font inputs handed to resvg for chat-skin PNGs.
+ *
+ * Chat templates name browser font stacks (`-apple-system`, `Roboto`, ...)
+ * that do not exist in the runtime images. Passing the bundled TTFs with
+ * `loadSystemFonts: false` makes the generic `sans-serif` entry in those
+ * stacks resolve to the bundled Noto families, so Tamil and Latin glyphs are
+ * drawn identically on a developer machine and inside the container.
+ */
+export interface ChatSkinFontOptions {
+  fontFiles: string[];
+  loadSystemFonts: boolean;
+  defaultFontFamily: string;
+  sansSerifFamily: string;
+  serifFamily: string;
+  monospaceFamily: string;
+}
+
+/** Hermetic font configuration: bundled files only, no system catalog. */
+export function chatSkinFontOptions(): ChatSkinFontOptions {
+  return {
+    fontFiles: bundledCaptionFontFiles(),
+    loadSystemFonts: false,
+    defaultFontFamily: DEFAULT_CAPTION_FONT_FAMILY,
+    sansSerifFamily: DEFAULT_CAPTION_FONT_FAMILY,
+    serifFamily: DEFAULT_CAPTION_FONT_FAMILY,
+    monospaceFamily: CAPTION_FONT_FALLBACK_FAMILY,
+  };
+}
+
 /** Convert SVG to PNG bytes using resvg. */
-export async function chatSkinSvgToPng(svg: string, width: number, _height: number): Promise<Uint8Array> {
+export async function chatSkinSvgToPng(
+  svg: string,
+  width: number,
+  _height: number,
+  font: ChatSkinFontOptions = chatSkinFontOptions(),
+): Promise<Uint8Array> {
   const resvg = new Resvg(svg, {
     fitTo: { mode: 'width', value: width },
     background: 'transparent',
+    font,
   });
   const pngData = resvg.render();
   return pngData.asPng();

@@ -4,44 +4,30 @@
  * The seed runs after the migration runner because built-ins are part of a
  * usable database: a clean clone should be able to create a video without any
  * extra step. Both halves are idempotent, so running this twice is a no-op.
+ *
+ * The same work happens on container boot (`migrate-on-boot.ts`); both call
+ * `prepareDatabase` so the two paths cannot drift. This one is the host script
+ * and additionally treats a table-count mismatch as schema drift.
  */
 
-import { fileURLToPath } from 'node:url';
-
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-
-import { createDb, loadEnv } from './client';
-import { seedBuiltins } from './seed';
-
-const migrationsFolder = fileURLToPath(new URL('../migrations', import.meta.url));
+import { loadEnv } from './client';
+import { EXPECTED_TABLE_COUNT, prepareDatabase } from './setup';
 
 async function main(): Promise<void> {
   loadEnv();
-  const { db, pool } = createDb();
+  const result = await prepareDatabase({
+    onStep: (step) => console.log(`db: ${step}...`),
+  });
 
-  try {
-    await migrate(db, { migrationsFolder });
-    const result = await seedBuiltins(db);
-
-    const tables = await pool.query<{ count: string }>(
-      "select count(*)::text as count from information_schema.tables where table_schema = 'public' and table_type = 'BASE TABLE'",
+  console.log(
+    `db: ${result.tableCount} tables, ` +
+      `${result.migrationsApplied} migrations applied, ` +
+      `${result.seeded.templates} new caption templates`,
+  );
+  if (result.tableCount !== EXPECTED_TABLE_COUNT) {
+    throw new Error(
+      `expected ${EXPECTED_TABLE_COUNT} tables, found ${result.tableCount} — schema drift`,
     );
-    const versions = await pool.query<{ count: string }>(
-      'select count(*)::text as count from drizzle.__drizzle_migrations',
-    );
-
-    console.log(
-      `db: ${tables.rows[0]?.count ?? '?'} tables, ` +
-        `${versions.rows[0]?.count ?? '?'} migrations applied, ` +
-        `${result.templates} new caption templates`,
-    );
-    if (tables.rows[0]?.count !== '18') {
-      throw new Error(
-        `expected 18 tables, found ${tables.rows[0]?.count ?? '0'} — schema drift`,
-      );
-    }
-  } finally {
-    await pool.end();
   }
 }
 

@@ -35,6 +35,9 @@ COPY packages/db/src packages/db/src
 COPY packages/db/migrations packages/db/migrations
 COPY packages/queue/src packages/queue/src
 COPY packages/art/src packages/art/src
+# `BUNDLED_CAPTION_FONTS_URL` resolves to `packages/art/fonts/ttf/`
+# relative to the package, so the fonts must live there in the image too.
+COPY packages/art/fonts packages/art/fonts
 COPY apps/api/src apps/api/src
 
 # Build TypeScript
@@ -53,12 +56,6 @@ COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/packages ./packages
 COPY --from=base /app/apps/api ./apps/api
 
-# Create data directory
-RUN mkdir -p /data/fonts/ttf /data/uploads /data/tts /data/backgrounds /data/dummy
-
-# Copy fonts
-COPY packages/art/fonts/ttf/ /data/fonts/ttf/
-COPY packages/art/fonts/fonts.conf /data/fonts/
 
 ENV NODE_ENV=production
 ENV PORT=3001

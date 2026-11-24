@@ -1,30 +1,26 @@
 /**
- * Container entrypoint migration runner.
+ * Container entrypoint database setup: apply committed SQL, then seed.
  *
- * Unlike `migrate.ts` (the `npm run db:migrate` path, which also seeds and
- * asserts the expected table count), this only applies committed SQL. It runs
- * before every long-lived service starts so no service can boot against a
- * stale schema. Applying the same migrations twice is a no-op.
+ * Runs before every long-lived service starts, so no service can boot against a
+ * stale schema or an unseeded database. Locked and idempotent — see `setup.ts`
+ * for why both matter.
  */
 
-import { fileURLToPath } from 'node:url';
-
-import { migrate } from 'drizzle-orm/node-postgres/migrator';
-
-import { createDb, loadEnv } from './client';
-
-const migrationsFolder = fileURLToPath(new URL('../migrations', import.meta.url));
+import { databaseUrl, loadEnv } from './client';
+import { prepareDatabase } from './setup';
 
 async function main(): Promise<void> {
   loadEnv();
-  const { db, pool } = createDb();
+  const result = await prepareDatabase({
+    connectionString: databaseUrl(),
+    onStep: (step) => console.log(`[migrate] ${step}...`),
+  });
 
-  try {
-    await migrate(db, { migrationsFolder });
-    console.log('[migrate] migrations applied');
-  } finally {
-    await pool.end();
-  }
+  console.log(
+    `[migrate] ready: ${result.tableCount} tables, ` +
+      `${result.migrationsApplied} migrations, ` +
+      `${result.seeded.templates} new caption templates`,
+  );
 }
 
 main().catch((error: unknown) => {

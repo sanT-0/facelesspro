@@ -21,25 +21,40 @@ as a first-class citizen.
 6. Everything is available over a REST API and an MCP server, so an AI assistant can create
    the video for you.
 
-## Quick start (target state, P5+)
+## Quick start
+
+Requires Docker with Compose. Nothing else — no host Node, Python or ffmpeg:
 
 ```bash
+git clone https://github.com/sanT-0/facelesspro.git
+cd facelesspro
 cp .env.example .env
 
-docker compose up -d postgres      # database + job queue
-npm install
-npm run db:migrate
+docker compose up -d --build          # 7 services; first boot migrates + seeds
+docker compose ps                     # wait for every service to be (healthy)
+curl localhost:3001/health            # {"status":"ok","db":"ok","queue":"ok"}
 
-# python media service (TTS / ASR / art)
-cd services/media && python -m venv .venv && .venv/Scripts/activate
-pip install -r requirements.txt -r requirements-dev.txt
-uvicorn app.main:app --port 8000
-
-# api + worker
-npm run dev:api
-npm run dev:worker
-npm run ping              # smoke test: the worker completes a real job (exit 0)
+# mint the first API key inside the api container
+docker compose exec -T api node_modules/.bin/tsx \
+  packages/db/src/create-api-key.ts --name "local"
 ```
+
+Then open <http://localhost:3003> for the studio, or drive the API directly:
+
+```bash
+KEY=vp_...                            # printed once by the command above
+curl -X POST localhost:3001/v1/fake-text-videos \
+  -H "Authorization: Bearer $KEY" -H 'Content-Type: application/json' \
+  --data-binary @request.json
+curl -H "Authorization: Bearer $KEY" localhost:3001/v1/videos/<id>
+```
+
+`docker compose down -v` resets the database and artifacts; `docker compose logs -f worker`
+follows a job. A cold build takes about 4 minutes on eight threads, and the first Fake Text
+video completes in well under the 15-minute launch gate.
+
+Host development (hot reload, `npm run gate`, the media service outside Docker) is documented in
+[docs/10-operations.md](./docs/10-operations.md) §1.
 
 ## Documentation
 
@@ -63,14 +78,17 @@ npm run ping              # smoke test: the worker completes a real job (exit 0)
 ## Repository layout
 
 ```
-apps/api            Hono HTTP API (v1 + MCP)
-apps/worker         job runner (pg-boss consumers)
-apps/web            Next.js studio + marketing
+apps/api            Hono HTTP API (v1) + MCP transport
+apps/worker         job runner (pg-boss consumers), all five pipeline steps
+apps/render         dedicated render consumer (RENDER_SERVICE=true)
+apps/web            studio SPA, esbuild bundle served by nginx
+apps/mcp            MCP server
 packages/core       pure TS: segmentation, scene math, captions, pricing, timelines
 packages/contracts  zod schemas shared by api, worker, web, mcp
-packages/art        renderer + fonts (Noto Sans + Noto Sans Tamil)
+packages/db         Drizzle schema, migrations, seed, prepareDatabase()
+packages/queue      pg-boss definitions and enqueue helpers
+packages/art        ffmpeg/resvg adapters + bundled Noto fonts (Tamil, Latin, emoji)
 services/media      FastAPI: TTS, ASR, art-style extraction, image generation
-services/render     ffmpeg composition (imported by worker as a CLI/py module)
 docs                everything in the table above
 ```
 
@@ -80,11 +98,17 @@ docs                everything in the table above
 |---|---|
 | Docs & plan | ✅ done |
 | P0 foundation | ✅ closed — `@facelesspro/*` workspaces, contracts, pure core, boundary lint, CI (Node 22 + Python 3.12) |
-| P1 Tamil/English TTS | ✅ closed 2026-10-28 — all 35 gate clips approved by ear; five voices (`valluvar` male default, `pallavi` female default, `seraphina`, `vivienne`, `thalita`) |
-| P2 scene planner | ✅ checklist complete — splitter, duration estimate, scene packing, provider planner chain + heuristic floor, `POST /v1/videos/plan` |
-| P3 art style + images | 🟡 in progress — style build + previews, four image adapters, ordered chain, palette correction and cross-scene consistency, catalog/export endpoints. Gate (2-minute reference → six consistent scenes) not yet observed |
-| P4 captions + render | ✅ closed 2026-11-05 — karaoke captions, bundled Tamil/emoji fonts, six templates, deterministic ffmpeg renderer, 1080p/2K/4K at 30/60 fps, green-screen and caption sidecars; 61-second playback gate approved |
-| P5 V3 pipeline | 🟡 in progress — all five steps (`create-scenes` → `render`) are wired through the real worker/queue; captions persist one lossless cue track and matching ASS/SRT/VTT/JSON sidecars; `render` writes a deterministic demo MP4 + thumbnail and completes the video; `GET /v1/videos/:id` exposes status/step/error and the public render URL, `POST /v1/videos/:id/render` re-renders a completed video at 30/60 fps (guarded by `409`), and `POST /v1/videos/:id/retry` resumes a failed job at its recorded step. The P5 gate (real 3-minute video, kill-and-resume, 60 fps re-render through the worker, retry-from-step) is not yet observed |
+| P1 Tamil/English TTS | 🟡 13/15 — all 35 gate clips approved by ear; five voices; listening gate for real narration in generated videos still open |
+| P2 scene planner | ✅ closed — splitter, duration estimate, scene packing, provider planner chain + heuristic floor, `POST /v1/videos/plan` |
+| P3 art style + images | ✅ checklist complete — style build + previews, four image adapters, ordered chain, palette correction, cross-scene consistency. The 2-minute-reference quality gate is not yet observed |
+| P4 captions + render | ✅ closed 2026-11-05 — karaoke captions, bundled Tamil/emoji fonts, six templates, deterministic ffmpeg renderer, 1080p/2K/4K at 30/60 fps; 61-second playback gate approved |
+| P5 V3 pipeline | 🟡 8/9 — all five steps through the real worker/queue, resume + retry + re-render routes. The 3-minute kill-and-resume gate is not yet observed |
+| P6 API v1 | 🟡 3/8 — keys, rate limits, workspace scoping done; remaining `/v1` routes, credits/ledger, webhooks and libraries open |
+| P7 MCP server | 🟡 — Streamable HTTP, tool registry and OAuth (DCR, PKCE, token rotation) implemented; the Inspector/client transcript artifact is not recorded |
+| P8 web app | ✅ checklist complete |
+| P9 templates | ✅ except Caption video — AI Video V2, Quiz, Fake Text (9 skins, `autoSplit`, per-character voices), Roblox Rant, CC0 background/SFX libraries; Caption video is blocked on a Python 3.14-compatible ASR wheel |
+| P10 premium extras | ⬜ not started |
+| P11 launch | 🟡 2/8 — compose stack verified end to end from a cold clone; limits, monitoring, docs site, notices, TTS licensing and restore drill open |
 
 ## Licence
 

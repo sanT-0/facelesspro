@@ -110,9 +110,13 @@ curl localhost:3003/health             # web + nginx proxy
 | `mcp` | 3002 | MCP server |
 | `web` | 3003 → 80 | nginx-served SPA; proxies `/v1/*` and `/files/*` to `api` |
 
-Mint the first key against the compose database, then use it through the web UI or the API:
+Mint the first key against the compose database, then use it through the web UI or the API. The
+container command needs no host `npm install`, which is what makes a fresh clone work:
 
 ```bash
+docker compose exec -T api node_modules/.bin/tsx packages/db/src/create-api-key.ts --name "local"
+
+# host alternative, when dependencies are already installed
 DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless \
   npm run key:create -- --name "local"
 ```
@@ -120,8 +124,16 @@ DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless \
 Every container runs its entrypoint through **tsx** (`node_modules/.bin/tsx`), the same runner as
 `npm run dev`. The repo uses extensionless relative imports with `moduleResolution: bundler`;
 plain `node apps/api/src/server.ts` cannot resolve those and fails with `ERR_MODULE_NOT_FOUND`.
-Each entrypoint first applies `packages/db/src/migrate-on-boot.ts`, so no service can start
-against a stale schema.
+Each entrypoint first calls `packages/db/src/prepareDatabase()` (advisory lock → migrate → seed),
+so four services booting at once serialise their migrations instead of racing on `CREATE TYPE`,
+and the dev workspace exists before the first key is minted.
+
+**Fonts live inside the images, never on a volume.** `BUNDLED_CAPTION_FONTS_URL` resolves to
+`/app/packages/art/fonts/ttf/`, and the runtime images contain no system font catalog
+(`fc-list` is empty). Any renderer that forgets to pass those files does not fail — it silently
+draws no text. Captions go through libass with `fontsdir`, and chat-skin PNGs go through resvg
+with `loadSystemFonts: false` plus the bundled TTFs; both paths have artifact tests.
+
 
 **The `media-data` volume must be mounted at the same path in `media`, `worker` and `render`.**
 The media service answers with absolute `master_mp3_path` values; the worker opens that path
