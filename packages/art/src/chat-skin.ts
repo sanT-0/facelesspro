@@ -19,6 +19,15 @@ import {
   DEFAULT_CAPTION_FONT_FAMILY,
   bundledCaptionFontFiles,
 } from './fonts';
+import { measureText, textToPath } from './text-path';
+
+/**
+ * Template metrics are authored for a 375 px-wide phone. A larger request is
+ * the same layout scaled up through the SVG `viewBox`, so text never has to be
+ * sized per caller.
+ */
+const BASE_WIDTH = 375;
+const DEFAULT_HEIGHT = 667;
 
 export type ChatTemplate =
   | 'iphone'
@@ -33,8 +42,10 @@ export type ChatTemplate =
 
 export interface ChatMessage {
   text: string;
-  side: 'left' | 'right';
+  side?: 'left' | 'right';
   name?: string;
+  /** Speaker id; when `side`/`name` are absent they are resolved from here. */
+  characterId?: string;
   time?: string;
 }
 
@@ -243,27 +254,15 @@ const TEMPLATE_STYLES: Record<string, TemplateStyle> = {
   },
 };
 
-/** Escape text for safe SVG inclusion. */
-function escapeXml(text: string): string {
-  return text
-    .replace(/&/g, '&')
-    .replace(/</g, '<')
-    .replace(/>/g, '>')
-    .replace(/"/g, '"')
-    .replace(/'/g, '&apos;');
-}
-
 /** Wrap text to fit within maxWidth at given font size. */
 function wrapText(text: string, maxWidth: number, fontSize: number): string[] {
-  const words = text.split(' ');
+  const words = text.split(/\s+/).filter((word) => word.length > 0);
   const lines: string[] = [];
   let currentLine = '';
 
   for (const word of words) {
     const testLine = currentLine ? `${currentLine} ${word}` : word;
-    // Approximate character width (roughly 0.6 * fontSize per char)
-    const charWidth = fontSize * 0.6;
-    if (testLine.length * charWidth > maxWidth && currentLine) {
+    if (measureText(testLine, fontSize) > maxWidth && currentLine) {
       lines.push(currentLine);
       currentLine = word;
     } else {
@@ -280,20 +279,22 @@ function renderBubble(
   style: TemplateStyle,
   isRight: boolean,
   y: number,
+  canvasWidth: number,
   characterName?: string
 ): { svg: string; height: number } {
   const bubbleStyle = isRight ? style.bubbleRight : style.bubbleLeft;
-  const maxWidth = style.maxBubbleWidth;
-  const lines = wrapText(message.text, maxWidth, style.fontSize);
+  const paddingX = style.bubblePadding.horizontal;
+  const maxTextWidth = style.maxBubbleWidth - paddingX * 2;
+  const lines = wrapText(message.text, maxTextWidth, style.fontSize);
   const lineHeight = style.fontSize * 1.3;
-  const bubbleWidth = Math.min(
-    maxWidth,
-    Math.max(...lines.map((l) => l.length)) * style.fontSize * 0.6 + style.bubblePadding.horizontal * 2
-  );
+  const textWidth = Math.max(0, ...lines.map((line) => measureText(line, style.fontSize)));
+  const bubbleWidth = Math.min(style.maxBubbleWidth, textWidth + paddingX * 2);
   const bubbleHeight = lines.length * (style.fontSize * 1.3) + style.bubblePadding.vertical * 2;
   const nameHeight = characterName && !isRight ? 20 : 0;
   const totalHeight = bubbleHeight + nameHeight + (isRight ? 0 : 4);
-  const x = isRight ? style.maxBubbleWidth - bubbleWidth + 20 : 20;
+  // Right-side bubbles hug the right margin; the old code placed them relative
+  // to `maxBubbleWidth`, which left every "right" bubble in the middle.
+  const x = isRight ? canvasWidth - bubbleWidth - 20 : 20;
   const bubbleX = x;
   const bubbleY = y + (characterName && !isRight ? 20 : 0);
 
@@ -301,9 +302,12 @@ function renderBubble(
 
   // Name label (for left bubbles with character name)
   if (characterName && !isRight) {
-    svg += `<text x="${x + style.bubblePadding.horizontal}" y="${y + 14}" ` +
-      `font-family='${style.fontFamily}' font-size="11" fill="${style.nameColor || '#8E8E93'}">` +
-      `${escapeXml(characterName)}</text>`;
+    svg += textToPath(characterName, {
+      x: x + paddingX,
+      y: y + 14,
+      fontSize: 11,
+      fill: style.nameColor || '#8E8E93',
+    }).svg;
   }
 
   // Bubble background
@@ -322,11 +326,9 @@ function renderBubble(
 
   // Text lines
   lines.forEach((line, i) => {
-    const textX = bubbleX + style.bubblePadding.horizontal;
+    const textX = bubbleX + paddingX;
     const textY = bubbleY + style.bubblePadding.vertical + i * lineHeight + style.fontSize * 0.8;
-    svg += `<text x="${textX}" y="${textY}" ` +
-      `font-family='${style.fontFamily}' font-size="${style.fontSize}" fill="${bubbleStyle.text}">` +
-      `${escapeXml(line)}</text>`;
+    svg += textToPath(line, { x: textX, y: textY, fontSize: style.fontSize, fill: bubbleStyle.text }).svg;
   });
 
   return { svg, height: totalHeight };
@@ -346,9 +348,13 @@ function renderHeader(style: TemplateStyle, options: { template: string; message
     const avatarY = 12;
     const avatarBg = '#FF6B35'; // Default
     svg += `<circle cx="${avatarX + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" fill="${avatarBg}"/>`;
-    svg += `<text x="${avatarX + avatarSize + 12}" y="${avatarY + avatarSize / 2 + 5}" ` +
-      `font-family='${style.fontFamily}' font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
-      `${escapeXml(options.messages[0]?.name || 'Group')}</text>`;
+    svg += textToPath(options.messages[0]?.name || 'Group', {
+      x: avatarX + avatarSize + 12,
+      y: avatarY + avatarSize / 2 + 5,
+      fontSize: 17,
+      weight: 600,
+      fill: style.headerTextColor || '#000',
+    }).svg;
   } else if (options.messages.length > 0 && options.messages[0]?.name) {
     // Single chat header with name
     const avatarSize = style.avatarSize || 36;
@@ -356,21 +362,43 @@ function renderHeader(style: TemplateStyle, options: { template: string; message
     const avatarY = 12;
     const avatarBg = '#FF6B35'; // Default
     svg += `<circle cx="${avatarX + avatarSize / 2}" cy="${avatarY + avatarSize / 2}" r="${avatarSize / 2}" fill="${avatarBg}"/>`;
-    svg += `<text x="${avatarX + avatarSize + 12}" y="${avatarY + avatarSize / 2 + 5}" ` +
-      `font-family='${style.fontFamily}' font-size="17" font-weight="600" fill="${style.headerTextColor || '#000'}">` +
-      `${escapeXml(options.messages[0]?.name || 'Contact')}</text>`;
+    svg += textToPath(options.messages[0]?.name || 'Contact', {
+      x: avatarX + avatarSize + 12,
+      y: avatarY + avatarSize / 2 + 5,
+      fontSize: 17,
+      weight: 600,
+      fill: style.headerTextColor || '#000',
+    }).svg;
   }
   // Online status
-  svg += `<text x="${width - 60}" y="36" font-family='${style.fontFamily}' font-size="12" fill="${style.headerTextColor || '#000'}" opacity="0.7">Online</text>`;
+  svg += textToPath('Online', {
+    x: width - 60,
+    y: 36,
+    fontSize: 12,
+    fill: style.headerTextColor || '#000',
+    opacity: 0.7,
+  }).svg;
 
   return { svg, height };
+}
+
+/** Resolve speaker alignment and name from the character list when absent. */
+function resolveMessage(
+  message: ChatMessage,
+  characters: readonly ChatCharacter[],
+): { text: string; side: 'left' | 'right'; name?: string } {
+  const character =
+    message.characterId === undefined ? undefined : characters.find((c) => c.id === message.characterId);
+  const side = message.side ?? character?.side ?? 'left';
+  const name = message.name ?? character?.name;
+  return name === undefined ? { text: message.text, side } : { text: message.text, side, name };
 }
 
 /** Render the chat interface as SVG. */
 export function renderChatSkin(options: {
   template: string;
   characters: readonly { id: string; name: string; side: 'left' | 'right' }[];
-  messages: readonly { text: string; side: 'left' | 'right'; name?: string }[];
+  messages: readonly ChatMessage[];
   groupName?: string;
   groupPhoto?: string;
   tinderMatch?: boolean;
@@ -378,24 +406,26 @@ export function renderChatSkin(options: {
   height?: number;
 }): string {
   const style = (TEMPLATE_STYLES[options.template] ?? TEMPLATE_STYLES['iphone'])!;
-  const width = options.width || 375; // iPhone width
-  const height = options.height || 667; // iPhone height
+  const outputWidth = options.width || BASE_WIDTH;
+  const outputHeight = options.height || DEFAULT_HEIGHT;
+  const canvasWidth = BASE_WIDTH;
+  const canvasHeight = outputHeight / (outputWidth / BASE_WIDTH);
+  const messages = options.messages.map((message) => resolveMessage(message, options.characters));
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
-  svg += `<rect width="${width}" height="${height}" fill="${style.background}"/>`;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${outputWidth}" height="${outputHeight}" viewBox="0 0 ${canvasWidth} ${canvasHeight}">`;
+  svg += `<rect width="${canvasWidth}" height="${canvasHeight}" fill="${style.background}"/>`;
 
   // Header
   const header = renderHeader(style, {
     template: options.template,
-    messages: options.messages,
+    messages,
     groupName: options.groupName,
     groupPhoto: options.groupPhoto,
-  }, options.width || 375);
+  }, canvasWidth);
   svg += header.svg;
 
   // Messages area
   let y = header.height + 16;
-  const messages = options.messages;
   const characters = options.characters;
 
   for (let i = 0; i < messages.length; i++) {
@@ -404,11 +434,11 @@ export function renderChatSkin(options: {
     const character = characters.find((c) => c.name === message.name);
     const characterName = character?.name;
 
-    const bubble = renderBubble(message, style, isRight, y, characterName);
+    const bubble = renderBubble(message, style, isRight, y, canvasWidth, characterName);
     svg += bubble.svg;
     y += bubble.height;
 
-    if (y > height - 100) break; // Prevent overflow
+    if (y > canvasHeight - 100) break; // Prevent overflow
   }
 
   svg += '</svg>';

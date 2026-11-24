@@ -131,8 +131,11 @@ and the dev workspace exists before the first key is minted.
 **Fonts live inside the images, never on a volume.** `BUNDLED_CAPTION_FONTS_URL` resolves to
 `/app/packages/art/fonts/ttf/`, and the runtime images contain no system font catalog
 (`fc-list` is empty). Any renderer that forgets to pass those files does not fail — it silently
-draws no text. Captions go through libass with `fontsdir`, and chat-skin PNGs go through resvg
-with `loadSystemFonts: false` plus the bundled TTFs; both paths have artifact tests.
+draws no text. Captions go through libass with `fontsdir`. Chat-skin text does not use SVG
+`<text>` at all: resvg gives every Tamil cluster ending in a reordered vowel sign (ே ை ொ ோ ௌ)
+a zero advance, so the next word is drawn on top of it. `packages/art/src/text-path.ts` shapes
+with HarfBuzz (wasm) and emits glyph `<path>` elements, which resvg only fills; libass on the
+caption path proves HarfBuzz gets the same text right.
 
 
 **The `media-data` volume must be mounted at the same path in `media`, `worker` and `render`.**

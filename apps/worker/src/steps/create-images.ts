@@ -318,11 +318,13 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         const template = sceneData.template as ChatTemplate;
 
         // Build chat messages in the format expected by the renderer
+        // The renderer resolves `side` and `name` from `characterId`; keeping
+        // one source means a bubble cannot be left-aligned for a right-side
+        // speaker (the bug this replaced) or carry a wall-clock timestamp that
+        // makes renders non-deterministic.
         const chatMessages = sceneData.messages.map((msg) => ({
           text: msg.text,
-          side: msg.side,
-          name: sceneData.characters.find((c) => c.id === msg.characterId)?.name,
-          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          ...(msg.characterId === undefined ? {} : { characterId: msg.characterId }),
         }));
 
         const chatOptions: ChatRenderOptions = {

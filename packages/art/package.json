@@ -8,8 +8,9 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@resvg/resvg-js": "^2.6.2",
     "@facelesspro/core": "*",
-    "fontkit": "^2.0.4"
+    "@resvg/resvg-js": "^2.6.2",
+    "fontkit": "^2.0.4",
+    "harfbuzzjs": "^1.6.4"
   }
 }
