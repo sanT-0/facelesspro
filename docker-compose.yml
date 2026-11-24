@@ -1,4 +1,5 @@
 services:
+  # Database
   postgres:
     image: postgres:16-alpine
     container_name: facelesspro-postgres
@@ -17,5 +18,180 @@ services:
       timeout: 3s
       retries: 20
 
+  # API Server
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: facelesspro-api
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3001
+      DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
+      PGBOSS_SCHEMA: pgboss
+      DATA_DIR: /data
+      PUBLIC_BASE_URL: http://localhost:3001
+      MEDIA_SERVICE_URL: http://media:8000
+      RATE_LIMIT_KEY_PER_MINUTE: 60
+      RATE_LIMIT_WORKSPACE_PER_MINUTE: 300
+    ports:
+      - "3001:3001"
+    volumes:
+      - data:/data
+      # The media service returns absolute `master_mp3_path`s; the worker reads
+      # that file directly, so both containers must see it at the same path.
+      - media-data:/data/media:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      media:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # Worker (background job processor)
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: facelesspro-worker
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
+      PGBOSS_SCHEMA: pgboss
+      DATA_DIR: /data
+      MEDIA_SERVICE_URL: http://media:8000
+      HEALTH_PORT: 9090
+    volumes:
+      - data:/data
+      # The media service returns absolute `master_mp3_path`s; the worker reads
+      # that file directly, so both containers must see it at the same path.
+      - media-data:/data/media:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      media:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9090/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # Media Service (TTS/ASR)
+  media:
+    build:
+      context: .
+      dockerfile: services/media/Dockerfile
+    container_name: facelesspro-media
+    restart: unless-stopped
+    environment:
+      PYTHONUNBUFFERED: 1
+      MEDIA_DATA_DIR: /data/media
+      MEDIA_SERVICE_URL: http://0.0.0.0:8000
+      TTS_PAUSE_COMPRESSION: "true"
+      TTS_SENTENCE_PAUSE_MS: "150"
+    ports:
+      - "8000:8000"
+    volumes:
+      - media-data:/data/media
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 60s
+
+  # Render Service (dedicated render worker)
+  render:
+    build:
+      context: .
+      dockerfile: apps/render/Dockerfile
+    container_name: facelesspro-render
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
+      PGBOSS_SCHEMA: pgboss
+      DATA_DIR: /data
+      MEDIA_SERVICE_URL: http://media:8000
+      RENDER_SERVICE: "true"
+      HEALTH_PORT: 9091
+    volumes:
+      - data:/data
+      # The media service returns absolute `master_mp3_path`s; the worker reads
+      # that file directly, so both containers must see it at the same path.
+      - media-data:/data/media:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      media:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9091/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+
+  # MCP Server
+  mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+    container_name: facelesspro-mcp
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      PORT: 3002
+      DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
+      PGBOSS_SCHEMA: pgboss
+      PUBLIC_BASE_URL: http://localhost:3001
+    ports:
+      - "3002:3002"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      api:
+        condition: service_healthy
+
+  # Web Frontend
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    container_name: facelesspro-web
+    restart: unless-stopped
+    ports:
+      - "3003:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
 volumes:
   pgdata:
+  data:
+  media-data:

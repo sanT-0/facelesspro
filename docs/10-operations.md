@@ -89,6 +89,55 @@ on eight CPU threads, so set `COMFYUI_TIMEOUT_MS` above the default and keep the
 `procedural`. The fixtures name example checkpoints only; FacelessPro does not download a model
 or a custom node. Keep plain HTTP on loopback/private networks; use HTTPS across machines.
 
+### 1.1 Whole stack in compose
+
+One command builds and starts everything (Postgres, media, api, worker, render, mcp, web):
+
+```bash
+docker compose up -d --build
+docker compose ps                      # every service must be (healthy)
+curl localhost:3001/health             # {"status":"ok","db":"ok","queue":"ok"}
+curl localhost:3003/health             # web + nginx proxy
+```
+
+| Service | Host port | What it is |
+|---|---|---|
+| `postgres` | 5433 → 5432 | dev database (host port 5433 so a local Postgres on 5432 keeps working) |
+| `media` | 8000 | FastAPI TTS/ASR service |
+| `api` | 3001 | Hono API (`/v1`, `/files`, `/health`) |
+| `worker` | — (9090 health) | consumes the five pipeline steps |
+| `render` | — (9091 health) | dedicated render consumer (`RENDER_SERVICE=true`) |
+| `mcp` | 3002 | MCP server |
+| `web` | 3003 → 80 | nginx-served SPA; proxies `/v1/*` and `/files/*` to `api` |
+
+Mint the first key against the compose database, then use it through the web UI or the API:
+
+```bash
+DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless \
+  npm run key:create -- --name "local"
+```
+
+Every container runs its entrypoint through **tsx** (`node_modules/.bin/tsx`), the same runner as
+`npm run dev`. The repo uses extensionless relative imports with `moduleResolution: bundler`;
+plain `node apps/api/src/server.ts` cannot resolve those and fails with `ERR_MODULE_NOT_FOUND`.
+Each entrypoint first applies `packages/db/src/migrate-on-boot.ts`, so no service can start
+against a stale schema.
+
+**The `media-data` volume must be mounted at the same path in `media`, `worker` and `render`.**
+The media service answers with absolute `master_mp3_path` values; the worker opens that path
+directly instead of re-downloading audio. `media` writes `/data/media`, and `worker`/`render`
+mount the same volume there read-only.
+
+**`npm run test:db` needs the consumers paused.** The suite and the compose `worker`/`render`
+share one Postgres, and pg-boss queue names are global, so a running consumer can take the job a
+test just enqueued and make a correct commit look like a timeout:
+
+```bash
+docker compose stop worker render api mcp
+npm run test:db
+docker compose start worker render api mcp
+```
+
 ---
 
 ## 2. Storage

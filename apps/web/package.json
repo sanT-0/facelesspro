@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "tsx src/dev.ts",
-    "build": "esbuild --config=esbuild.config.mjs",
+    "build": "node build.mjs",
     "test": "vitest run"
   },
   "devDependencies": {

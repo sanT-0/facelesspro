@@ -109,6 +109,16 @@ const PAIR = {
   notes: 'one speaker reads both languages',
 };
 
+/** Second chat character: the pipeline must resolve a pair per speaker. */
+const PALLAVI = {
+  id: 'pallavi',
+  ta: 'ta-IN-PallaviNeural',
+  en: 'en-IN-PallaviNeural',
+  notes: 'second speaker',
+};
+
+const PAIRS: Record<string, typeof PAIR> = { [PAIR.id]: PAIR, [PALLAVI.id]: PALLAVI };
+
 let db: Database;
 let pool: Pool;
 let boss: PgBoss;
@@ -220,14 +230,19 @@ function wordsFor(
   });
 }
 
+/** Voices the pipeline actually asked the media service to speak with. */
+const voicesUsed: string[] = [];
+
 /** TTS that answers with real MP3 bytes and a timeline following the request. */
 function fakeTts(): TtsPort {
   return {
     resolvePair: async (pairId) => {
-      if (pairId !== PAIR.id) throw new Error(`unexpected pair ${pairId}`);
-      return PAIR;
+      const pair = PAIRS[pairId];
+      if (pair === undefined) throw new Error(`unexpected pair ${pairId}`);
+      return pair;
     },
     synthesize: async (request) => {
+      voicesUsed.push(...request.segments.map((segment) => segment.voice));
       const count = request.segments.length;
       const slot = Math.floor(fixtureDurationMs / count);
 
@@ -369,6 +384,17 @@ describe('Fake Text Video full pipeline (Postgres + ffmpeg)', () => {
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
     expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+
+    // Per-character voices: both speakers must reach the media service with
+    // their own engine voice, not one narrator reading the whole chat.
+    const used = new Set(voicesUsed);
+    for (const voice of used) {
+      expect([PAIR.ta, PAIR.en, PALLAVI.ta, PALLAVI.en]).toContain(voice);
+    }
+    expect(voicesUsed.some((voice) => voice === PAIR.ta || voice === PAIR.en)).toBe(true);
+    expect(voicesUsed.some((voice) => voice === PALLAVI.ta || voice === PALLAVI.en)).toBe(
+      true,
+    );
 
     const narrations = await db
       .select()

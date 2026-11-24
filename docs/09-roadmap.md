@@ -667,8 +667,8 @@ flow works at 375 px width.
 
 ## P11 — Launch
 
-- [ ] Docker images for api / worker / media / render / web; one compose file.
-- [ ] Migrations on boot, health checks, graceful shutdown.
+- [x] Docker images for api / worker / media / render / web; one compose file.
+- [x] Migrations on boot, health checks, graceful shutdown.
 - [ ] Limits: max minutes, max concurrent jobs, storage quota, per-plan caps.
 - [ ] Monitoring: structured logs, job dashboard, alert on failure rate.
 - [ ] Docs site (public API + MCP, generated from the same specs).

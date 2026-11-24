@@ -40,7 +40,7 @@ import type {
 import { and, asc, eq } from 'drizzle-orm';
 import { writeFile } from 'node:fs/promises';
 
-import type { TtsPort, TtsSynthesis } from '../ports/tts';
+import type { TtsPort, TtsSynthesis, VoicePair } from '../ports/tts';
 import { TtsPortError } from '../ports/tts';
 import {
   dataDir,
@@ -238,60 +238,72 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
       });
       const fullScript = sceneScripts.join(' ');
 
-      // Build narration segments - one per scene (matching fakeTextScenes)
-      // Each scene gets one segment with its full script, using the first character's voice as default
-      const segments: Array<{ text: string; voice: string }> = [];
-      for (const sceneData of fakeTextScenes) {
-        const characterNames = new Map<string, string>();
-        const voiceByCharacter = new Map<string, string>();
-        for (const character of sceneData.characters) {
-          characterNames.set(character.id, character.name);
-          if (character.voiceId) {
-            voiceByCharacter.set(character.id, character.voiceId);
-          }
-        }
-        const parts: string[] = [];
+      // One run per message, spoken with its speaker's voice pair. `voiceId`
+      // on a chat character is a pair id (`valluvar`), not an engine voice
+      // (`ta-IN-ValluvarNeural`); the media service resolves the pair, and the
+      // request contract only accepts the engine voice. Resolve each id once.
+      const pairs = new Map<string, VoicePair>();
+      const pairFor = async (pairId: string): Promise<VoicePair> => {
+        const cached = pairs.get(pairId);
+        if (cached !== undefined) return cached;
+        const resolved = await callTts(() => deps.tts.resolvePair(pairId), 'voice pair');
+        pairs.set(pairId, resolved);
+        return resolved;
+      };
+      const defaultPair = await pairFor(deps.defaultPairId);
+
+      const segments: NarrationSegment[] = [];
+      const ranges: SceneRange[] = [];
+      for (const [sceneIndex, sceneData] of fakeTextScenes.entries()) {
+        const names = new Map(sceneData.characters.map((c) => [c.id, c.name]));
+        const voices = new Map(sceneData.characters.map((c) => [c.id, c.voiceId]));
+        const first = segments.length;
+
         for (const message of sceneData.messages) {
           const speaker = message.characterId
-            ? characterNames.get(message.characterId) ?? 'Unknown'
+            ? names.get(message.characterId) ?? 'Unknown'
             : 'Unknown';
-          parts.push(`${speaker}: ${message.text}`);
+          const pairId = message.characterId ? voices.get(message.characterId) : undefined;
+          const pair = pairId === undefined ? defaultPair : await pairFor(pairId);
+          const plan = buildNarrationPlan(`${speaker}: ${message.text}`, {
+            ta: pair.ta,
+            en: pair.en,
+            pair: pair.id,
+          });
+          // A message with no speakable words (emoji only) contributes no run.
+          segments.push(...planToSegments(plan));
         }
-        const sceneScript = parts.join(' ');
-        // Use the first character's voiceId as default for the scene, fallback to valluvar
-        const defaultVoice = sceneData.characters[0]?.voiceId ?? 'valluvar';
-        segments.push({
-          text: sceneScript,
-          voice: defaultVoice,
-        });
+
+        if (segments.length === first) {
+          throw new StepFailure(
+            'unprocessable',
+            `scene ${sceneIndex + 1} has no speakable words`,
+          );
+        }
+        ranges.push({ first });
       }
 
-      // Synthesize with per-character voice pairs
+      if (segments.length > MAX_MEDIA_SEGMENTS) {
+        throw new StepFailure(
+          'unprocessable',
+          `narration needs ${segments.length} runs; the media service accepts ${MAX_MEDIA_SEGMENTS}`,
+        );
+      }
+
       const synthesis = await callTts(
         () => deps.tts.synthesize({ segments }),
         'synthesis',
       );
+      assertSynthesis(synthesis, segments);
+      const timings = deriveSceneTimings(synthesis, ranges, fakeTextScenes.length);
 
-      // Build voice plan for the full script (for persistence)
+      // The audit record is a single plan; the runs above are the authority on
+      // which voice each line used.
       const voicePlan = buildNarrationPlan(fullScript, {
-        ta: 'ta-IN-ValluvarNeural',
-        en: 'ta-IN-ValluvarNeural',
-        pair: 'valluvar',
+        ta: defaultPair.ta,
+        en: defaultPair.en,
+        pair: defaultPair.id,
       });
-
-      // Derive scene timings from synthesis
-      const timings: SceneTiming[] = [];
-      for (let i = 0; i < synthesis.segments.length; i++) {
-        const seg = synthesis.segments[i];
-        if (!seg) continue;
-        if (seg.text.length > 0) {
-          timings.push({
-            idx: i,
-            startMs: seg.startMs,
-            endMs: seg.startMs + seg.durationMs,
-          });
-        }
-      }
 
       // Store the audio and advance
       const stored = await storeBytes(store, {

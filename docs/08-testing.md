@@ -180,7 +180,17 @@ global, unpublished rows are private to their workspace, building rows stay out 
 | `health.test.ts` | `expectedQueueNames()` is the five steps in contract order plus `build-art-style` and `ping`; `checkQueues` resolves only when every queue row exists, names all missing ones, passes names as a query parameter (never interpolated), honours a custom schema, rejects a schema that is not a plain identifier, and propagates a database error |
 
 `step.db.test.ts` runs only under `npm run test:db` (`vitest.db.config.ts`, `DB_TESTS=1`),
-against `docker compose` Postgres:
+against `docker compose` Postgres.
+
+**Pause the stack's consumers first.** `test:db` shares one database with the compose stack, and
+pg-boss queue names are global, so a running `worker`/`render` can claim the job a test just
+enqueued. The failure looks like a timeout on a correct commit, not like a queue collision:
+
+```bash
+docker compose stop worker render api mcp
+npm run test:db
+docker compose start worker render api mcp
+```
 
 | Test | Asserts |
 |---|---|

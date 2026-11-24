@@ -1,0 +1,17 @@
+{
+  "name": "@facelesspro/render",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@facelesspro/art": "*",
+    "@facelesspro/contracts": "*",
+    "@facelesspro/core": "*",
+    "@facelesspro/db": "*",
+    "@facelesspro/queue": "*",
+    "drizzle-orm": "^0.45.4"
+  }
+}

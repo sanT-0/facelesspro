@@ -32,6 +32,22 @@ import { processWebhookDelivery } from './webhook-delivery';
 loadEnv();
 
 async function main(): Promise<void> {
+  // Health check HTTP server for Docker healthchecks (using Node.js http module)
+  const healthPort = Number(process.env.HEALTH_PORT ?? 9090);
+  const { createServer } = await import('node:http');
+  const healthServer = createServer((req, res) => {
+    if (req.url?.endsWith('/health')) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ status: 'ok', service: 'facelesspro-worker' }));
+    } else {
+      res.writeHead(404);
+      res.end('Not Found');
+    }
+  });
+  healthServer.listen(healthPort, () => {
+    console.log(`[worker] Health check server listening on port ${healthPort}`);
+  });
+
   const schema = process.env.PGBOSS_SCHEMA || undefined;
   const boss = await createBoss({
     connectionString: databaseUrl(),

@@ -107,6 +107,11 @@ export function createMcpApp(deps: McpDeps): MCPContext {
     );
   });
 
+  // --- health check --------------------------------------------------------
+  app.get('/health', (c) => {
+    return c.json({ status: 'ok', service: 'facelesspro-mcp' });
+  });
+
   // --- OAuth 2.1 protected resource metadata (RFC 9728) -------------------
   app.get('/.well-known/oauth-protected-resource', (c) => {
     const base = originOf(c);

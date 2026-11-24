@@ -105,6 +105,16 @@ const PAIR = {
   notes: 'one speaker reads both languages',
 };
 
+/** Second chat character: the pipeline must resolve a pair per speaker. */
+const PALLAVI = {
+  id: 'pallavi',
+  ta: 'ta-IN-PallaviNeural',
+  en: 'en-IN-PallaviNeural',
+  notes: 'second speaker',
+};
+
+const PAIRS: Record<string, typeof PAIR> = { [PAIR.id]: PAIR, [PALLAVI.id]: PALLAVI };
+
 function plannerFor(live: boolean): PlanFn {
   if (!live) {
     const base = createHeuristicPlanner();
@@ -125,8 +135,9 @@ function imageFor(live: boolean): ImageFn {
 function fakeTts(): TtsPort {
   return {
     resolvePair: async (pairId) => {
-      if (pairId !== PAIR.id) throw new Error(`unexpected pair ${pairId}`);
-      return PAIR;
+      const pair = PAIRS[pairId];
+      if (pair === undefined) throw new Error(`unexpected pair ${pairId}`);
+      return pair;
     },
     synthesize: async (request) => {
       const count = request.segments.length;
