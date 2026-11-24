@@ -674,7 +674,7 @@ flow works at 375 px width.
 - [ ] Docs site (public API + MCP, generated from the same specs).
 - [ ] `THIRD_PARTY_NOTICES.md` + licence audit of every model/font/asset.
 - [ ] Resolve the edge-tts licensing question ([11](./11-legal-and-compliance.md)).
-- [ ] Backups + restore drill.
+- [x] Backups + restore drill (`npm run restore:drill` passes against the live compose stack).
 
 **Gate:** a fresh machine goes from `git clone` to a working video in < 15 minutes; restore
 drill succeeds; licence audit signed off.
