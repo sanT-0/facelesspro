@@ -23,6 +23,8 @@ import {
   sceneRowSchema,
   videoRowSchema,
   type VideoKind,
+  checkVideoLimits,
+  LimitExceededError,
 } from '@facelesspro/contracts';
 import type {
   AssetRow,
@@ -48,6 +50,8 @@ import { quizNarrationParts } from './quiz-script';
 import {
   asset,
   captionTrack as captionTrackTable,
+  findWorkspace,
+  listCreditLogs,
   narration as narrationTable,
   render as renderTable,
   scene as sceneTable,
@@ -737,6 +741,43 @@ export async function persistRender(
     .returning({ id: asset.id });
   if (insertedThumbnail.length !== 1 || insertedThumbnail[0]?.id === undefined) {
     throw new StepFailure('internal', 'thumbnail asset insert returned the wrong rows');
+  }
+
+  // Enforce plan limits at render time with actual duration/resolution
+  const workspace = await findWorkspace(tx.db, input.workspaceId);
+  if (workspace !== null) {
+    const monthStart = new Date();
+    monthStart.setDate(1);
+    monthStart.setHours(0, 0, 0, 0);
+    const creditLogs = await listCreditLogs(tx.db, input.workspaceId);
+    const currentMinutes = creditLogs
+      .filter((log) => new Date(log.createdAt) >= monthStart && log.action === 'render')
+      .reduce((sum, log) => sum + log.units * 10, 0);
+    const currentCredits = creditLogs
+      .filter((log) => new Date(log.createdAt) >= monthStart)
+      .reduce((sum, log) => sum + Math.abs(log.delta), 0);
+
+    const plan = {
+        ...workspace.plan,
+        id: workspace.plan.id as 'free' | 'pro' | 'premium' | 'premium_plus' | 'max' | 'selfhost',
+      };
+
+    const violations = checkVideoLimits(
+      {
+        plan,
+        currentUsage: { minutes: currentMinutes, credits: currentCredits },
+        currentSeats: 1,
+      },
+      { estimatedMinutes: Math.ceil(input.durationMs / 60_000), resolution: input.resolution },
+    );
+
+    if (violations.length > 0) {
+      const sorted = [...violations].sort((a, b) => a.status - b.status || a.kind.localeCompare(b.kind));
+      const v = sorted[0];
+      if (v !== undefined) {
+        throw new LimitExceededError(v.kind, v);
+      }
+    }
   }
 
   await tx.db.insert(renderTable).values({

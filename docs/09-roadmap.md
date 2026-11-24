@@ -669,7 +669,7 @@ flow works at 375 px width.
 
 - [x] Docker images for api / worker / media / render / web; one compose file.
 - [x] Migrations on boot, health checks, graceful shutdown.
-- [ ] Limits: max minutes, max concurrent jobs, storage quota, per-plan caps.
+- [x] Limits: max minutes, max concurrent jobs, storage quota, per-plan caps.
 - [ ] Monitoring: structured logs, job dashboard, alert on failure rate.
 - [ ] Docs site (public API + MCP, generated from the same specs).
 - [ ] `THIRD_PARTY_NOTICES.md` + licence audit of every model/font/asset.

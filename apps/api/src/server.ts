@@ -10,6 +10,11 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { join, resolve } from 'node:path';
 
 import {
+  checkVideoLimits,
+  estimateMinutes,
+  LimitExceededError,
+} from '@facelesspro/contracts';
+import {
   artStyle,
   authenticateApiKey,
   createApiKey,
@@ -118,6 +123,56 @@ async function main(): Promise<void> {
     try {
       await client.query('begin');
       const txDb = databaseFor(client);
+
+      // Load workspace with plan and current usage for limit checks
+      const workspace = await findWorkspace(txDb, input.workspaceId);
+      if (workspace === null) {
+        throw new Error('workspace not found');
+      }
+
+      // Estimate minutes and check limits
+      const estimatedMinutes = estimateMinutes(input.body);
+      const resolution = input.body.body.render?.resolution ?? 1080;
+
+      // Get current month's usage from credit ledger
+      const monthStart = new Date();
+      monthStart.setDate(1);
+      monthStart.setHours(0, 0, 0, 0);
+      const creditLogs = await listCreditLogs(txDb, input.workspaceId);
+      const currentMonthUsage = creditLogs
+        .filter((log) => new Date(log.createdAt) >= monthStart)
+        .reduce((sum, log) => sum + Math.abs(log.delta), 0);
+      const currentMinutes = creditLogs
+        .filter((log) => new Date(log.createdAt) >= monthStart && log.action === 'render')
+        .reduce((sum, log) => sum + log.units * 10, 0); // rough: render costs 10 credits per minute
+
+      const plan = {
+        ...workspace.plan,
+        id: workspace.plan.id as 'free' | 'pro' | 'premium' | 'premium_plus' | 'max' | 'selfhost',
+      };
+
+      const violations = checkVideoLimits(
+        {
+          plan,
+          currentUsage: { minutes: currentMinutes, credits: currentMonthUsage },
+          currentSeats: 1, // TODO: count members when teams are implemented
+        },
+        { estimatedMinutes, resolution },
+      );
+
+      if (violations.length > 0) {
+        // Sort by status: 402 before 403, then by kind for determinism
+        const sorted = [...violations].sort((a, b) => a.status - b.status || a.kind.localeCompare(b.kind));
+        const v = sorted[0];
+        if (v === undefined) {
+          await client.query('rollback');
+          throw new Error('internal: limit violation array unexpectedly empty after length check');
+        }
+        await client.query('rollback');
+        const err = new LimitExceededError(v.kind, v);
+        throw err;
+      }
+
       const row = await insertVideo(txDb, {
         workspaceId: input.workspaceId,
         kind: input.body.kind,

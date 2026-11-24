@@ -5,6 +5,7 @@ import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 
 import { apiError } from '@facelesspro/contracts';
+import { LimitExceededError, type LimitViolationKind } from '@facelesspro/contracts';
 import { readHealth } from './health';
 import type { HealthDeps } from './health';
 import { planVideo } from './plan';
@@ -156,6 +157,22 @@ export function createApp(deps: ApiDeps): Hono {
    */
   app.onError((err) => {
     console.error('[api] unhandled error', err);
+    // LimitExceededError carries the correct status (402/403) and violation
+    if (err instanceof LimitExceededError) {
+      const v = err.violation;
+      // Map internal violation kinds to wire error codes (docs/07 §1.2)
+      const codeMap: Record<LimitViolationKind, 'insufficient_credits' | 'forbidden'> = {
+        max_video_minutes: 'forbidden',
+        max_resolution: 'forbidden',
+        monthly_minutes_exceeded: 'insufficient_credits',
+        monthly_credits_exceeded: 'insufficient_credits',
+        seats_exceeded: 'forbidden',
+      };
+      return new Response(JSON.stringify(apiError(codeMap[v.kind], v.message)), {
+        status: v.status,
+        headers: { 'content-type': 'application/json' },
+      });
+    }
     return new Response(JSON.stringify(apiError('internal', 'unexpected error')), {
       status: 500,
       headers: { 'content-type': 'application/json' },

@@ -13,6 +13,8 @@
 
 import type { PlanId } from './common';
 
+export type { PlanId } from './common';
+
 export interface PlanDef {
   readonly id: PlanId;
   /** `null` = unlimited (selfhost). Paid plans always carry a number. */

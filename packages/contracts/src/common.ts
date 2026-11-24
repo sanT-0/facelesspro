@@ -234,7 +234,13 @@ export const planIdSchema = z.enum([
   /** Dev / self-host: unlimited credits, ledger still records unit costs. */
   'selfhost',
 ]);
-export type PlanId = z.infer<typeof planIdSchema>;
+export type PlanId =
+  | 'free'
+  | 'pro'
+  | 'premium'
+  | 'premium_plus'
+  | 'max'
+  | 'selfhost';
 
 // --- ledger / artifacts -----------------------------------------------------
 
