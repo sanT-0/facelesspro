@@ -672,7 +672,7 @@ flow works at 375 px width.
 - [x] Limits: max minutes, max concurrent jobs, storage quota, per-plan caps.
 - [x] Monitoring: structured logs, job dashboard, alert on failure rate.
 - [x] Docs site (public API + MCP, generated from the same specs).
-- [ ] `THIRD_PARTY_NOTICES.md` + licence audit of every model/font/asset.
+- [x] `THIRD_PARTY_NOTICES.md` + licence audit of every model/font/asset.
 - [ ] Resolve the edge-tts licensing question ([11](./11-legal-and-compliance.md)).
 - [x] Backups + restore drill (`npm run restore:drill` passes against the live compose stack).
 

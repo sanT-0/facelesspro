@@ -108,7 +108,7 @@ docs                everything in the table above
 | P8 web app | ✅ checklist complete |
 | P9 templates | ✅ except Caption video — AI Video V2, Quiz, Fake Text (9 skins, `autoSplit`, per-character voices), Roblox Rant, CC0 background/SFX libraries; Caption video is blocked on a Python 3.14-compatible ASR wheel |
 | P10 premium extras | ⬜ not started |
-| P11 launch | 🟡 6/8 — compose stack verified end to end from a cold clone; limits enforced (max minutes/resolution, 402/403); structured logging + job health dashboard with exit-code alert; **public API/MCP docs site generated from contracts**; restore drill passes; notices and TTS licensing open |
+| P11 launch | 🟡 7/8 — compose stack verified end to end from a cold clone; limits enforced (max minutes/resolution, 402/403); structured logging + job health dashboard with exit-code alert; **public API/MCP docs site generated from contracts**; **THIRD_PARTY_NOTICES.md + licence audit complete**; restore drill passes; TTS licensing open |
 
 ## Licence
 
