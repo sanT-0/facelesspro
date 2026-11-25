@@ -1,0 +1,956 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "FacelessPro API",
+    "version": "0.1.0",
+    "description": "Self-hosted faceless video generation — Tamil, English, Tanglish.\n\nAll endpoints under `/v1/` require `Authorization: Bearer vp_<40-hex>`.\nMCP is at `/mcp` (Streamable HTTP + SSE) with the same key or OAuth 2.1.\nPublic artifacts are at `/files/<key>` without authentication.",
+    "contact": { "name": "FacelessPro", "url": "https://github.com/facelesspro/facelesspro" },
+    "license": { "name": "MIT", "url": "https://opensource.org/licenses/MIT" }
+  },
+  "servers": [
+    { "url": "http://localhost:3001", "description": "Local development" },
+    { "url": "https://api.example.com", "description": "Production (configure PUBLIC_BASE_URL)" }
+  ],
+  "security": [{ "BearerAuth": [] }],
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": { "type": "http", "scheme": "bearer", "bearerFormat": "JWT" }
+    },
+    "schemas": {
+      "ApiError": {
+        "type": "object",
+        "required": ["error"],
+        "properties": {
+          "error": {
+            "type": "object",
+            "required": ["code", "message"],
+            "properties": {
+              "code": { "type": "string", "enum": ["invalid_request", "unauthorized", "insufficient_credits", "forbidden", "not_found", "conflict", "payload_too_large", "unprocessable", "rate_limited", "upstream_failed", "internal"] },
+              "message": { "type": "string" },
+              "field": { "type": "string" }
+            }
+          }
+        }
+      },
+      "CreateAiVideoRequest": {
+        "type": "object",
+        "required": ["script"],
+        "properties": {
+          "script": { "type": "string" },
+          "imageStyle": { "type": "string" },
+          "size": { "type": "string", "enum": ["landscape", "portrait"] },
+          "transition": { "type": "string", "enum": ["smooth", "strong-swipe"] },
+          "voiceId": { "type": "string" },
+          "voiceStyle": { "type": "object" },
+          "render": { "$ref": "#/components/schemas/RenderRequest" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "CreateAiVideoV3Request": {
+        "type": "object",
+        "required": ["artStyleId"],
+        "properties": {
+          "artStyleId": { "type": "string", "format": "uuid" },
+          "script": { "type": "string" },
+          "voiceoverUrl": { "type": "string" },
+          "size": { "type": "string", "enum": ["landscape", "portrait"] },
+          "speed": { "type": "string", "enum": ["slow", "standard"] },
+          "voiceId": { "type": "string" },
+          "voiceStyle": { "type": "object" },
+          "captions": { "type": "boolean" },
+          "captionTemplateId": { "type": "integer" },
+          "render": { "$ref": "#/components/schemas/RenderRequest" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "CreateFakeTextVideoRequest": {
+        "type": "object",
+        "required": ["conversations"],
+        "properties": {
+          "conversations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["template", "language", "characters", "messages"],
+              "properties": {
+                "template": { "type": "string", "enum": ["whatsapp", "telegram", "imessage"] },
+                "language": { "type": "string" },
+                "characters": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["id", "name", "side", "voiceId"],
+                    "properties": {
+                      "id": { "type": "string" },
+                      "name": { "type": "string" },
+                      "side": { "type": "string", "enum": ["left", "right"] },
+                      "voiceId": { "type": "string" }
+                    }
+                  }
+                },
+                "messages": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "required": ["text", "characterId"],
+                    "properties": {
+                      "text": { "type": "string" },
+                      "characterId": { "type": "string" }
+                    }
+                  }
+                },
+                "groupName": { "type": "string" },
+                "autoSplit": { "type": "boolean" }
+              }
+            }
+          },
+          "render": { "$ref": "#/components/schemas/RenderRequest" }
+        }
+      },
+      "CreateQuizVideoRequest": {
+        "type": "object",
+        "required": ["items"],
+        "properties": {
+          "items": { "type": "array", "items": { "type": "object" } },
+          "template": { "type": "string", "enum": ["standard", "multi-levels"] },
+          "language": { "type": "string" },
+          "voiceId": { "type": "string" },
+          "answerTemplate": { "type": "string" },
+          "generateBackgroundImage": { "type": "boolean" },
+          "backgroundImagePrompt": { "type": "string" },
+          "generateQuestionImage": { "type": "boolean" },
+          "imageStyle": { "type": "string" },
+          "render": { "$ref": "#/components/schemas/RenderRequest" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "CreateRobloxVideoRequest": {
+        "type": "object",
+        "required": ["script"],
+        "properties": {
+          "script": { "type": "string" },
+          "imageStyle": { "type": "string" },
+          "size": { "type": "string", "enum": ["landscape", "portrait"] },
+          "transition": { "type": "string", "enum": ["smooth", "strong-swipe"] },
+          "voiceId": { "type": "string" },
+          "voiceStyle": { "type": "object" },
+          "render": { "$ref": "#/components/schemas/RenderRequest" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "CreateCaptionVideoRequest": {
+        "type": "object",
+        "required": ["file", "templateId"],
+        "properties": {
+          "file": { "type": "string" },
+          "templateId": { "type": "integer" },
+          "render": { "$ref": "#/components/schemas/RenderRequest" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "RenderRequest": {
+        "type": "object",
+        "properties": {
+          "resolution": { "type": "integer", "enum": [1080, 1440, 2160], "default": 1080 },
+          "frameRate": { "type": "integer", "enum": [24, 30, 60], "default": 30 },
+          "format": { "type": "string", "enum": ["standard", "high", "low"], "default": "standard" },
+          "webhookUrl": { "type": "string" }
+        }
+      },
+      "CreateApiKeyRequest": {
+        "type": "object",
+        "required": ["name"],
+        "properties": {
+          "name": { "type": "string", "minLength": 1 },
+          "expiresAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "Video": {
+        "type": "object",
+        "required": ["id", "workspace_id", "kind", "status", "step", "error", "request", "plan", "redraw", "revocal", "webhook_url", "duration_ms", "video_url", "editor_seen_at", "created_at", "updated_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "workspace_id": { "type": "string", "format": "uuid" },
+          "kind": { "type": "string", "enum": ["ai-video-v3", "ai-video", "quiz", "fake-text", "roblox", "caption"] },
+          "status": { "type": "string", "enum": ["processing", "rendering", "completed", "failed"] },
+          "step": { "type": ["string", "null"], "enum": ["create-scenes", "create-vocal", "create-images", "create-captions", "render", null] },
+          "error": { "type": ["object", "null"] },
+          "request": { "type": "object" },
+          "plan": { "type": ["object", "null"] },
+          "redraw": { "type": ["object", "null"] },
+          "revocal": { "type": ["object", "null"] },
+          "webhook_url": { "type": ["string", "null"] },
+          "duration_ms": { "type": ["integer", "null"], "minimum": 0 },
+          "video_url": { "type": ["string", "null"] },
+          "editor_seen_at": { "type": ["string", "null"], "format": "date-time" },
+          "created_at": { "type": "string", "format": "date-time" },
+          "updated_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "VideoPlanResponse": {
+        "type": "object",
+        "required": ["plan", "voicePlan"],
+        "properties": {
+          "plan": { "type": "object" },
+          "voicePlan": { "type": ["object", "null"] }
+        }
+      },
+      "Workspace": {
+        "type": "object",
+        "required": ["id", "name", "plan", "credits", "balance_cents", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "name": { "type": "string" },
+          "plan": {
+            "type": "object",
+            "required": ["id", "minutesPerMonth", "creditsPerMonth", "maxVideoMinutes", "maxResolution", "seats"],
+            "properties": {
+              "id": { "type": "string", "enum": ["free", "pro", "premium", "premium_plus", "max", "selfhost"] },
+              "minutesPerMonth": { "type": ["integer", "null"] },
+              "creditsPerMonth": { "type": ["integer", "null"] },
+              "maxVideoMinutes": { "type": "integer" },
+              "maxResolution": { "type": "integer", "enum": [1080, 1440, 2160] },
+              "seats": { "type": "integer" }
+            }
+          },
+          "credits": { "type": ["integer", "null"] },
+          "balance_cents": { "type": "integer" },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "CreditLogList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "workspace_id", "video_id", "action", "units", "unit_cost", "delta", "created_at"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "workspace_id": { "type": "string", "format": "uuid" },
+            "video_id": { "type": ["string", "null"], "format": "uuid" },
+            "action": { "type": "string" },
+            "units": { "type": "number" },
+            "unit_cost": { "type": "number" },
+            "delta": { "type": "number" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "BalanceLogList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "workspace_id", "kind", "amount_cents", "balance_cents", "created_at"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "workspace_id": { "type": "string", "format": "uuid" },
+            "kind": { "type": "string" },
+            "amount_cents": { "type": "integer" },
+            "balance_cents": { "type": "integer" },
+            "created_at": { "type": "string", "format": "date-time" }
+          }
+        }
+      },
+      "ArtStyle": {
+        "type": "object",
+        "required": ["id", "workspace_id", "status", "reference_images", "palette", "created_at"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "workspace_id": { "type": "string", "format": "uuid" },
+          "status": { "type": "string", "enum": ["pending", "building", "ready", "failed"] },
+          "reference_images": { "type": "array", "items": { "type": "string" } },
+          "palette": { "type": "array", "items": { "type": "string" } },
+          "created_at": { "type": "string", "format": "date-time" }
+        }
+      },
+      "ArtStyleList": {
+        "type": "array",
+        "items": { "$ref": "#/components/schemas/ArtStyle" }
+      },
+      "CaptionTemplateList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "font_family", "font_size", "color", "outline_color", "outline_width", "position", "max_lines", "max_chars_per_line"],
+          "properties": {
+            "id": { "type": "integer" },
+            "name": { "type": "string" },
+            "font_family": { "type": "string" },
+            "font_size": { "type": "integer" },
+            "color": { "type": "string" },
+            "outline_color": { "type": "string" },
+            "outline_width": { "type": "integer" },
+            "position": { "type": "string", "enum": ["bottom", "top", "center"] },
+            "max_lines": { "type": "integer" },
+            "max_chars_per_line": { "type": "integer" }
+          }
+        }
+      },
+      "VoiceList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "languages", "mixesEnglish", "engine"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "description": { "type": "string" },
+            "gender": { "type": "string" },
+            "accent": { "type": "string" },
+            "age": { "type": "string" },
+            "useCase": { "type": "string" },
+            "previewUrl": { "type": "string" },
+            "languages": { "type": "array", "items": { "type": "string" } },
+            "mixesEnglish": { "type": "boolean" },
+            "engine": { "type": "string" },
+            "sampleRate": { "type": "integer" },
+            "wordTimings": { "type": "boolean" }
+          }
+        }
+      },
+      "SoundEffectList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "url"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "url": { "type": "string" },
+            "durationMs": { "type": "integer" },
+            "tags": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "BackgroundVideoList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "url"],
+          "properties": {
+            "id": { "type": "string" },
+            "name": { "type": "string" },
+            "url": { "type": "string" },
+            "durationMs": { "type": "integer" },
+            "thumbnailUrl": { "type": "string" },
+            "tags": { "type": "array", "items": { "type": "string" } }
+          }
+        }
+      },
+      "ApiKeyList": {
+        "type": "array",
+        "items": {
+          "type": "object",
+          "required": ["id", "name", "prefix", "created_at", "revoked_at"],
+          "properties": {
+            "id": { "type": "string", "format": "uuid" },
+            "name": { "type": "string" },
+            "prefix": { "type": "string" },
+            "created_at": { "type": "string", "format": "date-time" },
+            "revoked_at": { "type": ["string", "null"], "format": "date-time" }
+          }
+        }
+      },
+      "HealthReport": {
+        "type": "object",
+        "required": ["status", "service", "version", "time", "db", "queue"],
+        "properties": {
+          "status": { "type": "string", "enum": ["ok", "degraded"] },
+          "service": { "type": "string" },
+          "version": { "type": "string" },
+          "time": { "type": "string", "format": "date-time" },
+          "db": { "type": "string", "enum": ["ok", "error"] },
+          "queue": { "type": "string", "enum": ["ok", "error"] }
+        }
+      }
+    }
+  },
+  "paths": {
+    "/v1/ai-videos": {
+      "post": {
+        "summary": "Create an AI V2 video (fixed image style)",
+        "operationId": "createAiVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAiVideoRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/ai-videos-v3": {
+      "post": {
+        "summary": "Create an AI V3 video (script or voiceover)",
+        "operationId": "createAiVideoV3",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAiVideoV3Request" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/quiz-videos": {
+      "post": {
+        "summary": "Create a quiz video",
+        "operationId": "createQuizVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateQuizVideoRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/roblox-videos": {
+      "post": {
+        "summary": "Create a Roblox rant video",
+        "operationId": "createRobloxVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateRobloxVideoRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/fake-text-videos": {
+      "post": {
+        "summary": "Create a Fake Text (chat) video",
+        "operationId": "createFakeTextVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateFakeTextVideoRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/caption-videos": {
+      "post": {
+        "summary": "Create a caption video from media",
+        "operationId": "createCaptionVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateCaptionVideoRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Video queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "422": { "description": "Unprocessable", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/plan": {
+      "post": {
+        "summary": "Dry-run estimate for a video request",
+        "operationId": "planVideo",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateAiVideoV3Request" } } }
+        },
+        "responses": {
+          "200": { "description": "Estimated plan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoPlanResponse" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/workspace": {
+      "get": {
+        "summary": "Get the authenticated workspace with plan and credits",
+        "operationId": "getWorkspace",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Workspace with plan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Workspace" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/credit-logs": {
+      "get": {
+        "summary": "List credit ledger entries for the workspace",
+        "operationId": "listCreditLogs",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Credit logs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreditLogList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/balance-logs": {
+      "get": {
+        "summary": "List balance ledger entries for the workspace",
+        "operationId": "listBalanceLogs",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Balance logs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BalanceLogList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}": {
+      "get": {
+        "summary": "Get a video by ID",
+        "operationId": "getVideo",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Video", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/plan": {
+      "get": {
+        "summary": "Get the dry-run plan for a video",
+        "operationId": "getVideoPlan",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Video plan", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VideoPlanResponse" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/captions": {
+      "get": {
+        "summary": "Get caption track for a video",
+        "operationId": "getVideoCaptions",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Caption track", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "post": {
+        "summary": "Re-caption a video with a new template",
+        "operationId": "recaptionVideo",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "templateId": { "type": "integer" } } } } }
+        },
+        "responses": {
+          "202": { "description": "Re-caption queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/render": {
+      "post": {
+        "summary": "Trigger a re-render",
+        "operationId": "renderVideo",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RenderRequest" } } }
+        },
+        "responses": {
+          "202": { "description": "Render queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Forbidden", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/retry": {
+      "post": {
+        "summary": "Retry a failed video from its last step",
+        "operationId": "retryVideo",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "202": { "description": "Retry queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/scenes/{idx}/redraw": {
+      "post": {
+        "summary": "Redraw a single scene",
+        "operationId": "redrawScene",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [
+          { "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } },
+          { "name": "idx", "in": "path", "required": true, "schema": { "type": "integer", "minimum": 0 } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "prompt": { "type": "string" } } } } }
+        },
+        "responses": {
+          "202": { "description": "Redraw queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/videos/{id}/narration": {
+      "post": {
+        "summary": "Re-vocal a video with new voice settings",
+        "operationId": "revocalVideo",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "properties": { "voiceId": { "type": "string" } } } } }
+        },
+        "responses": {
+          "202": { "description": "Re-vocal queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Video" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Conflict", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/text-to-speech": {
+      "post": {
+        "summary": "Synthesize speech from text",
+        "operationId": "synthesizeTts",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["text"], "properties": { "text": { "type": "string" }, "voiceId": { "type": "string" }, "voiceStyle": { "type": "object" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Audio URL and metadata", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/fake-text-screenshot": {
+      "post": {
+        "summary": "Generate a Fake Text chat screenshot (PNG)",
+        "operationId": "fakeTextScreenshot",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateFakeTextVideoRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "PNG image", "content": { "image/png": { "schema": { "type": "string", "format": "binary" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Plan limit", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/art-styles": {
+      "get": {
+        "summary": "List visible art styles",
+        "operationId": "listArtStyles",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Art style list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtStyleList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "post": {
+        "summary": "Submit a new art style for build",
+        "operationId": "submitArtStyle",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object" } } }
+        },
+        "responses": {
+          "202": { "description": "Build queued", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtStyle" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "402": { "description": "Insufficient credits", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/art-styles/{id}/export": {
+      "get": {
+        "summary": "Export a built art style as JSON",
+        "operationId": "exportArtStyle",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Art style JSON", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ArtStyle" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/caption-templates": {
+      "get": {
+        "summary": "List built-in caption templates",
+        "operationId": "listCaptionTemplates",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Caption template list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CaptionTemplateList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/voices": {
+      "get": {
+        "summary": "List voices visible to the workspace",
+        "operationId": "listVoices",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Voice list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VoiceList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/voices/import": {
+      "post": {
+        "summary": "Import a custom voice from a sample",
+        "operationId": "importVoice",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "type": "object", "required": ["name", "sampleUrl"], "properties": { "name": { "type": "string" }, "sampleUrl": { "type": "string" } } } } }
+        },
+        "responses": {
+          "200": { "description": "Imported voice", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/sound-effects": {
+      "get": {
+        "summary": "List built-in sound effects",
+        "operationId": "listSoundEffects",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Sound effect list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/SoundEffectList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/background-videos": {
+      "get": {
+        "summary": "List built-in background videos",
+        "operationId": "listBackgroundVideos",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Background video list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BackgroundVideoList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/files": {
+      "post": {
+        "summary": "Upload a file for use in video creation",
+        "operationId": "uploadFile",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "multipart/form-data": { "schema": { "type": "object", "properties": { "file": { "type": "string", "format": "binary" } } } } }
+        },
+        "responses": {
+          "200": { "description": "File key", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "413": { "description": "Payload too large", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/api-keys": {
+      "post": {
+        "summary": "Create a new API key",
+        "operationId": "createApiKey",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/CreateApiKeyRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Created key", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "get": {
+        "summary": "List API keys for the workspace",
+        "operationId": "listApiKeys",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Key list", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiKeyList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/api-keys/{id}": {
+      "delete": {
+        "summary": "Revoke an API key",
+        "operationId": "revokeApiKey",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "204": { "description": "Revoked" },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "summary": "Health check",
+        "operationId": "healthCheck",
+        "responses": {
+          "200": { "description": "OK", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthReport" } } } },
+          "503": { "description": "Degraded", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/HealthReport" } } } }
+        }
+      }
+    },
+    "/mcp": {
+      "post": {
+        "summary": "MCP JSON-RPC endpoint",
+        "operationId": "mcpRpc",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": {
+          "200": { "description": "JSON-RPC response", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "get": {
+        "summary": "MCP Streamable HTTP endpoint (SSE)",
+        "operationId": "mcpSse",
+        "security": [{ "BearerAuth": [] }],
+        "responses": { "200": { "description": "SSE stream" }, "401": { "description": "Unauthorized" } }
+      }
+    },
+    "/.well-known/oauth-authorization-server": {
+      "get": {
+        "summary": "OAuth 2.1 Authorization Server Metadata",
+        "operationId": "oauthMetadata",
+        "responses": { "200": { "description": "Metadata", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/.well-known/oauth-protected-resource": {
+      "get": {
+        "summary": "OAuth 2.1 Protected Resource Metadata",
+        "operationId": "oauthProtectedResourceMetadata",
+        "responses": { "200": { "description": "Metadata", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/oauth/register": {
+      "post": {
+        "summary": "Dynamic Client Registration",
+        "operationId": "oauthRegister",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "type": "object" } } } },
+        "responses": { "201": { "description": "Client registered", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/oauth/authorize": {
+      "get": {
+        "summary": "OAuth 2.1 Authorization (consent)",
+        "operationId": "oauthAuthorize",
+        "parameters": [
+          { "name": "response_type", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "client_id", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "redirect_uri", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "scope", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "state", "in": "query", "required": false, "schema": { "type": "string" } },
+          { "name": "code_challenge", "in": "query", "required": true, "schema": { "type": "string" } },
+          { "name": "code_challenge_method", "in": "query", "required": true, "schema": { "type": "string" } }
+        ],
+        "responses": { "200": { "description": "Consent page" }, "302": { "description": "Redirect after consent" } }
+      }
+    },
+    "/oauth/token": {
+      "post": {
+        "summary": "OAuth 2.1 Token Endpoint",
+        "operationId": "oauthToken",
+        "requestBody": { "required": true, "content": { "application/x-www-form-urlencoded": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Token response", "content": { "application/json": { "schema": { "type": "object" } } } } }
+      }
+    },
+    "/oauth/revoke": {
+      "post": {
+        "summary": "OAuth 2.1 Token Revocation",
+        "operationId": "oauthRevoke",
+        "requestBody": { "required": true, "content": { "application/x-www-form-urlencoded": { "schema": { "type": "object" } } } },
+        "responses": { "200": { "description": "Revoked" } }
+      }
+    },
+    "/files/{key}": {
+      "get": {
+        "summary": "Serve a generated artifact (video, image, thumbnail, audio)",
+        "operationId": "getArtifact",
+        "parameters": [{ "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": {
+          "200": { "description": "Artifact bytes", "content": { "application/octet-stream": { "schema": { "type": "string", "format": "binary" } } } },
+          "206": { "description": "Partial content (range request)" },
+          "404": { "description": "Not found" }
+        }
+      },
+      "head": {
+        "summary": "HEAD for artifact metadata",
+        "operationId": "headArtifact",
+        "parameters": [{ "name": "key", "in": "path", "required": true, "schema": { "type": "string" } }],
+        "responses": { "200": { "description": "OK" }, "404": { "description": "Not found" } }
+      }
+    }
+  }
+}
