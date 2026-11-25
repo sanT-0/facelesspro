@@ -16,9 +16,8 @@ import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
-import { testClient } from './test-auth';
+import { testClient, NOW, WORKSPACE_ID } from './test-auth';
 
-const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
 const BASE = 'http://api.test';
 
@@ -82,6 +81,13 @@ function client() {
     },
     storeFile: async () => ({ key: 'unused', bytes: 0, mime: 'application/octet-stream' }),
     publicBaseUrl: BASE,
+    listMembers: async () => [],
+    checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+    findUserByEmail: async () => null,
+    createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+    addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    removeMember: async () => {},
   }));
 }
 

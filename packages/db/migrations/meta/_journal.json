@@ -29,6 +29,13 @@
       "when": 1794588390768,
       "tag": "0003_amusing_liz_osborn",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1795607816686,
+      "tag": "0004_whole_boom_boom",
+      "breakpoints": true
     }
   ]
 }

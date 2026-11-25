@@ -36,6 +36,7 @@ import type { AuthDeps, WorkspaceEnv } from './auth';
 export interface CreateApiKeyInput {
   readonly workspaceId: string;
   readonly name: string;
+  readonly userId?: string | null;
 }
 
 export interface CreatedApiKey {
@@ -103,6 +104,7 @@ export function createApiKeyRoutes(deps: ApiKeyRouteDeps): Hono<WorkspaceEnv> {
     const created = await deps.createApiKey({
       workspaceId: c.get('workspaceId'),
       name: parsed.data.name,
+      userId: c.get('userId'),
     });
     const body: CreateApiKeyResponse = createApiKeyResponseSchema.parse({
       key: created.key,

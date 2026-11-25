@@ -132,6 +132,7 @@ export const DEV_USER = {
   id: DEV_USER_ID,
   email: 'dev@example.com',
   name: 'Dev',
+  created_at: new Date('2026-10-27T09:00:00.000Z').toISOString(),
 } satisfies typeof user.$inferInsert;
 
 export const DEV_MEMBER = {

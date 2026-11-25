@@ -45,6 +45,8 @@ export interface CreatedApiKey {
 export interface CreateApiKeyInput {
   readonly workspaceId: string;
   readonly name: string;
+  /** The user who owns this key; null for legacy/service keys. */
+  readonly userId?: string | null;
 }
 
 /** `sha256` as lowercase hex — the same form the unique index stores. */
@@ -81,6 +83,7 @@ export async function createApiKey(
       name: input.name,
       hash: generated.hash,
       prefix: generated.prefix,
+      ...(input.userId === undefined ? {} : { user_id: input.userId }),
     })
     .returning();
   const row = rows[0];

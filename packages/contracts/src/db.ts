@@ -83,6 +83,7 @@ export const userRowSchema = z.strictObject({
   email: z.email(),
   name: z.string().min(1),
   password_hash: z.string().min(1).nullish(),
+  created_at: z.string().datetime(),
 });
 export type UserRow = z.infer<typeof userRowSchema>;
 
@@ -96,6 +97,8 @@ export type MemberRow = z.infer<typeof memberRowSchema>;
 export const apiKeyRowSchema = z.strictObject({
   id: idSchema,
   workspace_id: idSchema,
+  /** The user who created this key; null for legacy keys. */
+  user_id: idSchema.nullish(),
   name: z.string().min(1),
   /** sha256 of the key; the key itself is shown once and never stored. */
   hash: z.string().regex(/^[0-9a-f]{64}$/),

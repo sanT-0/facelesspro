@@ -654,9 +654,10 @@ flow works at 375 px width.
 
 ## P10 — Premium extras
 
-- [ ] Image animation (Ken Burns first; SVD/AnimateDiff behind a flag if GPU exists).
+- [x] Image animation — Ken Burns (zoompan: kenburns-in, kenburns-out, pan-left, pan-right, none). Heuristic planner cycles motions. Tested in core + art.
+- [ ] Image animation — SVD/AnimateDiff (GPU flag, video generation from stills).
 - [ ] Avatar video + lip-sync 720p (Wav2Lip/MuseTalk behind a flag).
-- [ ] 2K/4K render profiles + resolution gating by plan.
+- [x] 2K/4K render profiles + resolution gating by plan (via P11 limits).
 - [ ] Team collaboration: members, roles, shared workspace, seat limits.
 - [ ] Per-style LoRA training hook (optional accelerator).
 - [ ] Background music with ducking; SFX placement.

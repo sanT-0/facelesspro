@@ -70,6 +70,19 @@ export type {
   JobEventCount,
   SummariseJobsOptions,
 } from './job-events';
+export {
+  listMembers,
+  isMember,
+  getMemberRole,
+  countMembers,
+  checkSeatLimit,
+  findUserByEmail,
+  createUser,
+  addMember,
+  updateMemberRole,
+  removeMember,
+} from './members';
+export type { MemberEntry } from './members';
 export type {
   BeginRecaptionInput,
   BeginRecaptionResult,

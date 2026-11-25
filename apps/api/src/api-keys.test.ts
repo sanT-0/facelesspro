@@ -11,8 +11,7 @@ import { readBearerToken } from './auth';
 import type { CreatedApiKey } from './api-keys';
 import { createRateLimiter } from './rate-limit';
 import type { RateLimiter } from './rate-limit';
-
-const WORKSPACE_ID = '11111111-1111-4111-8111-111111111111';
+import { NOW, WORKSPACE_ID } from './test-auth';
 const KEY_ID = '22222222-2222-4222-8222-222222222222';
 const MISSING_ID = '33333333-3333-4333-8333-333333333333';
 const TOKEN = `vp_${'a'.repeat(40)}`;
@@ -92,6 +91,13 @@ function appWith(overrides: {
     }),
 
     publicBaseUrl: 'http://api.test',
+    listMembers: async () => [],
+    checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+    findUserByEmail: async () => null,
+    createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+    addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    removeMember: async () => {},
   });
 }
 
@@ -213,6 +219,7 @@ describe('POST /v1/keys', () => {
     expect(createApiKey).toHaveBeenCalledWith({
       workspaceId: WORKSPACE_ID,
       name: 'CI renderer',
+      userId: null,
     });
 
     const body = createApiKeyResponseSchema.parse(await response.json());

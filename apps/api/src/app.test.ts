@@ -5,10 +5,8 @@ import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
 import { API_VERSION } from './health';
-import { testAuth, testClient } from './test-auth';
+import { testAuth, testClient, NOW, WORKSPACE_ID } from './test-auth';
 
-const NOW = new Date('2026-10-27T09:00:00.000Z');
-const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
 function appWith(
   probes: {
@@ -66,6 +64,13 @@ function appWith(
     }),
 
     publicBaseUrl: 'http://api.test',
+    listMembers: async () => [],
+    checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+    findUserByEmail: async () => null,
+    createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+    addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    removeMember: async () => {},
   });
 }
 
@@ -226,6 +231,13 @@ describe('unexpected errors', () => {
         voiceId: 'edge:ta-IN-ValluvarNeural',
       }),
       publicBaseUrl: 'http://api.test',
+      listMembers: async () => [],
+      checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+      findUserByEmail: async () => null,
+      createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+      addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      removeMember: async () => {},
     });
 
     const res = await testClient(app).request('/v1/art-styles');

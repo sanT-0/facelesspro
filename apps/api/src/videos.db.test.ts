@@ -35,7 +35,7 @@ import type { Pool } from 'pg';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
-import { testAuth, testClient } from './test-auth';
+import { testAuth, testClient, NOW, WORKSPACE_ID } from './test-auth';
 
 const BASE = 'http://api.test';
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
@@ -99,6 +99,13 @@ function app(authWorkspaceId = workspaceId) {
     }),
 
     publicBaseUrl: BASE,
+    listMembers: async () => [],
+    checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+    findUserByEmail: async () => null,
+    createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+    addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+    removeMember: async () => {},
   }));
 }
 

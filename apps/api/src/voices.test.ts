@@ -11,9 +11,8 @@ import {
 } from '@facelesspro/contracts';
 
 import { createApp } from './app';
-import { testAuth, testClient } from './test-auth';
+import { testAuth, testClient, NOW, WORKSPACE_ID } from './test-auth';
 
-const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const BASE = 'http://api.test';
 
 function appWith(options: {
@@ -100,6 +99,13 @@ function appWith(options: {
       listApiKeys: async () => [],
       revokeApiKey: async () => null,
       publicBaseUrl: BASE,
+      listMembers: async () => [],
+      checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+      findUserByEmail: async () => null,
+      createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+      addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      removeMember: async () => {},
     }),
   );
 }

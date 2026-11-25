@@ -94,6 +94,7 @@ export const user = pgTable('user', {
   email: text('email').notNull().unique(),
   name: text('name').notNull(),
   password_hash: text('password_hash'),
+  created_at: createdAt(),
 });
 
 export const member = pgTable(
@@ -117,6 +118,8 @@ export const apiKey = pgTable(
     workspace_id: uuid('workspace_id')
       .notNull()
       .references(() => workspace.id, { onDelete: 'cascade' }),
+    /** The user who created this key; null for legacy keys. */
+    user_id: uuid('user_id').references(() => user.id, { onDelete: 'set null' }),
     name: text('name').notNull(),
     /** sha256 of the key. The key itself is shown once and never stored. */
     hash: text('hash').notNull(),

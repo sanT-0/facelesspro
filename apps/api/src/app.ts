@@ -33,6 +33,8 @@ import { createVoicesRoutes } from './voices';
 import { createVoicesImportRoutes } from './voices-import';
 import { createWorkspaceRoutes } from './workspaces';
 import type { WorkspaceRouteDeps } from './workspaces';
+import { createMemberRoutes } from './members';
+import type { MemberRouteDeps } from './members';
 import { createVideoRoutes } from './videos';
 import type { VideoRouteDeps } from './videos';
 
@@ -49,7 +51,8 @@ export interface ApiDeps
     CaptionTemplateDeps,
     VideoRouteDeps,
     ApiKeyRouteDeps,
-    WorkspaceRouteDeps {
+    WorkspaceRouteDeps,
+    MemberRouteDeps {
   /**
    * Structured log sink. `server.ts` passes the real one; tests pass a capture
    * or nothing, so an app built in a test stays silent (docs/10 §7).
@@ -349,6 +352,11 @@ export function createApp(deps: ApiDeps): Hono {
    * workspace-scoped reads for the authenticated key's workspace.
    */
   app.route('/v1', createWorkspaceRoutes(deps));
+
+  /**
+   * `GET/POST/PATCH/DELETE /v1/workspace/members` — team member management.
+   */
+  app.route('/v1', createMemberRoutes(deps));
 
   return app;
 }

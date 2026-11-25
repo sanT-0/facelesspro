@@ -49,7 +49,7 @@ describe('database rows', () => {
     ).toBeNull();
 
     expect(
-      userRowSchema.parse({ id: USER, email: 'me@example.com', name: 'Me' }).email,
+      userRowSchema.parse({ id: USER, email: 'me@example.com', name: 'Me', created_at: NOW }).email,
     ).toBe('me@example.com');
 
     expect(

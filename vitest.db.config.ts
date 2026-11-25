@@ -7,7 +7,7 @@ const fileEnv = loadEnv('test', process.cwd(), '');
 const databaseUrl =
   process.env.DATABASE_URL ??
   fileEnv.DATABASE_URL ??
-  'postgresql://faceless:faceless@127.0.0.1:5432/faceless';
+  'postgresql://faceless:faceless@127.0.0.1:5433/faceless';
 
 const alias = {
   '@facelesspro/core': fileURLToPath(

@@ -31,6 +31,7 @@ import {
   listBackgroundVideos,
   listBuiltInCaptionTemplates,
   listCreditLogs,
+  listMembers,
   listSoundEffects,
   listVisibleArtStyles,
   listVideoScenes,
@@ -41,6 +42,12 @@ import {
   readVideoVoicePlan,
   readVideoWordTimings,
   revokeApiKey,
+  addMember,
+  checkSeatLimit,
+  createUser,
+  findUserByEmail,
+  removeMember,
+  updateMemberRole,
 } from '@facelesspro/db';
 import {
   checkQueues,
@@ -278,6 +285,16 @@ async function main(): Promise<void> {
     readVideoCaptions: (workspaceId, id) => readVideoCaptions(db, workspaceId, id),
     readVideoNarrationKey: (workspaceId, id) => readVideoNarrationKey(db, workspaceId, id),
     readVideoWordTimings: (workspaceId, id) => readVideoWordTimings(db, workspaceId, id),
+    // Member management
+    listMembers: (workspaceId) => listMembers(db, workspaceId),
+    checkSeatLimit: (workspaceId) => checkSeatLimit(db, workspaceId),
+    findUserByEmail: (email) => findUserByEmail(db, email),
+    createUser: (input) => createUser(db, input),
+    addMember: (workspaceId, input) => addMember(db, workspaceId, input),
+    updateMemberRole: (workspaceId, requesterId, targetUserId, newRole) =>
+      updateMemberRole(db, workspaceId, requesterId, targetUserId, newRole),
+    removeMember: (workspaceId, requesterId, targetUserId) =>
+      removeMember(db, workspaceId, requesterId, targetUserId),
     queueRender: createQueueRender(pool, producer),
     queueRetry: createQueueRetry(pool, producer),
     queueRedraw: createQueueRedraw(pool, producer),

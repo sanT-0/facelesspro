@@ -11,6 +11,12 @@ import type { Hono } from 'hono';
 
 import type { AuthDeps } from './auth';
 
+/** Fixed workspace ID used by all route tests. */
+export const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
+
+/** Fixed timestamp used by all route tests. */
+export const NOW = new Date('2026-10-27T09:00:00.000Z');
+
 export const TEST_TOKEN = `vp_${'a'.repeat(40)}`;
 export const TEST_KEY_ID = '44444444-4444-4444-8444-444444444444';
 

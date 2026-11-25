@@ -28,6 +28,8 @@ export interface WorkspaceVariables {
   readonly workspaceId: string;
   /** The resolved row, for routes that need the key id or label. */
   readonly apiKey: ApiKeyRow;
+  /** The user who owns this API key; null for legacy keys. */
+  readonly userId: string | null;
 }
 
 export type WorkspaceEnv = { Variables: WorkspaceVariables };
@@ -70,6 +72,7 @@ export function withWorkspace(deps: AuthDeps) {
 
     c.set('workspaceId', row.workspace_id);
     c.set('apiKey', row);
+    c.set('userId', row.user_id ?? null);
     await next();
   });
 }

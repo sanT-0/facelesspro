@@ -18,10 +18,9 @@ import {
 
 import { createApp } from './app';
 import type { SubmitVideo, SubmitVideoInput } from './ai-videos-v3';
-import { testAuth, testClient } from './test-auth';
+import { testAuth, testClient, NOW, WORKSPACE_ID } from './test-auth';
 
 const VIDEO_ID = '11111111-1111-4111-8111-111111111111';
-const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 const STYLE_ID = '33333333-3333-4333-8333-333333333333';
 const BASE = 'http://api.test';
 const WEBHOOK = 'https://hooks.example.com/facelesspro';
@@ -110,6 +109,13 @@ function appWith(options: {
         voiceId: 'edge:ta-IN-ValluvarNeural',
       }),
       publicBaseUrl: BASE,
+      listMembers: async () => [],
+      checkSeatLimit: async () => ({ limit: 10, current: 1, exceeded: false }),
+      findUserByEmail: async () => null,
+      createUser: async () => ({ id: "test-user", email: "test@test.com", name: "Test" }),
+      addMember: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      updateMemberRole: async () => ({ id: "test-user", workspaceId: WORKSPACE_ID, userId: "test-user", email: "test@test.com", name: "Test", role: "editor", joinedAt: NOW.toISOString() }),
+      removeMember: async () => {},
     }),
   );
 }
