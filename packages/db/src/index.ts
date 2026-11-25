@@ -64,6 +64,12 @@ export {
   readVideoWordTimings,
 } from './videos';
 export type { VideoSceneArtifact } from './videos';
+export { buildJobHealthReport, summariseJobs } from './job-events';
+export type {
+  BuildJobHealthInput,
+  JobEventCount,
+  SummariseJobsOptions,
+} from './job-events';
 export type {
   BeginRecaptionInput,
   BeginRecaptionResult,

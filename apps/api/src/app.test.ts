@@ -1,5 +1,7 @@
 import { apiErrorBodySchema, healthSchema } from '@facelesspro/contracts';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createLogger } from '@facelesspro/log';
+import type { Logger } from '@facelesspro/log';
+import { describe, expect, it } from 'vitest';
 
 import { createApp } from './app';
 import { API_VERSION } from './health';
@@ -8,11 +10,15 @@ import { testAuth, testClient } from './test-auth';
 const NOW = new Date('2026-10-27T09:00:00.000Z');
 const WORKSPACE_ID = '22222222-2222-4222-8222-222222222222';
 
-function appWith(probes: {
-  db: () => Promise<void>;
-  queue: () => Promise<void>;
-}) {
+function appWith(
+  probes: {
+    db: () => Promise<void>;
+    queue: () => Promise<void>;
+  },
+  logger?: Logger,
+) {
   return createApp({
+    ...(logger === undefined ? {} : { logger }),
     probes,
     now: () => NOW,
     timeoutMs: 20,
@@ -65,6 +71,55 @@ function appWith(probes: {
 
 const healthy = async () => {};
 
+function capture(level: 'debug' | 'info' = 'info'): {
+  logger: Logger;
+  lines: Array<Record<string, unknown>>;
+} {
+  const lines: Array<Record<string, unknown>> = [];
+  const logger = createLogger({
+    svc: 'facelesspro-api',
+    now: () => NOW,
+    config: { level },
+    write: (line) => lines.push(JSON.parse(line) as Record<string, unknown>),
+  });
+  return { logger, lines };
+}
+
+describe('request logging', () => {
+  it('writes one line per request with method, path, status and ms', async () => {
+    const { logger, lines } = capture();
+    const res = await testClient(appWith({ db: healthy, queue: healthy }, logger)).request(
+      '/nope',
+    );
+
+    expect(res.status).toBe(404);
+    const line = lines.find((entry) => entry.event === 'http.request');
+    expect(line).toMatchObject({
+      method: 'GET',
+      path: '/nope',
+      status: 404,
+      level: 'warn',
+    });
+    expect(typeof line?.ms).toBe('number');
+  });
+
+  it('keeps /health at debug so a ten-second probe does not flood the log', async () => {
+    const { logger, lines } = capture();
+    await testClient(appWith({ db: healthy, queue: healthy }, logger)).request('/health');
+
+    expect(lines.filter((entry) => entry.event === 'http.request')).toHaveLength(0);
+  });
+
+  it('does not log artifact range requests', async () => {
+    const { logger, lines } = capture();
+    await testClient(appWith({ db: healthy, queue: healthy }, logger)).request(
+      '/files/renders/missing.mp4',
+    );
+
+    expect(lines.filter((entry) => entry.event === 'http.request')).toHaveLength(0);
+  });
+});
+
 describe('GET /health', () => {
   it('returns 200 and a report that parses through healthSchema', async () => {
     const res = await appWith({ db: healthy, queue: healthy }).request('/health');
@@ -116,13 +171,15 @@ describe('unknown routes', () => {
 });
 
 describe('unexpected errors', () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
-
   it('returns the documented envelope, never plain text or internals', async () => {
-    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const lines: Array<Record<string, unknown>> = [];
+    const logger = createLogger({
+      svc: 'facelesspro-api',
+      now: () => NOW,
+      write: (line) => lines.push(JSON.parse(line) as Record<string, unknown>),
+    });
     const app = createApp({
+      logger,
       probes: { db: healthy, queue: healthy },
       now: () => NOW,
       storageRoot: '.data-test',
@@ -178,6 +235,14 @@ describe('unexpected errors', () => {
     const body = apiErrorBodySchema.parse(await res.json());
     expect(body.error.code).toBe('internal');
     expect(JSON.stringify(body)).not.toContain('secret');
-    expect(logged).toHaveBeenCalled();
+
+    const events = lines.map((line) => line.event);
+    expect(events).toContain('api.unhandled_error');
+    // The failure is a server error on the wire, so the request line says 500.
+    expect(lines.find((line) => line.event === 'http.request')).toMatchObject({
+      path: '/v1/art-styles',
+      status: 500,
+      level: 'error',
+    });
   });
 });

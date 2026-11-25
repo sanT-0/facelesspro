@@ -13,6 +13,7 @@
     "@facelesspro/contracts": "*",
     "@facelesspro/core": "*",
     "@facelesspro/db": "*",
+    "@facelesspro/log": "*",
     "@facelesspro/queue": "*",
     "drizzle-orm": "^0.45.4"
   }

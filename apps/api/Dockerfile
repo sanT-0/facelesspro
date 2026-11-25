@@ -11,6 +11,7 @@ COPY package.json ./
 COPY packages/contracts/package.json packages/contracts/
 COPY packages/core/package.json packages/core/
 COPY packages/db/package.json packages/db/
+COPY packages/log/package.json packages/log/
 COPY packages/queue/package.json packages/queue/
 COPY packages/art/package.json packages/art/
 COPY apps/api/package.json apps/api/
@@ -20,6 +21,7 @@ RUN npm install --production=false --ignore-scripts && \
     cd packages/contracts && npm install --production=false --ignore-scripts && cd ../.. && \
     cd packages/core && npm install --production=false --ignore-scripts && cd ../.. && \
     cd packages/db && npm install --production=false --ignore-scripts && cd ../.. && \
+    cd packages/log && npm install --production=false --ignore-scripts && cd ../.. && \
     cd packages/queue && npm install --production=false --ignore-scripts && cd ../.. && \
     cd packages/art && npm install --production=false --ignore-scripts && cd ../.. && \
     cd apps/api && npm install --production=false --ignore-scripts && cd ../..
@@ -33,6 +35,7 @@ COPY packages/core/src packages/core/src
 COPY packages/core/data packages/core/data
 COPY packages/db/src packages/db/src
 COPY packages/db/migrations packages/db/migrations
+COPY packages/log/src packages/log/src
 COPY packages/queue/src packages/queue/src
 COPY packages/art/src packages/art/src
 # `BUNDLED_CAPTION_FONTS_URL` resolves to `packages/art/fonts/ttf/`

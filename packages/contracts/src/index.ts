@@ -23,3 +23,4 @@ export * from './health';
 export * from './db';
 export * from './mcp';
 export * from './limits';
+export * from './monitoring';

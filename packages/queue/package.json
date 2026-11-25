@@ -10,6 +10,7 @@
   "dependencies": {
     "@facelesspro/contracts": "*",
     "@facelesspro/db": "*",
+    "@facelesspro/log": "*",
     "drizzle-orm": "^0.45.4",
     "pg-boss": "^10.3.2"
   },

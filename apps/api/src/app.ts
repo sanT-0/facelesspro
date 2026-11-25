@@ -4,8 +4,10 @@ import { serveStatic } from '@hono/node-server/serve-static';
 import { Hono } from 'hono';
 import type { MiddlewareHandler } from 'hono';
 
-import { apiError } from '@facelesspro/contracts';
-import { LimitExceededError, type LimitViolationKind } from '@facelesspro/contracts';
+import { apiError, LimitExceededError } from '@facelesspro/contracts';
+import type { LimitViolationKind } from '@facelesspro/contracts';
+import { noopLogger } from '@facelesspro/log';
+import type { Logger } from '@facelesspro/log';
 import { readHealth } from './health';
 import type { HealthDeps } from './health';
 import { planVideo } from './plan';
@@ -48,6 +50,11 @@ export interface ApiDeps
     VideoRouteDeps,
     ApiKeyRouteDeps,
     WorkspaceRouteDeps {
+  /**
+   * Structured log sink. `server.ts` passes the real one; tests pass a capture
+   * or nothing, so an app built in a test stays silent (docs/10 §7).
+   */
+  readonly logger?: Logger;
   /** Insert the video row and enqueue `create-scenes` in one transaction. */
   readonly submitVideo: SubmitVideo;
   /** Store an uploaded file and return its key, byte count and mime type. */
@@ -145,6 +152,35 @@ function serveFiles(storageRoot: string): MiddlewareHandler {
 
 export function createApp(deps: ApiDeps): Hono {
   const app = new Hono();
+  const log = deps.logger ?? noopLogger;
+
+  /**
+   * One line per request. `/health` is polled by compose every ten seconds, so
+   * it logs at `debug`; artifacts under `/files/*` are not logged at all — a
+   * video stream is thousands of range requests and says nothing about health.
+   */
+  app.use('*', async (c, next) => {
+    const path = c.req.path;
+    if (path.startsWith('/files/')) return next();
+
+    const startedAt = performance.now();
+    const emit = (status: number): void => {
+      const ms = Math.round(performance.now() - startedAt);
+      const level =
+        path === '/health' ? 'debug' : status >= 500 ? 'error' : status >= 400 ? 'warn' : 'info';
+      log[level]('http.request', { method: c.req.method, path, status, ms });
+    };
+
+    try {
+      await next();
+      emit(c.res.status);
+    } catch (error) {
+      // `onError` runs after this middleware unwinds, so the response status is
+      // not set yet; the documented envelope for a throw is always 500.
+      emit(500);
+      throw error;
+    }
+  });
 
   // Public artifacts stay reachable without a key; `/v1` keeps its own auth.
   app.use('/files/*', serveFiles(deps.storageRoot));
@@ -156,8 +192,6 @@ export function createApp(deps: ApiDeps): Hono {
    * client; the real error goes to the process log.
    */
   app.onError((err) => {
-    console.error('[api] unhandled error', err);
-    // LimitExceededError carries the correct status (402/403) and violation
     if (err instanceof LimitExceededError) {
       const v = err.violation;
       // Map internal violation kinds to wire error codes (docs/07 §1.2)
@@ -168,11 +202,14 @@ export function createApp(deps: ApiDeps): Hono {
         monthly_credits_exceeded: 'insufficient_credits',
         seats_exceeded: 'forbidden',
       };
+      // A plan limit is an expected answer, not a crash: warn, not error.
+      log.warn('api.limit_exceeded', { kind: v.kind, status: v.status });
       return new Response(JSON.stringify(apiError(codeMap[v.kind], v.message)), {
         status: v.status,
         headers: { 'content-type': 'application/json' },
       });
     }
+    log.error('api.unhandled_error', { error: err });
     return new Response(JSON.stringify(apiError('internal', 'unexpected error')), {
       status: 500,
       headers: { 'content-type': 'application/json' },

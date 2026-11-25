@@ -12,6 +12,7 @@
     "@facelesspro/contracts": "*",
     "@facelesspro/core": "*",
     "@facelesspro/db": "*",
+    "@facelesspro/log": "*",
     "@facelesspro/queue": "*",
     "@hono/node-server": "^2.1.8",
     "hono": "^4.13.14"

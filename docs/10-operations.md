@@ -258,15 +258,85 @@ evidence that a step did not run.
 
 ## 7. Logging
 
-Structured JSON, one line per event:
+Every service writes **application events** as one JSON object per line to stdout; Docker
+captures it, so the sink needs no sidecar. The shared implementation is `@facelesspro/log`.
+(The shell entrypoint's short boot banner and the migration runner's progress lines stay plain
+text; they are one-off, human-facing, and carry no user data.)
 
 ```jsonc
-{"ts":"…","level":"info","svc":"worker","videoId":"…","step":"create-vocal",
- "adapter":"edge","runs":37,"ms":61230,"chars":4980,"costUnits":0}
+{"ts":"2026-11-25T10:00:00.000Z","level":"info","svc":"facelesspro-worker",
+ "event":"step.committed","videoId":"…","step":"create-vocal","ms":61230,"items":37}
 ```
 
-No script text in logs by default (`LOG_SCRIPTS=0`) — user narration is private. Enable only
-while debugging, locally.
+The first four keys are always present and in this order: `ts` (ISO-8601 UTC), `level`
+(`debug`|`info`|`warn`|`error`), `svc`, `event` (a dotted, stable name). Call fields follow and
+may add or override a key; `child()` context is merged first, so a call can correct it.
+
+| Event | Service | When |
+|---|---|---|
+| `http.request` | api | every request except `/health` (debug) and `/files/*` (never) |
+| `api.limit_exceeded` | api | a plan cap answers 402/403 |
+| `api.unhandled_error` | api | a route threw; the client still sees `internal` |
+| `api.listening`, `api.shutdown`, `api.fatal` | api | lifecycle |
+| `worker.health_listening`, `worker.consuming`, `worker.draining`, `worker.fatal` | worker | lifecycle |
+| `step.failed` | queue | a non-retryable step ended `failed` (the only trace of an internal bug) |
+| `job_event.write_failed`, `webhook.event_insert_failed`, `webhook.enqueue_failed`, `queue.boss_error` | queue | telemetry or delivery is degraded; the pipeline keeps going |
+| `mcp.listening`, `mcp.shutdown`, `mcp.fatal`, `mcp.unhandled_error` | mcp | lifecycle and JSON-RPC transport failures |
+
+Configuration, all optional:
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `LOG_LEVEL` | `info` | minimum level; an unknown value falls back to `info` |
+| `LOG_SCRIPTS` | `0` | `1` stops redacting narration fields (local debugging only) |
+| `LOG_STACKS` | `0` | `1` appends a stack to logged `Error` values |
+
+**User narration is private.** By default any field named `script`, `scripts`, `text`, `texts`,
+`narration`, `transcript`, `voiceover`, `prompt`, `body`, `messages` or `conversations` is
+replaced with `"[redacted]"` **at any depth**, so a create request cannot leak a whole script
+through a stray `request` field. Logging an `Error` keeps `name`, `message` and the `cause`
+chain (where adapters put a provider status) but not the stack unless `LOG_STACKS=1`. A
+circular value, a bigint or a broken sink can never make a log call throw.
+
+`job_event` remains the durable telemetry table; these lines are the fast path for
+`docker compose logs` and for a log-based alert rule.
+
+---
+
+## 7.1 Job dashboard and failure-rate alert
+
+`job_event` is durable per-attempt telemetry; `npm run jobs:health` is the read side.
+
+```console
+$ npm run jobs:health
+job health · last 60 min · since 2026-11-25T07:23:04.464Z
+step              events     ok  failed  retry    rate
+create-scenes          0      0       0      0    0.0%
+create-vocal           0      0       0      0    0.0%
+create-images          2      2       0      0    0.0%
+render                 3      2       1      0   33.3%
+total                  5      4       1      0   20.0%
+
+status: DEGRADED (threshold 20.0% terminal failure rate)
+```
+
+- **Window:** first positional argument, in minutes (`npm run jobs:health -- 180`), or
+  `JOB_HEALTH_WINDOW_MINUTES`. Default 60.
+- **Scope:** `--workspace <uuid>` limits the report to one workspace's videos; without it the
+  report covers the install.
+- **Alert:** `JOB_FAILURE_THRESHOLD` (default `0.2`) is the terminal failure rate above which
+  the exit code is `1`. Wire it to cron or an Uptime-Kuma push monitor:
+  `*/10 * * * * cd /srv/facelesspro && npm run jobs:health >/var/log/jobs-health.txt 2>&1 || notify`.
+  Exit `2` means the database could not be read — also worth an alert.
+- **Arithmetic:** rate = `failed / (succeeded + failed)`, where success is `committed` or
+  `reused`. `retryable` is shown but is not a failure: pg-boss has not given up yet. `stale`,
+  `locked`, `superseded` and `missing` are coordination noise and never move the rate. A step
+  with no terminal attempt in the window is `0 %`, not `100 %`.
+- Every step is printed in pipeline order with zeros included; a missing row would otherwise
+  read as "healthy".
+
+The same report shape is `jobHealthSchema` in `@facelesspro/contracts`, so a future
+`/v1/monitoring` route or a web dashboard can reuse the arithmetic instead of re-deriving it.
 
 ---
 

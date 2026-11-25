@@ -55,6 +55,8 @@ import {
 import type { Database } from '@facelesspro/db';
 import { and, eq, sql } from 'drizzle-orm';
 import { drizzle } from 'drizzle-orm/node-postgres';
+import { loggerFromEnv } from '@facelesspro/log';
+import type { Logger } from '@facelesspro/log';
 import type { Pool, PoolClient } from 'pg';
 import type PgBoss from 'pg-boss';
 
@@ -103,6 +105,8 @@ export interface StepDeps {
   readonly pool: Pool;
   readonly boss: PgBoss;
   readonly lockTtlMs?: number;
+  /** Structured sink for step failures; defaults to the `facelesspro-queue` logger. */
+  readonly log?: Logger;
 }
 
 export interface ChargeInput {
@@ -197,6 +201,14 @@ export interface StepResult {
 }
 
 export type StepBody = (ctx: StepContext) => Promise<StepWork>;
+
+let fallbackLog: Logger | undefined;
+
+/** One shared logger for callers that did not inject one. */
+function queueLog(): Logger {
+  fallbackLog ??= loggerFromEnv('facelesspro-queue');
+  return fallbackLog;
+}
 
 /** Next step in the public order, or `null` after `render`. */
 export function nextStepOf(step: VideoStep): VideoStep | null {
@@ -643,6 +655,8 @@ async function settleFailure(
   metrics: StepEventMetrics,
   elapsed: () => number,
 ): Promise<StepResult> {
+  const log = deps.log ?? queueLog();
+
   if (error instanceof Superseded) {
     // Someone with a newer attempt owns the lock; leave it exactly as it is.
     await recordEvent(deps, {
@@ -678,7 +692,7 @@ async function settleFailure(
 
   if (failure.code === 'internal') {
     // Not rethrown, so this is the only trace a real bug leaves.
-    console.error('[queue] step failed', {
+    log.error('step.failed', {
       videoId: claim.videoId,
       step: claim.step,
       attempt: claim.attempt,
@@ -704,7 +718,7 @@ async function settleFailure(
     event: 'failed',
     payload: { event: 'failed', videoId: claim.videoId },
   }).catch((error) => {
-    console.error('[queue] webhook event insert failed', {
+    log.error('webhook.event_insert_failed', {
       videoId: claim.videoId,
       error,
     });
@@ -714,7 +728,7 @@ async function settleFailure(
     event: 'failed',
     payload: { event: 'failed', videoId: claim.videoId },
   }).catch((error) => {
-    console.error('[queue] webhook enqueue failed', {
+    log.error('webhook.enqueue_failed', {
       videoId: claim.videoId,
       error,
     });
@@ -770,7 +784,7 @@ async function recordEvent(deps: StepDeps, event: RecordedEvent): Promise<void> 
       degraded_from: event.metrics?.degradedFrom ?? null,
     });
   } catch (error) {
-    console.error('[queue] job_event write failed', {
+    (deps.log ?? queueLog()).error('job_event.write_failed', {
       videoId: event.videoId,
       step: event.step,
       outcome: event.outcome,

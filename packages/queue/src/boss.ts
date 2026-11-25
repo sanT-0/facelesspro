@@ -10,6 +10,8 @@
 
 import { VIDEO_STEPS } from '@facelesspro/contracts';
 import type { VideoStep } from '@facelesspro/contracts';
+import { loggerFromEnv } from '@facelesspro/log';
+import type { Logger } from '@facelesspro/log';
 import PgBoss from 'pg-boss';
 
 import { jobData, parseJob, queueFor } from './jobs';
@@ -40,6 +42,13 @@ export const STEP_QUEUE_OPTIONS = {
   retentionSeconds: 24 * 60 * 60,
 } as const satisfies Omit<PgBoss.Queue, 'name'>;
 
+let fallbackLog: Logger | undefined;
+
+function queueLog(): Logger {
+  fallbackLog ??= loggerFromEnv('facelesspro-queue');
+  return fallbackLog;
+}
+
 export interface BossOptions {
   readonly connectionString: string;
   /** pg-boss schema. Defaults to pg-boss's own `pgboss`. */
@@ -67,7 +76,7 @@ export async function createBoss(options: BossOptions): Promise<PgBoss> {
   });
 
   boss.on('error', (error: unknown) => {
-    console.error('[queue] pg-boss error', error);
+    queueLog().error('queue.boss_error', { error });
   });
 
   await boss.start();

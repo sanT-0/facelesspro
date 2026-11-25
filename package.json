@@ -26,6 +26,7 @@
     "tts:audit": "tsx scripts/audit-transliteration.ts",
     "sample:tts": "tsx scripts/sample-tts.ts",
     "restore:drill": "tsx scripts/restore-drill.ts",
+    "jobs:health": "tsx scripts/job-health.ts",
     "db:generate": "drizzle-kit generate --config packages/db/drizzle.config.ts",
     "db:migrate": "tsx packages/db/src/migrate.ts",
     "db:seed": "tsx packages/db/src/seed.ts",

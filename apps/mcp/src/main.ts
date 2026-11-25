@@ -12,12 +12,15 @@
 
 import { workspaceSchema } from '@facelesspro/contracts';
 import { loadEnv } from '@facelesspro/db';
+import { loggerFromEnv } from '@facelesspro/log';
 import { serve } from '@hono/node-server';
 
 import { createMcpApp } from './server';
 import { MemoryOAuthStore } from './store';
 
 loadEnv();
+
+const log = loggerFromEnv('facelesspro-mcp');
 
 async function main(): Promise<void> {
   const port = Number(process.env.MCP_PORT ?? 3002);
@@ -26,6 +29,7 @@ async function main(): Promise<void> {
 
   const app = createMcpApp({
     apiBaseUrl,
+    logger: log,
     authenticateApiKey: async (token) => {
       if (!/^vp_[0-9a-f]{40}$/.test(token)) return null;
 
@@ -47,14 +51,14 @@ async function main(): Promise<void> {
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`[mcp] listening on http://127.0.0.1:${info.port}`);
+    log.info('mcp.listening', { port: info.port });
   });
 
   let stopping = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    console.log(`[mcp] ${signal} — closing`);
+    log.info('mcp.shutdown', { signal });
     server.close();
     process.exit(0);
   };
@@ -67,6 +71,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('[mcp] fatal', error);
+  log.error('mcp.fatal', { error });
   process.exit(1);
 });

@@ -20,6 +20,7 @@ import {
   workspace,
 } from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
+import { createLogger } from '@facelesspro/log';
 import {
   StepFailure,
   createBoss,
@@ -499,16 +500,20 @@ suite('withStep', () => {
   });
 
   it('fails loudly when a step does work but writes nothing', async () => {
-    const spy = vi.spyOn(console, 'error').mockImplementation(() => undefined);
-    try {
-      const result = await withStep(deps, videoId, 'create-scenes', async () => undefined);
-      expect(result.outcome).toBe('failed');
-      expect(result.error?.code).toBe('internal');
-      expect((await readVideo()).status).toBe('failed');
-      expect(spy).toHaveBeenCalled();
-    } finally {
-      spy.mockRestore();
-    }
+    const lines: Array<Record<string, unknown>> = [];
+    const log = createLogger({
+      svc: 'facelesspro-queue',
+      write: (line) => lines.push(JSON.parse(line) as Record<string, unknown>),
+    });
+    const result = await withStep({ ...deps, log }, videoId, 'create-scenes', async () => undefined);
+    expect(result.outcome).toBe('failed');
+    expect(result.error?.code).toBe('internal');
+    expect((await readVideo()).status).toBe('failed');
+    expect(lines.find((line) => line.event === 'step.failed')).toMatchObject({
+      level: 'error',
+      videoId,
+      step: 'create-scenes',
+    });
   });
 
   it('serialises concurrent jobs for the same video and step', async () => {

@@ -16,7 +16,8 @@
     "baseUrl": ".",
     "paths": {
       "@facelesspro/core": ["packages/core/src/index.ts"],
-      "@facelesspro/contracts": ["packages/contracts/src/index.ts"]
+      "@facelesspro/contracts": ["packages/contracts/src/index.ts"],
+      "@facelesspro/log": ["packages/log/src/index.ts"]
     }
   },
   "include": [

@@ -52,6 +52,7 @@ import {
 import { serve } from '@hono/node-server';
 
 import { createApp } from './app';
+import { loggerFromEnv } from '@facelesspro/log';
 import type { ArtStyleSubmission } from './art-styles';
 import { createRateLimiter, rateLimitOptionsFromEnv } from './rate-limit';
 import type { SubmitVideo } from './video-submit';
@@ -64,6 +65,8 @@ import {
 } from './video-queues';
 
 loadEnv();
+
+const log = loggerFromEnv('facelesspro-api');
 
 async function main(): Promise<void> {
   const port = Number(process.env.PORT ?? 3001);
@@ -206,6 +209,7 @@ async function main(): Promise<void> {
   const storageRoot = resolve(process.env.DATA_DIR?.trim() || '.data');
 
   const app = createApp({
+    logger: log,
     probes: {
       db: async () => {
         await pool.query('select 1');
@@ -291,14 +295,14 @@ async function main(): Promise<void> {
   });
 
   const server = serve({ fetch: app.fetch, port }, (info) => {
-    console.log(`facelesspro-api listening on http://127.0.0.1:${info.port}`);
+    log.info('api.listening', { port: info.port });
   });
 
   let stopping = false;
   const shutdown = async (signal: string): Promise<void> => {
     if (stopping) return;
     stopping = true;
-    console.log(`[api] ${signal} — closing`);
+    log.info('api.shutdown', { signal });
     server.close();
     const activeBoss = bossPromise;
     if (activeBoss !== undefined) {
@@ -316,6 +320,6 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('[api] fatal', error);
+  log.error('api.fatal', { error });
   process.exit(1);
 });

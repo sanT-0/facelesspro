@@ -16,6 +16,9 @@ export default defineConfig({
       '@facelesspro/queue': fileURLToPath(
         new URL('./packages/queue/src/index.ts', import.meta.url),
       ),
+      '@facelesspro/log': fileURLToPath(
+        new URL('./packages/log/src/index.ts', import.meta.url),
+      ),
     },
   },
   test: {

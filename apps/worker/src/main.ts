@@ -9,6 +9,7 @@
 import { createDb, databaseUrl, loadEnv } from '@facelesspro/db';
 import { createBoss, consume, stopBoss, WEBHOOK_QUEUE } from '@facelesspro/queue';
 import { extractThumbnail, renderVideo } from '@facelesspro/art';
+import { loggerFromEnv } from '@facelesspro/log';
 
 import { startWorker } from './worker';
 import { createArtStyleBuildHandler } from './art-style/runtime';
@@ -31,6 +32,11 @@ import { processWebhookDelivery } from './webhook-delivery';
 
 loadEnv();
 
+const log = loggerFromEnv('facelesspro-worker');
+
+/** Adapter factories warn instead of throwing when a provider is missing. */
+const warn = (message: string): void => log.warn('worker.adapter_fallback', { message });
+
 async function main(): Promise<void> {
   // Health check HTTP server for Docker healthchecks (using Node.js http module)
   const healthPort = Number(process.env.HEALTH_PORT ?? 9090);
@@ -45,7 +51,7 @@ async function main(): Promise<void> {
     }
   });
   healthServer.listen(healthPort, () => {
-    console.log(`[worker] Health check server listening on port ${healthPort}`);
+    log.info('worker.health_listening', { port: healthPort });
   });
 
   const schema = process.env.PGBOSS_SCHEMA || undefined;
@@ -59,7 +65,10 @@ async function main(): Promise<void> {
     db,
     pool,
     boss,
-    planner: createPlannerChainFromEnv({ env: process.env }),
+    planner: createPlannerChainFromEnv({
+      env: process.env,
+      logger: warn,
+    }),
     asr: createMediaAsrPort({
       baseUrl: process.env.MEDIA_SERVICE_URL,
       timeoutMs: envNumber(process.env.MEDIA_ASR_TIMEOUT_MS),
@@ -80,7 +89,7 @@ async function main(): Promise<void> {
     db,
     pool,
     boss,
-    image: createImageChainFromEnv({ env: process.env }),
+    image: createImageChainFromEnv({ env: process.env, logger: warn }),
     imageUnitCost: envNumber(process.env.IMAGE_UNIT_COST) ?? 0,
   });
   const createCaptions = createCreateCaptionsHandler({
@@ -101,7 +110,12 @@ async function main(): Promise<void> {
 
   const worker = await startWorker({
     boss,
-    artStyle: createArtStyleBuildHandler({ db, env: process.env }),
+    log: (line) => log.info('worker.message', { message: line }),
+    artStyle: createArtStyleBuildHandler({
+      db,
+      env: process.env,
+      log: (line) => log.info('art_style.build', { message: line }),
+    }),
     steps: {
       'create-scenes': createScenes,
       'create-vocal': createVocal,
@@ -110,7 +124,7 @@ async function main(): Promise<void> {
       render,
     },
   });
-  console.log(`[worker] consuming ${worker.queues.join(', ')}`);
+  log.info('worker.consuming', { queues: worker.queues });
 
   // Webhook delivery: consume jobs from the webhook-delivery queue. Each job
   // carries { videoId, event, payload }; processWebhookDelivery reads the
@@ -134,7 +148,7 @@ async function main(): Promise<void> {
   async function shutdown(signal: string): Promise<void> {
     if (stopping) return;
     stopping = true;
-    console.log(`[worker] ${signal} — draining`);
+    log.info('worker.draining', { signal });
     await worker.stop();
     await boss.offWork(WEBHOOK_QUEUE).catch(() => undefined);
     await stopBoss(boss);
@@ -157,6 +171,6 @@ function envNumber(raw: string | undefined): number | undefined {
 }
 
 main().catch((error: unknown) => {
-  console.error('[worker] fatal', error);
+  log.error('worker.fatal', { error });
   process.exit(1);
 });

@@ -22,6 +22,8 @@ import { Hono, type Context } from 'hono';
 import { createMiddleware } from 'hono/factory';
 import { z } from 'zod';
 import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
+import { noopLogger } from '@facelesspro/log';
+import type { Logger } from '@facelesspro/log';
 
 type MCPVariables = {
   readonly workspaceId: string;
@@ -79,6 +81,8 @@ export interface McpDeps {
   ) => Promise<{ readonly workspaceId: string } | null>;
   /** OAuth clients, codes and token pairs. */
   readonly oauth: OAuthStore;
+  /** Structured log sink; tests leave it out and stay silent. */
+  readonly logger?: Logger;
   /** Injectable clock (Unix epoch ms). Defaults to `Date.now`. */
   readonly now?: () => number;
 }
@@ -89,10 +93,11 @@ export interface McpDeps {
 export function createMcpApp(deps: McpDeps): MCPContext {
   const app = new Hono<{ Variables: MCPVariables }>();
   const now = deps.now ?? Date.now;
+  const log = deps.logger ?? noopLogger;
 
   // --- error handler -------------------------------------------------------
   app.onError((err, c) => {
-    console.error('[mcp] unhandled error', err);
+    log.error('mcp.unhandled_error', { error: err });
     return c.json(
       jsonRpcResponseSchema.parse({
         jsonrpc: '2.0',
