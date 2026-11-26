@@ -5,7 +5,8 @@
  * `DELETE /v1/workspace/members/:id` — remove member
  *
  * Seat limits enforced from plan (P11 limits).
- * Only owners/admins can manage members; owners cannot be demoted/removed.
+ * Invite/remove: owners and admins. Role changes: owner only. The owner can
+ * never be demoted or removed, and admins cannot remove other admins.
  */
 
 import { Hono } from 'hono';
@@ -93,7 +94,22 @@ export function createMemberRoutes(deps: MemberRouteDeps): Hono<WorkspaceEnv> {
   // POST /v1/workspace/members
   app.post('/workspace/members', async (c) => {
     const workspaceId = c.get('workspaceId');
-    const _requesterId = c.get('userId') ?? '';
+    const requesterId = c.get('userId') ?? '';
+
+    // Any key scoped to the workspace can read the list, but inviting is a
+    // management action. Keys minted before `api_key.user_id` existed cannot
+    // prove a role, so they are refused rather than treated as the owner.
+    const members = await deps.listMembers(workspaceId);
+    const requester = members.find((m) => m.userId === requesterId);
+    if (
+      requester === undefined ||
+      (requester.role !== 'owner' && requester.role !== 'admin')
+    ) {
+      return c.json(
+        apiError('forbidden', 'only owners and admins can invite members'),
+        403,
+      );
+    }
 
     const payload = await c.req.json();
     const parsed = inviteMemberRequestSchema.safeParse(payload);
@@ -109,7 +125,6 @@ export function createMemberRoutes(deps: MemberRouteDeps): Hono<WorkspaceEnv> {
     // Use a type assertion on the property access.
     const email = (parsed.data as InviteMemberRequestParsed).email;
     const role = (parsed.data as InviteMemberRequestParsed).role;
-    const _name = email.split('@')[0];
 
     // Check seat limit
     const seatCheck = await deps.checkSeatLimit(workspaceId);
@@ -135,10 +150,9 @@ export function createMemberRoutes(deps: MemberRouteDeps): Hono<WorkspaceEnv> {
       user = await deps.createUser({ email, name: userName });
     }
 
-    // Check if already a member
-    const existing = await deps.listMembers(workspaceId).then((ms) =>
-      ms.find((m) => m.userId === user!.id),
-    );
+    // Check if already a member. The list was read before user creation, so it
+    // is only used for users that already existed.
+    const existing = members.find((m) => m.userId === user!.id);
     if (existing) {
       return c.json(
         apiError('conflict', 'user is already a member of this workspace'),

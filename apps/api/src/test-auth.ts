@@ -7,7 +7,7 @@
  */
 
 import type { ApiKeyRow } from '@facelesspro/contracts';
-import type { Hono } from 'hono';
+import type { Env, Hono } from 'hono';
 
 import type { AuthDeps } from './auth';
 
@@ -57,7 +57,7 @@ export interface TestClient {
  * request. The header still travels through the real middleware; only the
  * 401 tests use `raw`.
  */
-export function testClient(app: Hono): TestClient {
+export function testClient<E extends Env>(app: Hono<E>): TestClient {
   return {
     async request(input, init = {}) {
       const headers = new Headers(init.headers);

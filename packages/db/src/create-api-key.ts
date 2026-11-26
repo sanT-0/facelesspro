@@ -4,16 +4,19 @@
  * The bootstrap path for the first key: `POST /v1/keys` itself requires an API
  * key, so a fresh install needs a way to mint one from the host shell. The key
  * is printed once. Nothing else about it is recoverable.
+ *
+ * The bootstrap key is bound to the workspace owner: there is no authenticated
+ * user yet, and an unbound key cannot pass the member-role checks.
  */
 
 import { pathToFileURL } from 'node:url';
 
 import { createApiKeyRequestSchema, idSchema } from '@facelesspro/contracts';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 import { createApiKey } from './api-keys';
 import { createDb, loadEnv } from './client';
-import { workspace } from './schema';
+import { member, workspace } from './schema';
 import { DEV_WORKSPACE_ID } from './seed';
 
 interface Options {
@@ -78,7 +81,22 @@ async function main(): Promise<void> {
       );
     }
 
-    const created = await createApiKey(db, options);
+    // There is no authenticated user at bootstrap, so the first key acts as the
+    // workspace owner. Without this binding `api_key.user_id` is null and every
+    // owner/admin member operation refuses the only key the install has.
+    const owners = await db
+      .select({ userId: member.user_id })
+      .from(member)
+      .where(and(eq(member.workspace_id, options.workspaceId), eq(member.role, 'owner')))
+      .limit(1);
+    const ownerId = owners[0]?.userId;
+    if (ownerId === undefined) {
+      throw new Error(
+        `workspace ${options.workspaceId} has no owner; run npm run db:seed first`,
+      );
+    }
+
+    const created = await createApiKey(db, { ...options, userId: ownerId });
     console.log(`created API key "${created.apiKey.name}" (${created.apiKey.prefix})`);
     console.log(created.key);
     console.log('store it now: this is the only time the key is shown');

@@ -274,6 +274,42 @@ management until `npm run key:create` is run on the host again.
 
 ---
 
+### 2.6 Workspace members `[+]`
+
+Roles, strongest first: `owner` > `admin` > `editor` > `viewer`. A workspace always has one
+owner, and `seats` counts every member including the owner.
+
+| Method | Path | Body / returns |
+|---|---|---|
+| GET | `/v1/workspace/members` | `{members: member[]}` |
+| POST | `/v1/workspace/members` | `{email, role?}` → `201 {member}`; role defaults to `editor` |
+| PATCH | `/v1/workspace/members/:id` | `{role}` → `200 {member}` |
+| DELETE | `/v1/workspace/members/:id` | → `200 {removed: true}` |
+
+`member` is `{id, workspaceId, userId, email, name, role, joinedAt}`. `id` is the user id — the
+membership table is keyed by `(workspace_id, user_id)` — so the `:id` path parameter is the same
+value as `userId`. `joinedAt` is currently the user's account creation time, because the
+membership row has no timestamp of its own; a per-membership `joinedAt` is a follow-up.
+
+Rules, enforced in `@facelesspro/db` and pinned by `members.db.test.ts`:
+
+- Inviting needs `owner` or `admin`; changing a role needs `owner`; removing needs `owner` or
+  `admin`. Anything lower is `403 forbidden`. A key minted before `api_key.user_id` existed
+  cannot prove a role and is refused rather than treated as the owner.
+- `POST` refuses `role: "owner"` (`400 invalid_request`); ownership transfer is a separate
+  operation. Inviting an existing member is `409 conflict`.
+- The owner can never be demoted or removed, and an admin cannot remove another admin.
+- A member cannot change their own role or remove themselves.
+- Adding a member is `403 forbidden` once the plan's seats are full (`current >= seats`).
+  `seats` is a plain number for every plan, including `selfhost`, so the same check applies.
+
+An email that matches no user creates a password-less `user` row so the invite can be repeated
+without duplicating anyone. Sending an actual invitation email is P6 scope; this route does not
+promise delivery. Roles gate team management only — video routes remain workspace-scoped, so any
+member's key can submit work until per-role video capability lands.
+
+---
+
 ## 3. Webhooks `[P]` `[+]`
 
 ```jsonc

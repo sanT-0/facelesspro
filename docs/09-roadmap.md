@@ -658,7 +658,10 @@ flow works at 375 px width.
 - [ ] Image animation — SVD/AnimateDiff (GPU flag, video generation from stills).
 - [ ] Avatar video + lip-sync 720p (Wav2Lip/MuseTalk behind a flag).
 - [x] 2K/4K render profiles + resolution gating by plan (via P11 limits).
-- [ ] Team collaboration: members, roles, shared workspace, seat limits.
+- [x] Team collaboration: members, roles, shared workspace, seat limits — four roles
+      (`owner`/`admin`/`editor`/`viewer`) over `/v1/workspace/members`; seats come from the
+      plan and the owner cannot be demoted or removed. Role gates cover team management, not
+      video actions yet.
 - [ ] Per-style LoRA training hook (optional accelerator).
 - [x] Background music with sidechain ducking — `music {key, gainDb, ducking}` on V3/V2, the
       key being an upload from `POST /v1/files`; the bed is looped to the narration length and

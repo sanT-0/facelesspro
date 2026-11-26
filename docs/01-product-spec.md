@@ -332,6 +332,24 @@ left as a plan ceiling nothing can reach.
 Dev/self-host default: a `selfhost` plan with `Infinity` credits and a ledger that still
 records unit costs, so cost-per-video remains measurable.
 
+### 8.1 Team members `[+]`
+
+A workspace has one owner and, within the plan's `seats` (owner included), any number of
+members. `member.role` is one of `owner | admin | editor | viewer`. Roles gate team management;
+they do not yet gate video actions, so every member's key can submit work.
+
+| Action | owner | admin | editor | viewer |
+|---|---|---|---|---|
+| list members | yes | yes | yes | yes |
+| invite a member | yes | yes | no | no |
+| remove a member (never the owner) | yes | yes, not another admin | no | no |
+| change a member's role | yes | no | no | no |
+
+The owner cannot be demoted or removed; ownership transfer is a separate operation. A member
+cannot change their own role or remove themselves. Every check runs on the server against the
+key's `user_id` → membership row, scoped to the key's workspace; a member id from another
+workspace is `404`.
+
 ---
 
 ## 9. Webhooks `[P]`

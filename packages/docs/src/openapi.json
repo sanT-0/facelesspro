@@ -350,6 +350,55 @@
           }
         }
       },
+      "Member": {
+        "type": "object",
+        "required": ["id", "workspaceId", "userId", "email", "name", "role", "joinedAt"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid" },
+          "workspaceId": { "type": "string", "format": "uuid" },
+          "userId": { "type": "string", "format": "uuid" },
+          "email": { "type": "string", "format": "email" },
+          "name": { "type": "string" },
+          "role": { "type": "string", "enum": ["owner", "admin", "editor", "viewer"] },
+          "joinedAt": { "type": "string", "format": "date-time" }
+        }
+      },
+      "MemberList": {
+        "type": "object",
+        "required": ["members"],
+        "properties": {
+          "members": { "type": "array", "items": { "$ref": "#/components/schemas/Member" } }
+        }
+      },
+      "InviteMemberRequest": {
+        "type": "object",
+        "required": ["email"],
+        "properties": {
+          "email": { "type": "string", "format": "email" },
+          "role": { "type": "string", "enum": ["admin", "editor", "viewer"], "default": "editor" }
+        }
+      },
+      "UpdateMemberRequest": {
+        "type": "object",
+        "required": ["role"],
+        "properties": {
+          "role": { "type": "string", "enum": ["admin", "editor", "viewer"] }
+        }
+      },
+      "MemberEnvelope": {
+        "type": "object",
+        "required": ["member"],
+        "properties": {
+          "member": { "$ref": "#/components/schemas/Member" }
+        }
+      },
+      "RemoveMemberResponse": {
+        "type": "object",
+        "required": ["removed"],
+        "properties": {
+          "removed": { "type": "boolean", "enum": [true] }
+        }
+      },
       "HealthReport": {
         "type": "object",
         "required": ["status", "service", "version", "time", "db", "queue"],
@@ -531,6 +580,64 @@
         "responses": {
           "200": { "description": "Balance logs", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/BalanceLogList" } } } },
           "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/workspace/members": {
+      "get": {
+        "summary": "List workspace members with their roles",
+        "operationId": "listMembers",
+        "security": [{ "BearerAuth": [] }],
+        "responses": {
+          "200": { "description": "Members", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemberList" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "post": {
+        "summary": "Invite a user by email (owner or admin)",
+        "operationId": "inviteMember",
+        "security": [{ "BearerAuth": [] }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/InviteMemberRequest" } } }
+        },
+        "responses": {
+          "201": { "description": "Invited member", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemberEnvelope" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Role too low or no spare seat", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "409": { "description": "Already a member", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      }
+    },
+    "/v1/workspace/members/{id}": {
+      "patch": {
+        "summary": "Change a member's role (owner only)",
+        "operationId": "updateMember",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/UpdateMemberRequest" } } }
+        },
+        "responses": {
+          "200": { "description": "Updated member", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/MemberEnvelope" } } } },
+          "400": { "description": "Invalid request", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Role too low or the owner", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
+        }
+      },
+      "delete": {
+        "summary": "Remove a member (owner or admin)",
+        "operationId": "removeMember",
+        "security": [{ "BearerAuth": [] }],
+        "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
+        "responses": {
+          "200": { "description": "Removed", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RemoveMemberResponse" } } } },
+          "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "403": { "description": "Role too low or the owner", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
+          "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
         }
       }
     },
@@ -814,7 +921,7 @@
         }
       }
     },
-    "/v1/api-keys": {
+    "/v1/keys": {
       "post": {
         "summary": "Create a new API key",
         "operationId": "createApiKey",
@@ -839,14 +946,14 @@
         }
       }
     },
-    "/v1/api-keys/{id}": {
+    "/v1/keys/{id}": {
       "delete": {
         "summary": "Revoke an API key",
         "operationId": "revokeApiKey",
         "security": [{ "BearerAuth": [] }],
         "parameters": [{ "name": "id", "in": "path", "required": true, "schema": { "type": "string", "format": "uuid" } }],
         "responses": {
-          "204": { "description": "Revoked" },
+          "200": { "description": "Revoked", "content": { "application/json": { "schema": { "type": "object" } } } },
           "401": { "description": "Unauthorized", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } },
           "404": { "description": "Not found", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ApiError" } } } }
         }

@@ -2,7 +2,8 @@
  * Workspace member management (P10.4 — Teams).
  *
  * Seat limits are enforced from the plan (P11 limits).
- * Only owners/admins can manage members; owners cannot be demoted/removed.
+ * Invite/remove: owners and admins. Role changes: owner only. The owner can
+ * never be demoted or removed, and admins cannot remove other admins.
  */
 
 import { and, desc, eq, sql } from 'drizzle-orm';
@@ -25,7 +26,10 @@ export interface MemberEntry {
 }
 
 /**
- * List all members of a workspace with their roles, newest first.
+ * List all members of a workspace with their roles, newest users first.
+ *
+ * `joinedAt` is the user's `created_at`: the `member` row has no timestamp of
+ * its own, so this is not strictly "when they joined this workspace".
  */
 export async function listMembers(
   db: Database,
@@ -96,10 +100,10 @@ export async function countMembers(
   workspaceId: string,
 ): Promise<number> {
   const rows = await db
-    .select({ count: sql<number>`count(*)` })
+    .select({ count: sql<string>`count(*)` })
     .from(member)
     .where(eq(member.workspace_id, workspaceId));
-  return rows[0]?.count ?? 0;
+  return Number(rows[0]?.count ?? 0);
 }
 
 /**

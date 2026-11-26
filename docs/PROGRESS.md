@@ -2202,6 +2202,49 @@ file stays the single "what is actually true today" view.
       roadmap line was split instead of claiming both halves; `npm run test:db` (a full Postgres
       pipeline run with a real bed) was not executed this session.
 
+- [x] 2026-11-26 — **P10.4 teams: tests, an authorization hole and a seat-count bug.** The
+      members routes shipped in `60e6376` without tests, so this pass added
+      `apps/api/src/members.test.ts` (13 route tests, real `withWorkspace()` middleware) and
+      `packages/db/src/members.db.test.ts` (8 Postgres tests for role rules and seat limits).
+      The route tests failed first on a real defect: **any member's key, including a viewer's,
+      could invite a user** — `POST /v1/workspace/members` read `_requesterId` and never used
+      it. It now requires `owner` or `admin`, reusing the member list it already reads for the
+      duplicate check (one query, no new dep). The DB tests found a second: `countMembers`
+      declared `sql<number>` but `count(*)` arrives from `pg` as a string, so `checkSeatLimit`
+      returned `current: "1"`; it now returns `Number(...)`. Docs: `/v1/workspace/members` is in
+      `docs/07` §2.6 and `docs/01` §8.1, the docs-site OpenAPI spec has the four paths and five
+      schemas (and its key paths were wrong: `/v1/api-keys` → `/v1/keys`). Role gates cover team
+      management only; video routes are still workspace-scoped for every member, stated in both
+      specs rather than implied. A live smoke test found the last wiring gap: `npm run key:create`
+      minted the bootstrap key with `api_key.user_id = NULL`, so the only key a fresh install has
+      was refused by every owner/admin check; the CLI now binds it to the workspace owner.
+      Verified over HTTP against the rebuilt api container: invite a viewer → `201`, list shows
+      owner + viewer, PATCH → `editor` → `200`, DELETE → `200` (the dev plan was `premium` for
+      the invite and restored to `selfhost` afterwards).
+      Gate: typecheck + lint clean, 128 files / 1621 unit tests, 23 files / 76 db tests.
+      **Observed:** the invite hole was exploitable by any key bound to the workspace, not just
+      a low-role member; an old key without `api_key.user_id` is now refused with `403`.
+      **Assumed:** a real invite email is still P6; creating a password-less user is enough for
+      the team flow to be idempotent.
+
+- [x] 2026-11-26 — **P11 migration hygiene: the stray 0005 is gone and the dev journal is
+      repaired.** While adding a fresh-database guard, `prepareDatabase()` on a scratch database
+      failed at `ALTER TABLE "video" ADD COLUMN "redraw"`: `0005_add_video_redraw_revocal.sql`
+      (committed in `60e6376`) duplicates columns that `0002`/`0003` already add and was never in
+      the journal, so journaling it as-is could never work. Deleted the stray SQL; the journal
+      stays at five entries. The setup test now asserts exactly five migrations applied *and*
+      that `user.created_at`, `api_key.user_id`, `video.redraw` and `video.revocal` exist —
+      counting 18 tables had hidden the missing-column class of bug. Separately, the dev
+      database's `drizzle.__drizzle_migrations` was missing `0004` (applied by hand), so its next
+      boot would have re-run `0004` and failed; the row was recorded at the journal timestamp and
+      `npm run db:migrate` is now a no-op. Verified by rebuilding and starting the api container:
+      `[migrate] ready: 18 tables, 5 migrations`, `/health` `{db:"ok", queue:"ok"}`.
+      **Observed:** a cold clone was never broken by the stray file — the migrator ignores files
+      that are not in the journal — but it was a trap for whoever journaled it; the dev database
+      was the live failure. **Assumed:** the 0004 snapshot already reflects the final schema (it
+      lists `video.redraw`/`revocal`), so `drizzle-kit generate` stays quiet; checked, not
+      regenerated.
+
 ---
 
 ## Decisions log

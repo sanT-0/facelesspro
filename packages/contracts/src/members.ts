@@ -8,7 +8,8 @@
  *   DELETE /v1/workspace/members/:id    — remove member
  *
  * Seat limits are enforced from the plan (P11 limits).
- * Only owners/admins can manage members; owners cannot be demoted/removed.
+ * Invite/remove: owners and admins. Role changes: owner only. The owner can
+ * never be demoted or removed, and admins cannot remove other admins.
  */
 
 import { z } from 'zod';
