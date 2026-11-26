@@ -146,7 +146,6 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
   const render = deps.renderVideo ?? renderVideoAdapter;
   const thumbnail = deps.extractThumbnail ?? extractThumbnailAdapter;
   const persist = deps.persistRender ?? persistRender;
-  const root = deps.storageRoot ?? dataDir;
   const fonts = deps.fontsDir ?? fileURLToPath(BUNDLED_CAPTION_FONTS_URL);
   const unitCost = deps.renderUnitCost ?? DEFAULT_RENDER_UNIT_COST;
 
@@ -333,7 +332,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         captionTrack = parsed.data;
       }
 
-      const directory = root();
+      const directory = (typeof deps.storageRoot === 'function' ? deps.storageRoot() : deps.storageRoot) ?? dataDir();
       let background: { imagePath?: string; videoPath?: string; videoStartFrom?: number } | undefined;
       if (backgroundAssetId) {
         const asset = requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'video', 'background');
@@ -459,7 +458,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       captionTrack = parsed.data;
     }
 
-    const directory = root();
+    const directory = (typeof deps.storageRoot === 'function' ? deps.storageRoot() : deps.storageRoot) ?? dataDir();
     let background: { imagePath?: string; videoPath?: string; videoStartFrom?: number } | undefined;
     if (backgroundAssetId) {
       const asset = requireAsset(assets, backgroundAssetId, row.data.workspace_id, 'quiz-background', 'background');

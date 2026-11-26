@@ -253,7 +253,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     } else {
       graphParts.push(`${colour}[cat]`);
       graphParts.push(
-        `[cat]ass='${escapeFilterPath(captions.path)}':fontsdir='${escapeFilterPath(captions.fontsDir)}'[vout]`,
+        `[cat]ass=${escapeFilterPath(captions.path)}:fontsdir=${escapeFilterPath(captions.fontsDir)}[vout]`,
       );
     }
   } else {
@@ -341,7 +341,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     } else {
       graphParts.push(`${labels}concat=n=${scenes.length}:v=1:a=0[cat]`);
       graphParts.push(
-        `[cat]ass='${escapeFilterPath(captions.path)}':fontsdir='${escapeFilterPath(captions.fontsDir)}'[vout]`,
+        `[cat]ass=${escapeFilterPath(captions.path)}:fontsdir=${escapeFilterPath(captions.fontsDir)}[vout]`,
       );
     }
   }

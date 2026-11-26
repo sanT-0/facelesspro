@@ -24,27 +24,14 @@ const alias = {
   ),
 };
 
-/**
- * Integration tests that need a live Postgres (`docker compose up`).
- *
- * Separate from `npm run gate` on purpose: unit tests must run with no network
- * and no services, so a missing database can never be mistaken for a passing
- * gate. `DB_TESTS=1` is what tells a test file it may connect.
- *
- * Loads .env so that LIVE=1 uses the configured provider chains (planner/image/TTS).
- */
+/** Integration tests that need a live Postgres (`docker compose up`). */
 export default defineConfig({
   resolve: { alias },
   test: {
     include: ['packages/**/*.db.test.ts', 'apps/**/*.db.test.ts'],
     environment: 'node',
-    env: { DB_TESTS: '1', DATABASE_URL: databaseUrl },
-    // Suites isolate application rows by workspace, but pg-boss queue names are
-    // global. Parallel files that both purge `create-vocal` can erase the other
-    // suite's just-enqueued artifact and turn a good atomic commit into a false
-    // failure.
+    env: { DB_TESTS: '1', DATABASE_URL: databaseUrl, DATA_DIR: '/tmp/faceless-test-data' },
     fileParallelism: false,
-    // Real transactions, real queues: a cold pg-boss start is not a unit test.
     testTimeout: 30_000,
     hookTimeout: 60_000,
   },

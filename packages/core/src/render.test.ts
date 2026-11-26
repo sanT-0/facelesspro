@@ -155,7 +155,7 @@ describe('buildRenderPlan', () => {
       input({ captions: { path: 'subs/captions.ass', fontsDir: 'fonts/ttf' } }),
     );
     expect(captioned.filterGraph).toContain(
-      "[v0][v1]concat=n=2:v=1:a=0[cat];[cat]ass='subs/captions.ass':fontsdir='fonts/ttf'[vout]",
+      "[v0][v1]concat=n=2:v=1:a=0[cat];[cat]ass=subs/captions.ass:fontsdir=fonts/ttf[vout]",
     );
   });
 
@@ -191,7 +191,7 @@ describe('buildRenderPlan', () => {
     );
     expect(plan.filterGraph).toBe(
       'color=c=0x00FF00:s=1920x1080:r=30,trim=end_frame=45,setpts=N/(30*TB)[cat];' +
-        "[cat]ass='subs/captions.ass':fontsdir='fonts/ttf'[vout]",
+        "[cat]ass=subs/captions.ass:fontsdir=fonts/ttf[vout]",
     );
   });
 

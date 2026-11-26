@@ -267,7 +267,7 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
     await deleteVideoRows();
   });
 
-  it('runs all five Quiz steps and keeps a 30 s 1080p artifact', async () => {
+  it('runs all five Quiz steps and keeps a 30 s 1080p artifact', { timeout: 300000 }, async () => {
     const live = LIVE;
     const scenes = createCreateScenesHandler({
       db,
@@ -600,5 +600,5 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
     ).toHaveLength(4);
-  }, LIVE ? 3_600_000 : 300_000);
+  });
 });
