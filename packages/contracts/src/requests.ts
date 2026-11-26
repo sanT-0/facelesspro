@@ -99,6 +99,30 @@ export const renderRequestSchema = z.strictObject({
 });
 export type RenderRequest = z.output<typeof renderRequestSchema>;
 
+/**
+ * Background music bed for a rendered video (`[+]`, docs/01 §7).
+ *
+ * The track is an uploaded file: `key` is the `key` returned by
+ * `POST /v1/files`, and only an upload key (`uploads/<uuid>`) is accepted, so a
+ * request can never point the renderer at another workspace's artifact or an
+ * arbitrary path. The renderer loops the bed to the narration length and, with
+ * `ducking`, lowers it under speech with a sidechain compressor keyed on the
+ * narration.
+ */
+export const musicSchema = z.strictObject({
+  key: z
+    .string()
+    .regex(
+      /^uploads\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      'music.key must be an upload key from POST /v1/files',
+    ),
+  /** Bed level relative to the narration master, dB. */
+  gainDb: z.number().min(-30).max(0).default(-18),
+  /** Lower the bed while narration is present. */
+  ducking: z.boolean().default(true),
+});
+export type Music = z.output<typeof musicSchema>;
+
 /** Negative ids are built-in templates (parity); 0 is never a valid id. */
 function extensionOf(url: string): string | null {
   const path = new URL(url).pathname.toLowerCase();
@@ -137,6 +161,8 @@ const v3Base = {
   /** Per-video overrides merged over the chosen template's spec. */
   captionSpec: captionSpecSchema.optional(),
   render: renderOptionsSchema.optional(),
+  /** Optional music bed mixed under the narration (docs/01 §7). */
+  music: musicSchema.optional(),
   webhookUrl: webhookUrlSchema.optional(),
 };
 
@@ -200,6 +226,8 @@ export const createAiVideoRequestSchema = z.strictObject({
   voiceId: voiceIdSchema.optional(),
   voiceStyle: voiceStyleV2Schema.default(VOICE_STYLE_V2),
   render: renderOptionsSchema.optional(),
+  /** Optional music bed mixed under the narration (docs/01 §7). */
+  music: musicSchema.optional(),
   webhookUrl: webhookUrlSchema.optional(),
 });
 export type CreateAiVideoRequest = z.input<typeof createAiVideoRequestSchema>;

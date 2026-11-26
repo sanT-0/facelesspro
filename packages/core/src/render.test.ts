@@ -294,3 +294,66 @@ describe('escapeFilterPath', () => {
     expect(escapeFilterPath("it's.ass")).toBe("it\\'s.ass");
   });
 });
+
+describe('background music bed', () => {
+  const music = { path: 'bed.mp3', gainDb: -18, ducking: true };
+
+  it('mixes a ducked bed under the narration and maps the mix', () => {
+    const plan = buildRenderPlan(input({ music }));
+
+    // Two stills are inputs 0/1, so the voice is 2 and the bed is 3.
+    expect(plan.filterGraph).toContain('[2:a]aresample=48000');
+    expect(plan.filterGraph).toContain('[3:a]atrim=duration=1.500');
+    expect(plan.filterGraph).toContain('volume=-18dB[bed]');
+    expect(plan.filterGraph).toContain(
+      'sidechaincompress=threshold=0.05:ratio=8:attack=20:release=400:makeup=1',
+    );
+    expect(plan.filterGraph).toContain(
+      '[voice][ducked]amix=inputs=2:duration=first:normalize=0[aout]',
+    );
+
+    const streamLoop = plan.args.indexOf('-stream_loop');
+    expect(streamLoop).toBeGreaterThan(-1);
+    expect(plan.args.slice(streamLoop, streamLoop + 4)).toEqual([
+      '-stream_loop',
+      '-1',
+      '-i',
+      'bed.mp3',
+    ]);
+    // The bed is an input, not part of the filter string.
+    expect(plan.args.filter((arg) => arg === 'bed.mp3')).toHaveLength(1);
+    expect(plan.args[plan.args.lastIndexOf('-map') + 1]).toBe('[aout]');
+  });
+
+  it('mixes without a compressor when ducking is off', () => {
+    const plan = buildRenderPlan(input({ music: { ...music, ducking: false } }));
+
+    expect(plan.filterGraph).not.toContain('sidechaincompress');
+    expect(plan.filterGraph).toContain('[voice][bed]amix=inputs=2:duration=first:normalize=0[aout]');
+    expect(plan.args[plan.args.lastIndexOf('-map') + 1]).toBe('[aout]');
+  });
+
+  it('leaves the audio mapping untouched when there is no music', () => {
+    const plan = buildRenderPlan(input());
+
+    expect(plan.filterGraph).not.toContain('amix');
+    expect(plan.args).not.toContain('-stream_loop');
+    expect(plan.args[plan.args.lastIndexOf('-map') + 1]).toBe('2:a:0');
+  });
+
+  it('is deterministic for the same music input', () => {
+    expect(buildRenderPlan(input({ music })).args).toEqual(buildRenderPlan(input({ music })).args);
+  });
+
+  it('rejects a bad gain, an empty path or a non-boolean ducking', () => {
+    expect(() => buildRenderPlan(input({ music: { ...music, gainDb: 3 } }))).toThrow(/gainDb/);
+    expect(() => buildRenderPlan(input({ music: { ...music, gainDb: -31 } }))).toThrow(/gainDb/);
+    expect(() => buildRenderPlan(input({ music: { ...music, gainDb: Number.NaN } }))).toThrow(
+      /gainDb/,
+    );
+    expect(() => buildRenderPlan(input({ music: { ...music, path: '' } }))).toThrow(/path/);
+    expect(() =>
+      buildRenderPlan(input({ music: { ...music, ducking: 'yes' as unknown as boolean } })),
+    ).toThrow(/ducking/);
+  });
+});

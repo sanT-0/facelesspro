@@ -62,7 +62,7 @@ import { StepFailure, withStep } from '@facelesspro/queue';
 import type { CommitTx, StepBody, StepDeps, StepHandler } from '@facelesspro/queue';
 import { asc, eq, inArray, sql } from 'drizzle-orm';
 import { fileURLToPath } from 'node:url';
-import { readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 
 import {
   dataDir,
@@ -172,6 +172,8 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
     let questionAssetIds: string[] = [];
     let quizItems: readonly QuizItem[] | undefined;
     let quizAnswerTemplate = '{{answer}}';
+    // Optional music bed (V3/V2 only), resolved to a storage path before render.
+    let musicRequest: { key: string; gainDb: number; ducking: boolean } | undefined;
     if (kind === 'ai-video-v3') {
       const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
@@ -181,6 +183,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
+      musicRequest = request.data.music;
     } else if (kind === 'ai-video') {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
@@ -190,6 +193,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       }
       options = request.data.render;
       size = request.data.size;
+      musicRequest = request.data.music;
     } else if (kind === 'quiz') {
       // Strip internal `_quizAssets` key before schema validation, but keep it for asset loading.
       const { _quizAssets, ...quizBody } = row.data.request.body as Record<string, unknown>;
@@ -474,6 +478,26 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
         };
       }
     }
+    // The bed is an uploaded file, not a URL: the key is resolved under the
+    // storage root (which rejects traversal) and must already be on disk. A
+    // missing file is a client error, not a retryable encoder failure.
+    let music: { path: string; gainDb: number; ducking: boolean } | undefined;
+    if (musicRequest !== undefined) {
+      const musicPath = resolveStorageKey(directory, musicRequest.key);
+      try {
+        await stat(musicPath);
+      } catch {
+        throw new StepFailure(
+          'invalid_request',
+          `music track ${musicRequest.key} is not in storage`,
+        );
+      }
+      music = {
+        path: musicPath,
+        gainDb: musicRequest.gainDb,
+        ducking: musicRequest.ducking,
+      };
+    }
     const renderStorageKey = renderKey(
       row.data.workspace_id,
       ctx.videoId,
@@ -527,6 +551,7 @@ export function createCreateRenderWork(deps: CreateRenderWorkDeps = {}): StepBod
       ...(background
         ? { background }
         : {}),
+      ...(music === undefined ? {} : { music }),
       ...(captionTrack === null
         ? {}
         : {

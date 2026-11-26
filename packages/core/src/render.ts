@@ -97,6 +97,32 @@ export interface RenderCaptions {
   fontsDir: string;
 }
 
+/**
+ * Optional background music bed.
+ *
+ * The bed is looped to the narration length and mixed under the voice. With
+ * `ducking` it is lowered while speech is present by a sidechain compressor
+ * keyed on the narration, so the voice never fights it. These numbers mirror
+ * `musicSchema` in `@facelesspro/contracts`; core is dependency-free, so they
+ * are repeated here rather than imported.
+ */
+export interface RenderMusic {
+  /** Absolute or relative path to an audio file; any ffmpeg-readable format. */
+  path: string;
+  /** Bed level relative to the narration master, dB, −30…0. */
+  gainDb: number;
+  /** Lower the bed under speech. */
+  ducking: boolean;
+}
+
+export const MUSIC_MIN_GAIN_DB = -30;
+export const MUSIC_MAX_GAIN_DB = 0;
+/** Sidechain compressor settings used when `ducking` is on. */
+export const MUSIC_DUCK_THRESHOLD = 0.05;
+export const MUSIC_DUCK_RATIO = 8;
+export const MUSIC_DUCK_ATTACK_MS = 20;
+export const MUSIC_DUCK_RELEASE_MS = 400;
+
 export interface RenderPlanInput {
   scenes: readonly RenderScene[];
   audioPath: string;
@@ -108,6 +134,8 @@ export interface RenderPlanInput {
   /** Optional persistent background for the entire video (e.g., quiz background). */
   background?: RenderBackground;
   captions?: RenderCaptions;
+  /** Optional music bed mixed under the narration. */
+  music?: RenderMusic;
   /** Overrides the ladder default (18 at 1080, 16 at 2K/4K). */
   crf?: number;
   preset?: RenderPreset;
@@ -215,6 +243,23 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
   if (!RENDER_PRESETS.includes(preset)) {
     throw new Error(`preset must be one of ${RENDER_PRESETS.join(', ')}`);
   }
+  if (input.music !== undefined) {
+    if (input.music.path.length === 0) {
+      throw new Error('music.path must be a non-empty file path');
+    }
+    if (
+      !Number.isFinite(input.music.gainDb) ||
+      input.music.gainDb < MUSIC_MIN_GAIN_DB ||
+      input.music.gainDb > MUSIC_MAX_GAIN_DB
+    ) {
+      throw new Error(
+        `music.gainDb must be between ${MUSIC_MIN_GAIN_DB} and ${MUSIC_MAX_GAIN_DB}`,
+      );
+    }
+    if (typeof input.music.ducking !== 'boolean') {
+      throw new Error('music.ducking must be a boolean');
+    }
+  }
 
   const { width, height } = renderDimensions(resolution, size);
 
@@ -238,6 +283,7 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
 
   const captions = input.captions;
   const background = input.background;
+  const music = input.music;
   const graphParts: string[] = [];
   let imageInputArgs: string[];
   let audioInputIndex: number;
@@ -345,6 +391,38 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
       );
     }
   }
+  // --- audio ----------------------------------------------------------------
+  // Without music the narration is mapped straight from its input. With a bed
+  // the voice is split into a mix path and a sidechain key, so the compressor
+  // lowers only the bed; `normalize=0` keeps the narration at its own level
+  // instead of halving it, which is what `amix` would do by default.
+  let audioMap = `${audioInputIndex}:a:0`;
+  if (music !== undefined) {
+    const seconds = (durationMs / 1000).toFixed(3);
+    const musicIndex = audioInputIndex + 1;
+    const voice =
+      `[${audioInputIndex}:a]aresample=${DEFAULT_AUDIO_RATE},` +
+      'aformat=sample_fmts=fltp:channel_layouts=stereo';
+    const bed =
+      `[${musicIndex}:a]atrim=duration=${seconds},asetpts=N/SR/TB,` +
+      `aresample=${DEFAULT_AUDIO_RATE},aformat=sample_fmts=fltp:channel_layouts=stereo,` +
+      `volume=${music.gainDb}dB[bed]`;
+    if (music.ducking) {
+      graphParts.push(`${voice},asplit=2[voice][key]`);
+      graphParts.push(bed);
+      graphParts.push(
+        `[bed][key]sidechaincompress=threshold=${MUSIC_DUCK_THRESHOLD}` +
+          `:ratio=${MUSIC_DUCK_RATIO}:attack=${MUSIC_DUCK_ATTACK_MS}` +
+          `:release=${MUSIC_DUCK_RELEASE_MS}:makeup=1[ducked]`,
+      );
+      graphParts.push('[voice][ducked]amix=inputs=2:duration=first:normalize=0[aout]');
+    } else {
+      graphParts.push(`${voice}[voice]`);
+      graphParts.push(bed);
+      graphParts.push('[voice][bed]amix=inputs=2:duration=first:normalize=0[aout]');
+    }
+    audioMap = '[aout]';
+  }
   const filterGraph = graphParts.join(';');
 
   const args: string[] = [
@@ -355,12 +433,13 @@ export function buildRenderPlan(input: RenderPlanInput): RenderPlan {
     ...imageInputArgs,
     '-i',
     input.audioPath,
+    ...(music === undefined ? [] : ['-stream_loop', '-1', '-i', music.path]),
     '-filter_complex',
     filterGraph,
     '-map',
     '[vout]',
     '-map',
-    `${audioInputIndex}:a:0`,
+    audioMap,
     '-c:v',
     'libx264',
     '-preset',

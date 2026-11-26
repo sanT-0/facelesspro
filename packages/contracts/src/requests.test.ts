@@ -506,3 +506,43 @@ describe('other requests', () => {
     ).toBe(false);
   });
 });
+
+describe('background music bed', () => {
+  const MUSIC_KEY = 'uploads/0190a0a0-0000-7000-8000-000000000000';
+
+  it('defaults to -18 dB with ducking on', () => {
+    const parsed = createAiVideoV3RequestSchema.parse({
+      artStyleId: ART_STYLE,
+      script: 'vanakkam',
+      music: { key: MUSIC_KEY },
+    });
+    expect(parsed.music).toEqual({ key: MUSIC_KEY, gainDb: -18, ducking: true });
+  });
+
+  it('accepts an explicit gain and ducking off on V2 as well', () => {
+    const parsed = createAiVideoRequestSchema.parse({
+      script: 'vanakkam',
+      music: { key: MUSIC_KEY, gainDb: -6, ducking: false },
+    });
+    expect(parsed.music).toEqual({ key: MUSIC_KEY, gainDb: -6, ducking: false });
+  });
+
+  it('rejects a key that is not an upload, a gain outside -30..0 and unknown keys', () => {
+    const cases: Array<[unknown, string]> = [
+      [{ key: 'ws/other/audio.mp3' }, 'music.key'],
+      [{ key: 'uploads/../../etc/passwd' }, 'music.key'],
+      [{ key: MUSIC_KEY, gainDb: 6 }, 'music.gainDb'],
+      [{ key: MUSIC_KEY, gainDb: -40 }, 'music.gainDb'],
+      [{ key: MUSIC_KEY, loop: true }, 'music'],
+    ];
+    for (const [music, path] of cases) {
+      expect(
+        pathsOf(createAiVideoV3RequestSchema, {
+          artStyleId: ART_STYLE,
+          script: 'x',
+          music,
+        }),
+      ).toContain(path);
+    }
+  });
+});

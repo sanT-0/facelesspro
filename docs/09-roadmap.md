@@ -660,7 +660,10 @@ flow works at 375 px width.
 - [x] 2K/4K render profiles + resolution gating by plan (via P11 limits).
 - [ ] Team collaboration: members, roles, shared workspace, seat limits.
 - [ ] Per-style LoRA training hook (optional accelerator).
-- [ ] Background music with ducking; SFX placement.
+- [x] Background music with sidechain ducking — `music {key, gainDb, ducking}` on V3/V2, the
+      key being an upload from `POST /v1/files`; the bed is looped to the narration length and
+      ducked 10.6 dB under speech in the measured artifact.
+- [ ] SFX placement at scene boundaries.
 
 **Gate:** each extra has an e2e + a quality check; nothing becomes a hard dependency on GPU.
 

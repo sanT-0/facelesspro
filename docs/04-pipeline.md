@@ -700,7 +700,7 @@ safe; a stale delivery writes, charges and enqueues nothing.
 ffmpeg -filter_complex
   each still ── scale/crop ── zoompan(d=exact scene frames) ── fixed-fps clip
   scene clips ── concat filter (video only)
-  + audio: narration (already stitched, mapped without filtering)
+  + audio: narration (already stitched) + optional looped music bed (sidechain-ducked)
   + subtitles: optional ASS burn after concat
   → libx264 -preset medium -crf 18 (1080p) / 16 (2K/4K)
   → +faststart, yuv420p, stereo AAC-LC 192k / 48 kHz
@@ -717,7 +717,19 @@ Determinism rules: fixed fps and `-r`, current ffmpeg `-fps_mode cfr` (not remov
 `-map_metadata -1`, bitexact mux/codec flags, and zoom/pan expressions based only on output frame
 number. A real-ffmpeg test renders the same input twice to different paths and requires identical
 MP4 bytes. Duration (within 100 ms), actual frame count, fps, resolution and stream codecs are
-hard checks; a digest alone is not evidence. Background-music ducking remains P10.
+hard checks; a digest alone is not evidence.
+
+**Music bed.** `music` is an upload key (`uploads/<uuid>` from `POST /v1/files`), resolved under
+the storage root by `resolveStorageKey` (which rejects traversal) and required to exist before
+ffmpeg runs — a missing bed is an `invalid_request` step failure, not a retryable encoder error.
+The plan adds it as an input after the narration with `-stream_loop -1`, trims it to the video
+duration, applies `gainDb` (a plain `volume` gain, −30…0 dB) and, when `ducking` is on, feeds it
+through `sidechaincompress` keyed on the narration (`asplit` of the voice) before
+`amix=inputs=2:duration=first:normalize=0`. `normalize=0` is load-bearing: `amix`'s default
+halves both inputs, which would quietly drop the narration 6 dB. Without `music` the graph is
+unchanged and the narration is still mapped straight from its input. Real-ffmpeg test
+(`packages/art/src/render.test.ts`): a 0.5 s bed against a 2 s video is still measurable in the
+last half second, the bed band is >6 dB lower with ducking, and the voice band is unchanged.
 
 Audio output is explicitly `AAC-LC`, 48 kHz, **stereo** (`-ac 2`) even when narration input is
 mono. The duplicated centre voice is deliberate compatibility: a locally generated mono AAC

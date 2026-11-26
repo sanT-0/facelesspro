@@ -83,6 +83,7 @@ Script (or voiceover) → scenes → narration → images drawn in a **cloned ar
 | `captionTemplateId` | number | last used | negative = built-in; until workspace preferences land, an omitted id uses built-in `-1` |
 | `captionSpec` | object | omitted | per-video overrides merged over the template spec (`wordLimit`, `maxLines`, `emoji`, colours, position) |
 | `render` | object | omitted | `{}` accepts defaults |
+| `music` | object | omitted | `{key, gainDb, ducking}`: `key` is an upload key from `POST /v1/files` (`uploads/<uuid>`), `gainDb` −30…0 (default −18), `ducking` default `true`; the bed is looped to the narration length |
 | `webhookUrl` | https url | — | terminal-status callback |
 
 `voiceStyle` defaults for V3: `{stability: 50, similarityBoost: 75, style: 0, speed: 100}`.
@@ -113,6 +114,7 @@ No `artStyleId`, no `voiceoverUrl`, no `captions` flag (V2 always captions).
 | `voiceId` | string | workspace default | |
 | `voiceStyle` | object | `{stability:38, similarityBoost:75, style:50, speed:100}` | accepted for parity |
 | `render` | object | omitted | `{}` accepts defaults |
+| `music` | object | omitted | same `{key, gainDb, ducking}` bed as V3 |
 | `webhookUrl` | https url | — | terminal-status callback |
 
 **Our implementation `[~]` (2026-11-17):** `POST /v1/ai-videos` accepts this body. The 16
@@ -286,14 +288,21 @@ drawtext pipelines (see roadmap P4).
 | 30 / 60 fps | ✅ | ✅ |
 | green screen variant | ✅ | ✅ |
 | aspect | 16:9, 9:16 | 16:9, 9:16 `[P]`; 1:1 `[+]` |
-| background music / ducking | implied | `[+]` planned P10 |
+| background music / ducking | implied | ✅ `[+]` upload-key bed, sidechain-ducked (V3/V2) |
 
 `[+]` The standard renderer is an ffmpeg filter graph: each still becomes an exact-frame
 `zoompan` clip, clips concatenate in memory, narration is mapped, ASS is burned, and H.264/AAC is
 muxed with `+faststart`. Cumulative frame rounding prevents scene-by-scene drift. Green-screen
 uses a generated, frame-exact `#00FF00` source instead of reading scene stills, then burns the
-same captions on top. The complete 30/60 fps × 1080/2K/4K profile matrix is validated; music/
-ducking remains P10.
+same captions on top. The complete 30/60 fps × 1080/2K/4K profile matrix is validated.
+
+`[+]` A `music` bed is an uploaded audio file, never a URL: `key` must be an upload key, so a
+request cannot point the renderer at another workspace's artifact or an arbitrary path. The bed
+is looped to the narration length, gained to `gainDb` and mixed with the voice under
+`amix=normalize=0` so the narration keeps its own level. With `ducking` the bed is lowered while
+speech is present by a `sidechaincompress` keyed on the narration (threshold 0.05, ratio 8,
+attack 20 ms, release 400 ms), so the voice never fights it. SFX placement at scene boundaries
+is still P10.
 
 Final MP4 audio is stereo AAC-LC at 48 kHz/192 kbps. Mono narration is duplicated to both
 channels because codec-valid mono AAC was observed silent in a real user playback path.

@@ -2171,6 +2171,37 @@ file stays the single "what is actually true today" view.
       The stills are the offline procedural floor, not a model-authored cinematic look, and
       `strong-swipe` remains alternating lateral pans rather than a cross-fade.
 
+- [x] 2026-11-26 — **P10 music bed with sidechain ducking.** `music` is now a field on the V3 and
+      V2 create requests (`packages/contracts/src/requests.ts`): `{key, gainDb, ducking}` where
+      `key` must be an upload key from `POST /v1/files` (`uploads/<uuid>`), `gainDb` is −30…0
+      (default −18) and `ducking` defaults to `true`. A URL was rejected as the source on
+      purpose: the renderer never fetches anything, and a storage key cannot name another
+      workspace's artifact.
+      `packages/core/src/render.ts` adds the audio graph: the bed is an input after the narration
+      (`-stream_loop -1`), trimmed to the video length, gained, and — with ducking — compressed
+      by `sidechaincompress` keyed on an `asplit` of the voice before
+      `amix=inputs=2:duration=first:normalize=0`. `normalize=0` is load-bearing: `amix`'s default
+      halves every input, which would have dropped the narration 6 dB. Without `music` the graph
+      and argument vector are unchanged (pinned by a regression test).
+      `apps/worker/src/steps/render.ts` resolves the key under the storage root
+      (`resolveStorageKey`, which rejects traversal) and `stat`s the file; a missing bed is
+      `invalid_request`, never a retryable encoder failure.
+      Tests: 3 contract (defaults, explicit values, non-upload key / out-of-range gain / unknown
+      key), 5 core (ducked graph, unducked graph, unchanged no-music path, determinism,
+      validation) and 2 worker (path handed to the plan, missing file rejected before ffmpeg).
+      Artifact: `.data/artifacts/p10-music/music-ducked.mp4` — 10.000 s, 300 frames, 1920×1080,
+      30 fps, 267 KB, real ffmpeg. A 3 s 200 Hz bed against a 10 s clip measured **−20.4 dB**
+      during silence, **−31.0 dB** during speech (**10.6 dB** of ducking), **−20.4 dB** at 6.5 s
+      (so the loop really fills the timeline), narration at **−12.1 dB** (not halved).
+      `npm run gate` green: typecheck + lint clean, **127 files / 1608 tests**. pytest not run —
+      no Python media/render code changed.
+      **Observed:** the loop, the ducking depth and the un-halved narration are measured from the
+      encoded MP4, not read off the filter string.
+      **Assumed / not done:** no CC0 music library ships yet, so a user uploads their own track;
+      nobody listened to it (the bed is a sine fixture); SFX placement is still open, so the
+      roadmap line was split instead of claiming both halves; `npm run test:db` (a full Postgres
+      pipeline run with a real bed) was not executed this session.
+
 ---
 
 ## Decisions log
@@ -2273,3 +2304,4 @@ file stays the single "what is actually true today" view.
 | 2026-11-25 | P11: structured logging, job health dashboard + alert | Added `@facelesspro/log` with JSON lines, redaction, env config. Wired into api, worker, queue, mcp. `npm run jobs:health` reads `job_event` → table + exit code (0 ok, 1 degraded, 2 db error). Gate: typecheck + lint clean, 127 files / 1597 unit tests, 22 files / 68 db tests. **Observed:** log level for `/health` is `debug` so 10 s probes don't flood; `/files/*` is never logged. `LOG_SCRIPTS=1` opt-in is the only way narration reaches logs. **Assumed:** monitoring route `/v1/monitoring` and web dashboard are P6; cron/alert wiring is ops not code. |
 | 2026-11-25 | P11: docs site (public API + MCP, generated from contracts) | Added `@facelesspro/docs` package with static OpenAPI 3.1 spec (`packages/docs/src/openapi.json`) and `npm run build` → `packages/docs/dist/{openapi.json, index.html}`. Redoc serves the reference at `/`. Gate: typecheck + lint clean, 127 files / 1597 unit tests. **Observed:** spec covers all `/v1/*` endpoints, MCP `/mcp` + OAuth, and artifact serving `/files/*`. **Assumed:** CI will deploy the `dist/` folder to a static host (GitHub Pages, Netlify, S3+CloudFront); the spec is manually maintained from contracts rather than auto-generated due to zod-to-openapi limitations. |
 | 2026-11-25 | P11: THIRD_PARTY_NOTICES.md + licence audit | Created `THIRD_PARTY_NOTICES.md` with all runtime npm deps, dev deps, Python media deps, bundled fonts (Noto Sans, Noto Sans Tamil, Noto Emoji — SIL OFL 1.1), system deps (Node, ffmpeg, libstdc++, Python, Postgres), and invoked assets/models (edge-tts launch blocker, Flux/SDXL/Wav2Lip/Piper/Whisper candidates). Verification commands included. Gate: typecheck + lint clean, 127 files / 1597 unit tests. **Observed:** edge-tts remains the only launch blocker; all other deps are permissive (MIT/Apache/BSD/MPL/OFL). **Assumed:** TTS engine replacement is P6 scope; the audit is accurate as of this commit. |
+| 2026-11-26 | The music bed is an **upload key**, not a URL, and ducking is a sidechain compressor keyed on the voice | a URL would make the renderer a fetcher (SSRF surface, timeouts mid-render) and a plain path would let a request name any file; an upload key is workspace-neutral, traversal-proof under `resolveStorageKey`, and checkable before ffmpeg runs. `sidechaincompress` follows the actual speech instead of a fixed level curve, and `amix=normalize=0` keeps the narration at its own level |

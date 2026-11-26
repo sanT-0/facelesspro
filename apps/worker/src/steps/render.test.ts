@@ -12,6 +12,9 @@ import {
   type RenderPlanInput,
 } from '@facelesspro/core';
 import type { RenderResult, ThumbnailResult } from '@facelesspro/art';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import type { Database } from '@facelesspro/db';
 import { StepFailure } from '@facelesspro/queue';
 import type { CommitTx, StepContext } from '@facelesspro/queue';
@@ -649,5 +652,86 @@ describe('createCreateRenderWork', () => {
       format: 'standard',
       durationMs: 2_400,
     });
+  });
+});
+
+describe('music bed', () => {
+  const MUSIC_KEY = 'uploads/0190a0a0-0000-7000-8000-000000000000';
+
+  function workIn(directory: string, inputs: RenderPlanInput[]) {
+    return createCreateRenderWork({
+      loadScenes: async () => scenes,
+      loadAssets: async () => [...images, audio],
+      loadNarration: async () => narration,
+      loadCaptionTrack: async () => captionTrack,
+      renderVideo: async (input) => {
+        inputs.push(input);
+        const plan = buildRenderPlan(input);
+        return {
+          outputPath: input.outputPath,
+          width: plan.width,
+          height: plan.height,
+          fps: plan.fps,
+          durationMs: plan.durationMs,
+          totalFrames: plan.totalFrames,
+          bytes: 9_000,
+          plan,
+        };
+      },
+      extractThumbnail: async (_videoPath, outputPath) => ({
+        outputPath,
+        timestampMs: 600,
+        width: 1_280,
+        height: 720,
+        sourceWidth: 1_920,
+        sourceHeight: 1_080,
+        durationMs: 2_400,
+        bytes: 1,
+      }),
+      persistRender: async () => {},
+      storageRoot: () => directory,
+      fontsDir: FONTS,
+    });
+  }
+
+  it('resolves the uploaded bed to a storage path and hands it to the plan', async () => {
+    mkdirSync('.data', { recursive: true });
+    const directory = mkdtempSync(join('.data', 'render-music-'));
+    try {
+      mkdirSync(join(directory, 'uploads'), { recursive: true });
+      writeFileSync(join(directory, MUSIC_KEY), Buffer.from('bed'));
+
+      const inputs: RenderPlanInput[] = [];
+      const { context } = harness(video({ music: { key: MUSIC_KEY, gainDb: -12 } }));
+
+      await workIn(directory, inputs)(context);
+
+      expect(inputs[0]?.music).toEqual({
+        path: resolveStorageKey(directory, MUSIC_KEY),
+        gainDb: -12,
+        ducking: true,
+      });
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
+  });
+
+  it('rejects a bed that is not in storage before running ffmpeg', async () => {
+    mkdirSync('.data', { recursive: true });
+    const directory = mkdtempSync(join('.data', 'render-music-missing-'));
+    try {
+      const inputs: RenderPlanInput[] = [];
+      const { context, transactionCalls } = harness(
+        video({ music: { key: 'uploads/0190a0a0-0000-7000-8000-000000000001' } }),
+      );
+
+      await expect(workIn(directory, inputs)(context)).rejects.toMatchObject({
+        code: 'invalid_request',
+      });
+      expect(inputs).toHaveLength(0);
+      expect(transactionCalls).toHaveLength(0);
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   });
 });

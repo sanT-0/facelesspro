@@ -298,3 +298,95 @@ describe('renderVideo (real ffmpeg)', () => {
     ).rejects.toThrow(/ffmpeg/i);
   }, 60_000);
 });
+
+describe('background music ducking (real ffmpeg)', () => {
+  /** Mean level of one band, read from ffmpeg's own volumedetect output. */
+  function meanVolume(
+    path: string,
+    filter: string,
+    start?: number,
+    duration?: number,
+  ): number {
+    const args = [
+      '-hide_banner',
+      ...(start === undefined ? [] : ['-ss', start.toFixed(3)]),
+      '-i', path,
+      ...(duration === undefined ? [] : ['-t', duration.toFixed(3)]),
+      '-af', `${filter},volumedetect`,
+      '-f', 'null',
+      '-',
+    ];
+    const result = spawnSync('ffmpeg', args, { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 });
+    if (result.status !== 0) throw new Error(result.stderr);
+    const match = /mean_volume:\s*(-?\d+(?:\.\d+)?) dB/.exec(result.stderr);
+    if (match === null) throw new Error(`no mean_volume in ${result.stderr}`);
+    return Number(match[1]);
+  }
+
+  it('loops a short bed to the narration length and ducks it under speech', async () => {
+    mkdirSync(TEMP_ROOT, { recursive: true });
+    const directory = mkdtempSync(join(TEMP_ROOT, 'render-music-'));
+    temporaryDirectories.push(directory);
+
+    const still = join(directory, 'still.png');
+    const voice = join(directory, 'voice.wav');
+    const bed = join(directory, 'bed.mp3');
+    const ducked = join(directory, 'ducked.mp4');
+    const plain = join(directory, 'plain.mp4');
+
+    ffmpeg([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'color=c=gray:s=640x360:r=1:d=1',
+      '-frames:v', '1', still,
+    ]);
+    // Continuous 440 Hz narration: the compressor key is present for the whole
+    // clip, so the bed must stay ducked throughout.
+    ffmpeg([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'aevalsrc=0.5*sin(2*PI*440*t):s=48000:d=2',
+      '-c:a', 'pcm_s16le', voice,
+    ]);
+    // A 0.5 s bed against a 2 s video: it can only fill the timeline by looping.
+    ffmpeg([
+      '-hide_banner', '-loglevel', 'error', '-y',
+      '-f', 'lavfi', '-i', 'aevalsrc=0.5*sin(2*PI*200*t):s=44100:d=0.5',
+      '-c:a', 'libmp3lame', '-b:a', '128k', bed,
+    ]);
+
+    const render = (outputPath: string, ducking: boolean) =>
+      renderVideo({
+        scenes: [
+          { imagePath: still, durationMs: 1000, motion: 'none' },
+          { imagePath: still, durationMs: 1000, motion: 'none' },
+        ],
+        audioPath: voice,
+        outputPath,
+        resolution: 1080,
+        fps: 30,
+        size: 'landscape',
+        format: 'standard',
+        music: { path: bed, gainDb: -6, ducking },
+      });
+
+    const duckedResult = await render(ducked, true);
+    await render(plain, false);
+
+    expect(duckedResult.totalFrames).toBe(60);
+    expect(duckedResult.durationMs).toBe(2000);
+
+    const bedBand = 'bandpass=f=200:width_type=h:w=30';
+    const bedPlain = meanVolume(plain, bedBand);
+    const bedDucked = meanVolume(ducked, bedBand);
+
+    // The bed is audible in both mixes, and ducking lowers it by a wide margin.
+    expect(bedPlain).toBeGreaterThan(-24);
+    expect(bedPlain - bedDucked).toBeGreaterThan(6);
+
+    // Looping: the 0.5 s source is still playing in the last half second.
+    expect(meanVolume(plain, bedBand, 1.5, 0.4)).toBeGreaterThan(-24);
+
+    // The narration is still at its own level: `normalize=0`, not a halved mix.
+    const voiceBand = 'bandpass=f=440:width_type=h:w=30';
+    expect(meanVolume(ducked, voiceBand)).toBeGreaterThan(-20);
+  }, 180_000);
+});
