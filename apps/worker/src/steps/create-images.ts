@@ -670,6 +670,13 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           quizQuestions: questionAssetIds.length,
         });
       }
+
+      // Commit the step: charge 0 image credits (quiz images are free) and advance.
+      await ctx.transaction(async (tx) => {
+        await tx.charge({ action: 'image', units: 0, unitCost });
+        await tx.advance();
+      });
+      return;
     }
   };
 }

@@ -58,6 +58,7 @@ WORKDIR /app
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/packages ./packages
 COPY --from=base /app/apps/api ./apps/api
+COPY --from=base /app/package.json ./
 
 
 ENV NODE_ENV=production

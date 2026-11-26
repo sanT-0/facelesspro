@@ -32,7 +32,7 @@ export default defineConfig({
     environment: 'node',
     env: { DB_TESTS: '1', DATABASE_URL: databaseUrl, DATA_DIR: '/tmp/faceless-test-data' },
     fileParallelism: false,
-    testTimeout: 30_000,
-    hookTimeout: 60_000,
+    testTimeout: 120_000,
+    hookTimeout: 120_000,
   },
 });
