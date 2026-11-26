@@ -16,6 +16,7 @@
 
 import { randomUUID } from 'node:crypto';
 
+import { sql } from 'drizzle-orm';
 import { Pool } from 'pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
@@ -66,7 +67,10 @@ describe('prepareDatabase (Postgres)', () => {
     const result = await prepareDatabase({ connectionString });
 
     expect(result.tableCount).toBe(EXPECTED_TABLE_COUNT);
-    expect(result.migrationsApplied).toBeGreaterThan(0);
+    // Every journal entry, not just "some": a hand-applied migration that is
+    // missing from the journal leaves a fresh clone short a column while the
+    // table count still looks right.
+    expect(result.migrationsApplied).toBe(5);
     expect(result.seeded.templates).toBe(BUILTIN_CAPTION_TEMPLATES.length);
     expect(result.seeded.workspace).toBe(true);
 
@@ -78,6 +82,23 @@ describe('prepareDatabase (Postgres)', () => {
       expect(workspaces.map((row) => row.id)).toContain(DEV_WORKSPACE_ID);
       const templates = await db.select({ id: captionTemplate.id }).from(captionTemplate);
       expect(templates.length).toBe(BUILTIN_CAPTION_TEMPLATES.length);
+
+      // Columns added by 0004/0005 must exist on a fresh database. Counting
+      // tables alone missed exactly this: 0005 was applied by hand and never
+      // journalled, so a cold clone had no `video.redraw`/`video.revocal`.
+      const columns = await db.execute<{ table_name: string; column_name: string }>(sql`
+        select table_name, column_name
+        from information_schema.columns
+        where table_schema = 'public'
+          and (
+            (table_name = 'video' and column_name in ('redraw', 'revocal'))
+            or (table_name = 'user' and column_name = 'created_at')
+            or (table_name = 'api_key' and column_name = 'user_id')
+          )
+      `);
+      expect(
+        columns.rows.map((row) => `${row.table_name}.${row.column_name}`).sort(),
+      ).toEqual(['api_key.user_id', 'user.created_at', 'video.redraw', 'video.revocal']);
     } finally {
       await pool.end();
     }
