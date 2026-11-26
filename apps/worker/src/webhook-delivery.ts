@@ -134,6 +134,7 @@ function buildVideoObject(
 export async function deliverWebhook(
   db: Database,
   eventRow: {
+    readonly id: string;
     readonly video_id: string;
     readonly event: 'completed' | 'failed';
     readonly payload: Record<string, unknown>;
@@ -174,6 +175,7 @@ export async function deliverWebhook(
   const headers = WEBHOOK_SECRET.length > 0 ? signBody(body).headers : {
     'content-type': 'application/json',
   };
+  headers['X-Faceless-Event-Id'] = `evt_${eventRow.id}`;
 
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), 10_000);
@@ -241,6 +243,7 @@ export async function processWebhookDelivery(
 
   try {
     const delivered = await deliverWebhook(db, {
+      id: eventRow.id,
       video_id: job.videoId,
       event: job.event,
       payload: job.payload,
