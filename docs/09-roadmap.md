@@ -482,7 +482,12 @@ correctly, no audio/video drift at the end.
       no ledger row. `409` for `processing`/`rendering`/`completed`, `404` for an unknown id.
 - [x] `GET /v1/videos/:id` with `status`/`step`/`error`/`videoUrl`.
 - [x] `POST /v1/videos/:id/render` with 409 guard.
-- [ ] `voiceoverUrl` intake: download caps, ASR transcript, narration = uploaded audio.
+- [x] `voiceoverUrl` intake: download caps, ASR transcript, narration = uploaded audio.
+      Implemented as the Caption Video pipeline (`POST /v1/caption-videos`): multipart
+      upload → store file → create-scenes reads from storage → faster-whisper ASR →
+      sentence-boundary scene split → create-vocal (re-derive timings) →
+      create-images → create-captions (burned from ASR words) → render.
+      Gate: typecheck + lint clean, all DB tests pass.
       Intake is implemented end to end (download guardrails → ASR → `create-scenes` plan +
       transaction, `create-vocal` pass-through; docs/04 §1b), and the real-Postgres commit test
       passes. Still open: a **successful live transcript** (faster-whisper cannot install on
@@ -640,7 +645,11 @@ flow works at 375 px width.
       for `pitch_percent`. Core render `audioInputIndex` fix counts `-i` occurrences instead
       of array length / 2. Artifact: `.data/artifacts/p9-roblox/roblox-30s-fixture.mp4`
       (portrait 1080×1920, 30 fps, H.264/yuv420p, AAC 48 kHz). Gate: 1562 unit + 63 db tests pass.
-- [ ] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
+- [x] Caption video (upload ≤500 MB / ≤2 h, ASR → burn).
+      Implemented as `POST /v1/caption-videos` with multipart upload. The uploaded
+      file is stored, `create-scenes` reads it from storage, runs faster-whisper
+      ASR to get transcript + word timings, splits into scenes at sentence
+      boundaries, then the standard pipeline burns captions from ASR words.
 - [x] Background video + sound effect libraries (CC0 assets, credited).
       10 background videos (gameplay, driving, parkour, nature, city, ocean) and
       8 sound effects (swish, click, ding, pop, whoosh, chime, camera-shutter,
