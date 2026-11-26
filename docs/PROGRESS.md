@@ -2245,6 +2245,25 @@ file stays the single "what is actually true today" view.
       lists `video.redraw`/`revocal`), so `drizzle-kit generate` stays quiet; checked, not
       regenerated.
 
+- [x] 2026-11-26 — **P6 credit charging integrated end-to-end.** Added `packages/db/src/limits.ts`
+      with `chargeCredits()` that enforces monthly credit quotas (402 on paid plans) and writes
+      the `credit_ledger` atomically inside each step's commit transaction. The queue's
+      `CommitTx.charge()` was already present; every worker step now calls it with the correct
+      `CreditAction`:
+        - create-scenes: `plan` (1 unit × 1)
+        - create-vocal: `tts` (chars × 2)
+        - create-images: `image` (frames × 4)
+        - create-captions: `subtitles` (1 unit × 1)
+        - render: `render` (frames/minutes × 10)
+      Selfhost (null credits) records ledger without quota; paid plans throw `insufficient_credits`
+      when the monthly cap would be exceeded. All 23 DB test files updated to expect the new
+      `plan` action and recalculated spend totals. **Gate:** typecheck + lint clean, 128 files /
+      1621 unit tests, 23 files / 76 db tests. **Observed:** the queue's `applyCharge()` already
+      implemented the core logic (validates units/cost, checks workspace credits, writes ledger);
+      this pass just connected every step to it and pinned the action names to the `CreditAction`
+      enum. **Assumed:** credit top-up via Stripe and balance ledger writes are still P6 scope;
+      the monthly rollover job is ops, not code.
+
 ---
 
 ## Decisions log
