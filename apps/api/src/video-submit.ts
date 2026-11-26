@@ -11,6 +11,7 @@
 import type {
   CreateAiVideoRequestParsed,
   CreateAiVideoV3RequestParsed,
+  CreateCaptionVideoRequestParsed,
   CreateFakeTextVideoRequestParsed,
   CreateQuizVideoRequestParsed,
   CreateRobloxVideoRequestParsed,
@@ -51,6 +52,13 @@ export type SubmitVideoInput =
       readonly body: {
         readonly kind: 'roblox';
         readonly body: CreateRobloxVideoRequestParsed;
+      };
+    }
+  | {
+      readonly workspaceId: string;
+      readonly body: {
+        readonly kind: 'caption';
+        readonly body: CreateCaptionVideoRequestParsed;
       };
     };
 

@@ -417,6 +417,9 @@ export const createCaptionVideoRequestSchema = captionVideoMetaSchema.extend({
 export type CreateCaptionVideoRequest = z.input<
   typeof createCaptionVideoRequestSchema
 >;
+export type CreateCaptionVideoRequestParsed = z.output<
+  typeof createCaptionVideoRequestSchema
+>;
 
 // --- §3.7 Commentary (our preset, not parity-critical) ----------------------
 

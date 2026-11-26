@@ -24,6 +24,7 @@ import { createQuizVideosRoutes } from './quiz-videos';
 import { createFakeTextVideosRoutes } from './fake-text-videos';
 import { createFakeTextScreenshotRoutes } from './fake-text-screenshot';
 import { createRobloxVideosRoutes } from './roblox-videos';
+import { createCaptionVideosRoutes } from './caption-videos';
 import type { SubmitVideo } from './video-submit';
 import { createBackgroundVideosRoutes } from './background-videos';
 import { createFilesRoutes } from './files';
@@ -314,6 +315,13 @@ export function createApp(deps: ApiDeps): Hono {
    * gameplay background, with a pitch, a caption word limit and emoji.
    */
   app.route('/v1/roblox-videos', createRobloxVideosRoutes(deps));
+
+  /**
+   * `POST /v1/caption-videos` — create a Caption video: upload a media file,
+   * run ASR to get transcript + word timings, then render with burned captions.
+   * Accepts optional `templateId`, `render`, `webhookUrl` as multipart fields.
+   */
+  app.route('/v1/caption-videos', createCaptionVideosRoutes(deps));
 
   /**
    * `POST /v1/files` — multipart file upload. Auth and rate limits come from

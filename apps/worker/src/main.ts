@@ -11,6 +11,7 @@ import { createBoss, consume, stopBoss, WEBHOOK_QUEUE } from '@facelesspro/queue
 import { extractThumbnail, renderVideo } from '@facelesspro/art';
 import { loggerFromEnv } from '@facelesspro/log';
 
+import { join } from 'node:path';
 import { startWorker } from './worker';
 import { createArtStyleBuildHandler } from './art-style/runtime';
 import { createPlannerChainFromEnv } from './planner/factory';
@@ -73,6 +74,11 @@ async function main(): Promise<void> {
       baseUrl: process.env.MEDIA_SERVICE_URL,
       timeoutMs: envNumber(process.env.MEDIA_ASR_TIMEOUT_MS),
     }),
+    readStorageFile: async (key: string) => {
+      const { readFile } = await import('node:fs/promises');
+      const { dataDir } = await import('./art-style/storage');
+      return readFile(join(dataDir(), key));
+    },
   });
   const createVocal = createCreateVocalHandler({
     db,

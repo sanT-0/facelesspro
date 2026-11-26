@@ -13,6 +13,7 @@ import {
   MAX_SCENES,
   createAiVideoRequestSchema,
   createAiVideoV3RequestSchema,
+  createCaptionVideoRequestSchema,
   createFakeTextVideoRequestSchema,
   createQuizVideoRequestSchema,
   createRobloxVideoRequestSchema,
@@ -101,10 +102,12 @@ export type PersistVoiceover = (
 
 export interface CreateScenesWorkDeps {
   readonly planner: PlanFn;
-  /** Required for `voiceoverUrl`; the script branch never touches it. */
+  /** Required for `voiceoverUrl` and `caption`; the script branch never touches it. */
   readonly asr?: AsrPort;
   /** Injected in tests; defaults to the guarded HTTPS downloader. */
   readonly downloader?: typeof downloadVoiceover;
+  /** Read a file from storage by key. Only needed for caption videos. */
+  readonly readStorageFile?: (key: string) => Promise<Uint8Array>;
   readonly findStyle?: FindStyle;
   readonly persistPlan?: PersistScenePlan;
   readonly persistVoiceover?: PersistVoiceover;
@@ -136,6 +139,8 @@ export function planStyleFromProfile(profile: StyleProfile): PlanStyle {
 interface NormalizedSceneRequest {
   readonly script?: string;
   readonly voiceoverUrl?: string;
+  /** Caption video: storage key of the uploaded media file. */
+  readonly captionStorageKey?: string;
   readonly size: Size;
   readonly style: PlanStyle;
   /** V2 only: `strong-swipe` turns the plan's motion into lateral pans. */
@@ -206,6 +211,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
   const persistUpload = deps.persistVoiceover ?? persistVoiceoverPlan;
   const store = deps.storeVoiceover ?? storeVoiceover;
   const download = deps.downloader ?? downloadVoiceover;
+  const readStorageFile = deps.readStorageFile ?? (async () => { throw new Error('readStorageFile not implemented'); });
   const unitCost = deps.unitCost ?? DEFAULT_SCENES_UNIT_COST;
 
   return async (ctx) => {
@@ -392,6 +398,24 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         style: planStyleFromProfile(profile),
         strongSwipe: false,
       };
+    } else if (row.data.kind === 'caption' && row.data.request.kind === 'caption') {
+      const request = createCaptionVideoRequestSchema.safeParse(row.data.request.body);
+      if (!request.success) {
+        throw new StepFailure('internal', 'stored caption request does not match the request contract', {
+          cause: request.error,
+        });
+      }
+
+      // Caption video: the `url` is a storage key. We'll read it and run ASR
+      // after normalization, similar to the voiceoverUrl path.
+      // Map resolution to size: 1080/1440/2160 -> landscape (horizontal video)
+      const size: Size = 'landscape';
+      normalized = {
+        captionStorageKey: request.data.url,
+        size,
+        style: { prefix: '', suffix: '', negative: '' }, // unused for caption videos
+        strongSwipe: false,
+      };
     } else {
       throw new StepFailure(
         'internal',
@@ -421,6 +445,64 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         videoId: ctx.videoId,
         bytes: uploaded.bytes,
         mime: uploaded.mime,
+      });
+
+      ctx.observe({
+        adapter: voiceoverPlan.adapter,
+        items: voiceoverPlan.scenes.length,
+        bytes: stored.bytes,
+        degradedFrom:
+          voiceoverPlan.degradedFrom.length === 0
+            ? undefined
+            : voiceoverPlan.degradedFrom.join(','),
+      });
+
+      await ctx.transaction(async (tx) => {
+        await persistUpload(tx, {
+          videoId: ctx.videoId,
+          workspaceId: row.data.workspace_id,
+          plan: voiceoverPlan,
+          transcription,
+          stored,
+        });
+        await tx.charge({ action: 'plan', units: 1, unitCost });
+        await tx.advance();
+      });
+      return;
+    }
+
+    // Caption video: storage key provided, read file and run ASR.
+    if (normalized.captionStorageKey !== undefined) {
+      if (deps.asr === undefined) {
+        throw new StepFailure(
+          'internal',
+          'create-scenes cannot process a caption video without an ASR port',
+        );
+      }
+
+      const bytes = await readStorageFile(normalized.captionStorageKey);
+      // Detect mime from file extension (simplified - in production use a proper detector)
+      const mime = normalized.captionStorageKey.endsWith('.mp4')
+        ? 'video/mp4'
+        : normalized.captionStorageKey.endsWith('.webm')
+        ? 'video/webm'
+        : normalized.captionStorageKey.endsWith('.mov')
+        ? 'video/quicktime'
+        : normalized.captionStorageKey.endsWith('.mkv')
+        ? 'video/x-matroska'
+        : normalized.captionStorageKey.endsWith('.mp3')
+        ? 'audio/mpeg'
+        : normalized.captionStorageKey.endsWith('.wav')
+        ? 'audio/wav'
+        : 'application/octet-stream';
+
+      const transcription = await recognise(deps.asr, bytes, mime);
+      const voiceoverPlan = buildVoiceoverPlan(transcription, style);
+      const stored = await storeUploadedAudio(store, {
+        workspaceId: row.data.workspace_id,
+        videoId: ctx.videoId,
+        bytes,
+        mime,
       });
 
       ctx.observe({
