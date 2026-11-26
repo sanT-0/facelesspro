@@ -531,7 +531,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
       await db.select().from(scene).where(eq(scene.video_id, videoId)).orderBy(asc(scene.idx))
     ).map((row) => sceneRowSchema.parse(row));
     expect(sceneRows.length).toBeGreaterThan(0);
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect((await ledgerRows())[0]?.action).toBe('plan');
     expect(await boss.getQueueSize(queueFor('create-vocal'))).toBe(1);
 
     await vocal(job('create-vocal', 'vocal-1'));
@@ -541,7 +542,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     );
     expect(stored.step).toBe('create-images');
     const afterVocal = await ledgerRows();
-    expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+    expect(afterVocal.map((row) => row.action)).toEqual(['plan', 'tts']);
     expect(afterVocal[0]!.units).toBeGreaterThan(0);
     expect(await boss.getQueueSize(queueFor('create-images'))).toBe(1);
 
@@ -559,7 +560,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     expect(committedAssets.filter((row) => row.key.includes('/frames/'))).toHaveLength(
       sceneRows.length,
     );
-    expect(committedLedger.map((row) => row.action).sort()).toEqual(['image', 'tts']);
+    expect(committedLedger.map((row) => row.action).sort()).toEqual(['image', 'plan', 'tts']);
     expect(await boss.getQueueSize(queueFor('create-captions'))).toBe(1);
 
     // The crash: the process died after the commit, so pg-boss redelivers the
@@ -605,6 +606,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     const finalLedger = await ledgerRows();
     expect(finalLedger.map((row) => row.action).sort()).toEqual([
       'image',
+      'plan',
       'subtitles',
       'tts',
     ]);
@@ -612,7 +614,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     const expectedSpend =
       finalLedger.find((row) => row.action === 'tts')!.units * TTS_UNIT_COST +
       finalLedger.find((row) => row.action === 'image')!.units * IMAGE_UNIT_COST +
-      SUBTITLE_UNIT_COST;
+      SUBTITLE_UNIT_COST +
+      finalLedger.find((row) => row.action === 'plan')!.units * 1;
     expect(spent).toBeCloseTo(expectedSpend, 2);
 
     const [balance] = await db
@@ -660,7 +663,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     const rows = await db.select().from(scene).where(eq(scene.video_id, videoId));
     expect(rows).toHaveLength(expected.scenes.length);
     expect(await boss.getQueueSize(queueFor('create-vocal'))).toBe(1);
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect((await ledgerRows())[0]?.action).toBe('plan');
   });
 
   it('resumes after a real SIGKILL mid-claim with one artifact set and one debit', async () => {
@@ -677,7 +681,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     );
     expect(beforeKill.step).toBe('create-vocal');
     expect(beforeKill.status).toBe('processing');
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect((await ledgerRows())[0]?.action).toBe('plan');
 
     // 1. A real worker process claims create-vocal and blocks inside TTS.
     const hanging = spawnWorker('hang');
@@ -696,7 +701,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     expect(active.state).toBe('active');
     expect(await db.select().from(narration).where(eq(narration.video_id, videoId))).toHaveLength(0);
     expect(await db.select().from(asset).where(eq(asset.workspace_id, workspaceId))).toHaveLength(0);
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect((await ledgerRows())[0]?.action).toBe('plan');
 
     // 2. SIGKILL: no unwind, no lock release, no job ack. The row a crashed
     // consumer leaves behind is an active job plus a live `job_lock`.
@@ -728,7 +734,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     const retried = await stepJobRow('create-vocal');
     expect(retried.state).toBe('retry');
     expect(retried.retry_count).toBe(0);
-    expect(await ledgerRows()).toHaveLength(0);
+    expect(await ledgerRows()).toHaveLength(1);
+    expect((await ledgerRows())[0]?.action).toBe('plan');
     const stillClaimed = videoRowSchema.parse(
       (await db.select().from(video).where(eq(video.id, videoId)))[0],
     );
@@ -774,6 +781,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
     const ledger = await ledgerRows();
     expect(ledger.map((row) => row.action).sort()).toEqual([
       'image',
+      'plan',
       'render',
       'subtitles',
       'tts',
@@ -783,7 +791,8 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
       ledger.find((row) => row.action === 'tts')!.units * TTS_UNIT_COST +
       ledger.find((row) => row.action === 'image')!.units * IMAGE_UNIT_COST +
       SUBTITLE_UNIT_COST +
-      ledger.find((row) => row.action === 'render')!.units * 10;
+      ledger.find((row) => row.action === 'render')!.units * 10 +
+      ledger.find((row) => row.action === 'plan')!.units * 1;
     expect(spent).toBeCloseTo(expectedSpend, 2);
 
     const [balance] = await db

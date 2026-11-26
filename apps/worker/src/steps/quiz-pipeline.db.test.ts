@@ -363,7 +363,7 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
       .select()
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
-    expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+    expect(afterVocal.map((row) => row.action)).toEqual(['plan', 'tts']);
 
     const narrations = await db
       .select()
@@ -481,6 +481,7 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
       .where(eq(creditLedger.video_id, videoId));
     expect(ledger.map((row) => row.action).sort()).toEqual([
       'image',
+      'plan',
       'render',
       'subtitles',
       'tts',
@@ -599,6 +600,6 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
     ).toHaveLength(2);
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   });
 });

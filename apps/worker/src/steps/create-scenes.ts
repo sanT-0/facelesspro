@@ -109,11 +109,14 @@ export interface CreateScenesWorkDeps {
   readonly persistPlan?: PersistScenePlan;
   readonly persistVoiceover?: PersistVoiceover;
   readonly storeVoiceover?: StoreVoiceover;
+  /** Per-plan price for scene planning; 0 = free (selfhost). */
+  readonly unitCost?: number;
 }
 
 export interface CreateScenesHandlerDeps extends StepDeps, CreateScenesWorkDeps {}
 
-/** Translate a portable StyleProfile into the planner's three prompt clauses. */
+/** Committed price: 1 credit per video at 30 fps. */
+export const DEFAULT_SCENES_UNIT_COST = 1;
 export function planStyleFromProfile(profile: StyleProfile): PlanStyle {
   const negative = withRequiredNegatives(profile.negative);
 
@@ -203,6 +206,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
   const persistUpload = deps.persistVoiceover ?? persistVoiceoverPlan;
   const store = deps.storeVoiceover ?? storeVoiceover;
   const download = deps.downloader ?? downloadVoiceover;
+  const unitCost = deps.unitCost ?? DEFAULT_SCENES_UNIT_COST;
 
   return async (ctx) => {
     const row = videoRowSchema.safeParse(ctx.video);
@@ -365,6 +369,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
             await tx.db.update(video).set({ request: { kind: 'fake-text', body: updatedBody } }).where(eq(video.id, ctx.videoId));
           }
         }
+        await tx.charge({ action: 'plan', units: 1, unitCost });
         await tx.advance();
       });
       return;
@@ -436,6 +441,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
           transcription,
           stored,
         });
+        await tx.charge({ action: 'plan', units: 1, unitCost });
         await tx.advance();
       });
       return;
@@ -495,6 +501,7 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
           await tx.db.update(video).set({ request: { kind: 'fake-text', body: updatedBody } }).where(eq(video.id, ctx.videoId));
         }
       }
+      await tx.charge({ action: 'plan', units: 1, unitCost });
       await tx.advance();
     });
   };

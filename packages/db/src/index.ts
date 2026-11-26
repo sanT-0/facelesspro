@@ -83,6 +83,13 @@ export {
   removeMember,
 } from './members';
 export type { MemberEntry } from './members';
+export {
+  chargeCredits,
+  getCurrentCreditUsage,
+  InsufficientCreditsError,
+  UNIT_COSTS,
+} from './limits';
+export type { ChargeInput, ChargeResult } from './limits';
 export type {
   BeginRecaptionInput,
   BeginRecaptionResult,

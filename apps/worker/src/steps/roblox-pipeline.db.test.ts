@@ -370,7 +370,7 @@ describe('Roblox Rant pipeline (Postgres + ffmpeg)', () => {
       .select()
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
-    expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+    expect(afterVocal.map((row) => row.action)).toEqual(['plan', 'tts']);
 
     const narrations = await db
       .select()
@@ -477,6 +477,7 @@ describe('Roblox Rant pipeline (Postgres + ffmpeg)', () => {
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
     expect(ledger.map((row) => row.action).sort()).toEqual([
+      'plan',
       'render',
       'subtitles',
       'tts',
@@ -590,6 +591,6 @@ describe('Roblox Rant pipeline (Postgres + ffmpeg)', () => {
     ).toHaveLength(2);
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   }, LIVE ? 3_600_000 : 300_000);
 });

@@ -372,8 +372,15 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
     expect(plan.scenes.map((planned) => planned.motion)).toEqual(
       plan.scenes.map((_, index) => (index % 2 === 0 ? 'pan-left' : 'pan-right')),
     );
-    expect(await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)))
-      .toHaveLength(0);
+    // Create-scenes charges 1 credit (action: 'plan')
+    const afterScenes = await db
+      .select()
+      .from(creditLedger)
+      .where(eq(creditLedger.video_id, videoId));
+    expect(afterScenes).toHaveLength(1);
+    expect(afterScenes[0]?.action).toBe('plan');
+    expect(afterScenes[0]?.units).toBe(1);
+    expect(afterScenes[0]?.unit_cost).toBe(1);
 
     const sceneRows = (
       await db
@@ -396,7 +403,7 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
       .select()
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
-    expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+    expect(afterVocal.map((row) => row.action)).toEqual(['plan', 'tts']);
 
     const narrations = await db
       .select()
@@ -520,6 +527,7 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
       .where(eq(creditLedger.video_id, videoId));
     expect(ledger.map((row) => row.action).sort()).toEqual([
       'image',
+      'plan',
       'render',
       'subtitles',
       'tts',
@@ -646,6 +654,6 @@ describe('AI Video V2 full pipeline (Postgres + ffmpeg)', () => {
     ).toHaveLength(2);
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
-    ).toHaveLength(4);
+    ).toHaveLength(5);
   }, LIVE ? 3_600_000 : 300_000);
 });

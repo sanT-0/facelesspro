@@ -383,7 +383,7 @@ describe('Fake Text Video full pipeline (Postgres + ffmpeg)', () => {
       .select()
       .from(creditLedger)
       .where(eq(creditLedger.video_id, videoId));
-    expect(afterVocal.map((row) => row.action)).toEqual(['tts']);
+    expect(afterVocal.map((row) => row.action)).toEqual(['plan', 'tts']);
 
     // Per-character voices: both speakers must reach the media service with
     // their own engine voice, not one narrator reading the whole chat.
@@ -509,6 +509,7 @@ describe('Fake Text Video full pipeline (Postgres + ffmpeg)', () => {
       .where(eq(creditLedger.video_id, videoId));
     // Chat skin rendering uses 0 cost units, so 'image' action is not recorded in ledger
     expect(ledger.map((row) => row.action).sort()).toEqual([
+      'plan',
       'render',
       'subtitles',
       'tts',
@@ -627,6 +628,6 @@ describe('Fake Text Video full pipeline (Postgres + ffmpeg)', () => {
     // Chat skin uses 0 cost units, so 'image' action is not in ledger
     expect(
       await db.select().from(creditLedger).where(eq(creditLedger.video_id, videoId)),
-    ).toHaveLength(3);
+    ).toHaveLength(4);
   }, LIVE ? 3_600_000 : 300_000);
 });
