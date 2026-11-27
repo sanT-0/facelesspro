@@ -87,8 +87,14 @@ class AzureTTSEngine:
         synthesizer = sdk.SpeechSynthesizer(speech_config=config, audio_config=None)
         words: list[WordTiming] = []
 
-        def on_word(event: Any) -> None:
-            if event.boundary_type != sdk.SpeechSynthesisBoundaryType.Word:
+        def on_boundary(event: Any) -> None:
+            # Capture both Word and Punctuation boundaries so captions keep
+            # commas, periods, question marks, etc. Sentence boundaries are
+            # already handled by the gap logic in stitch.py.
+            if event.boundary_type not in {
+                sdk.SpeechSynthesisBoundaryType.Word,
+                sdk.SpeechSynthesisBoundaryType.Punctuation,
+            }:
                 return
             label = str(getattr(event, "text", "") or "").strip()
             if not label:
@@ -103,7 +109,7 @@ class AzureTTSEngine:
                 )
             )
 
-        synthesizer.synthesis_word_boundary.connect(on_word)
+        synthesizer.synthesis_word_boundary.connect(on_boundary)
         result = synthesizer.speak_ssml_async(
             _ssml(text, voice, pitch_percent)
         ).get()

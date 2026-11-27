@@ -105,6 +105,47 @@ class _BoundaryType:
     Sentence = "Sentence"
 
 
+class _FakeCommunicate:
+    """Stands in for `edge_tts.Communicate` for edge-tts punctuation test."""
+
+    instances: ClassVar[list[_FakeCommunicate]] = []
+
+    def __init__(self, text: str, voice: str, **kwargs: object) -> None:
+        self.text = text
+        self.voice = voice
+        self.kwargs = kwargs
+        _FakeCommunicate.instances.append(self)
+
+    async def stream(self):
+        yield {"type": "audio", "data": b"RIFFaudio"}
+        # edge-tts returns punctuation attached to preceding word in practice,
+        # but we test the contract: punctuation should be a separate word timing.
+        yield {
+            "type": "WordBoundary",
+            "text": "hello",
+            "offset": 10_000,
+            "duration": 50_000,
+        }
+        yield {
+            "type": "WordBoundary",
+            "text": ",",
+            "offset": 60_000,
+            "duration": 10_000,
+        }
+        yield {
+            "type": "WordBoundary",
+            "text": "world",
+            "offset": 70_000,
+            "duration": 50_000,
+        }
+        yield {
+            "type": "WordBoundary",
+            "text": "!",
+            "offset": 120_000,
+            "duration": 10_000,
+        }
+
+
 class _OutputFormat:
     Audio24Khz96KBitRateMonoMp3 = "audio-24khz-96kbitrate-mono-mp3"
 
@@ -149,11 +190,14 @@ def test_synthesizes_ssml_and_converts_word_boundaries() -> None:
     )
 
     assert synthesis.audio == b"mp3-bytes"
-    assert [word.text for word in synthesis.words] == ["vanakkam", "money"]
+    # Punctuation is now captured as separate word timings
+    assert [word.text for word in synthesis.words] == ["vanakkam", ",", "money"]
     assert synthesis.words[0].start_ms == 0
     assert synthesis.words[0].end_ms == 500
-    assert synthesis.words[1].start_ms == 600
-    assert synthesis.words[1].end_ms == 1_000
+    assert synthesis.words[1].start_ms == 500
+    assert synthesis.words[1].end_ms == 600
+    assert synthesis.words[2].start_ms == 600
+    assert synthesis.words[2].end_ms == 1_000
     assert synthesis.duration_ms == 1_000
 
     synthesizer = _Synthesizer.instances[-1]
