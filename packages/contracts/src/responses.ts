@@ -591,6 +591,18 @@ export const balanceLogListSchema = z.strictObject({
 });
 export type BalanceLogList = z.infer<typeof balanceLogListSchema>;
 
+export const topupRequestSchema = z.strictObject({
+  amountCents: z.int().positive(),
+  meta: z.record(z.string(), z.unknown()).optional(),
+});
+export type TopupRequest = z.infer<typeof topupRequestSchema>;
+
+export const topupResponseSchema = z.strictObject({
+  balance: z.int().nullable(),
+  entry: balanceLogEntrySchema,
+});
+export type TopupResponse = z.infer<typeof topupResponseSchema>;
+
 // --- assets -----------------------------------------------------------------
 
 export const assetSchema = z.strictObject({

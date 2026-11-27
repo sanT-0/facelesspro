@@ -133,6 +133,11 @@ export interface BalanceLogEntry {
   readonly createdAt: string;
 }
 
+export interface TopUpBalanceResult {
+  readonly balance: number | null;
+  readonly entry: BalanceLogEntry;
+}
+
 /**
  * List balance ledger entries for a workspace, newest first.
  */
@@ -462,6 +467,64 @@ export async function listVoices(
       wordTimings: meta?.wordTimings ?? false,
     };
   });
+}
+
+/**
+ * Top up a workspace's credit balance.
+ * Writes a balance_ledger entry with kind='topup'.
+ * Returns the new balance (credits added + previous balance).
+ */
+export interface TopUpBalanceResult {
+  readonly balance: number | null;
+  readonly entry: BalanceLogEntry;
+}
+
+export async function topUpBalance(
+  db: Database,
+  workspaceId: string,
+  amountCents: number,
+  meta: Record<string, unknown> | null = null,
+): Promise<{ balance: number | null; entry: BalanceLogEntry }> {
+  // Get current balance by summing all balance ledger entries
+  const rows = await db
+    .select()
+    .from(balanceLedger)
+    .where(eq(balanceLedger.workspace_id, workspaceId))
+    .orderBy(desc(balanceLedger.created_at));
+
+  const currentBalance = rows.reduce(
+    (sum, row) =>
+      row.kind === 'topup'
+        ? sum + row.amount_cents
+        : sum - row.amount_cents,
+    0
+  );
+
+  const newBalance = currentBalance + amountCents;
+
+  const inserted = await db
+    .insert(balanceLedger)
+    .values({
+      workspace_id: workspaceId,
+      kind: 'topup',
+      amount_cents: amountCents,
+      meta,
+    })
+    .returning();
+
+  const entry = inserted[0];
+  if (!entry) throw new Error('balance ledger insert returned no row');
+
+  return {
+    balance: newBalance,
+    entry: {
+      id: entry.id,
+      kind: entry.kind,
+      amountCents: entry.amount_cents,
+      meta: entry.meta,
+      createdAt: entry.created_at,
+    },
+  };
 }
 
 /**

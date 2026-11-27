@@ -18,6 +18,7 @@ export {
   findWorkspace,
   listCreditLogs,
   listBalanceLogs,
+  topUpBalance,
   listVoices,
   listSoundEffects,
   listBackgroundVideos,
@@ -28,6 +29,7 @@ export type {
   CreditLogEntry,
   BalanceLogEntry,
   VoiceEntry,
+  TopUpBalanceResult,
 } from './workspaces';
 export {
   PLAN_DEFINITIONS,

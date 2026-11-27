@@ -56,6 +56,7 @@ function appWith(submitVideo: SubmitVideo = async (input) => storedRow(input)) {
       findWorkspace: async () => null,
       listCreditLogs: async () => [],
       listBalanceLogs: async () => [],
+      topUpBalance: async () => ({ balance: 0, entry: { id: '', kind: 'topup', amountCents: 0, meta: null, createdAt: '' } }),
       readVideo: async () => null,
       readVideoScenes: async () => [],
       readVideoVoicePlan: async () => null,

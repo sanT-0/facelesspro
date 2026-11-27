@@ -55,6 +55,8 @@ function appWith(
 
 
     listBalanceLogs: async () => [],
+      topUpBalance: async () => ({ balance: 0, entry: { id: '', kind: 'topup', amountCents: 0, meta: null, createdAt: '' } }),
+
     ...catalog,
     readVideo: async () => null,
     readVideoScenes: async () => [],

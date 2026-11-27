@@ -34,6 +34,8 @@ import { createVoicesRoutes } from './voices';
 import { createVoicesImportRoutes } from './voices-import';
 import { createWorkspaceRoutes } from './workspaces';
 import type { WorkspaceRouteDeps } from './workspaces';
+import { createBalanceRoutes } from './balance';
+import type { BalanceRouteDeps } from './balance';
 import { createMemberRoutes } from './members';
 import type { MemberRouteDeps } from './members';
 import { createVideoRoutes } from './videos';
@@ -53,6 +55,7 @@ export interface ApiDeps
     VideoRouteDeps,
     ApiKeyRouteDeps,
     WorkspaceRouteDeps,
+    BalanceRouteDeps,
     MemberRouteDeps {
   /**
    * Structured log sink. `server.ts` passes the real one; tests pass a capture
@@ -360,6 +363,11 @@ export function createApp(deps: ApiDeps): Hono {
    * workspace-scoped reads for the authenticated key's workspace.
    */
   app.route('/v1', createWorkspaceRoutes(deps));
+
+  /**
+   * `POST /v1/balance/topup` — add credits to the authenticated workspace.
+   */
+  app.route('/v1', createBalanceRoutes(deps));
 
   /**
    * `GET/POST/PATCH/DELETE /v1/workspace/members` — team member management.

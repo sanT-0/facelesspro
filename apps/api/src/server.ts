@@ -31,6 +31,7 @@ import {
   listBackgroundVideos,
   listBuiltInCaptionTemplates,
   listCreditLogs,
+  topUpBalance,
   listMembers,
   listSoundEffects,
   listVisibleArtStyles,
@@ -279,6 +280,8 @@ async function main(): Promise<void> {
     findWorkspace: (workspaceId) => findWorkspace(db, workspaceId),
     listCreditLogs: (workspaceId) => listCreditLogs(db, workspaceId),
     listBalanceLogs: (workspaceId) => listBalanceLogs(db, workspaceId),
+    topUpBalance: (workspaceId: string, amountCents: number, meta: Record<string, unknown> | null) =>
+      topUpBalance(db, workspaceId, amountCents, meta),
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     readVideoScenes: (workspaceId, id) => listVideoScenes(db, workspaceId, id),
     readVideoVoicePlan: (workspaceId, id) => readVideoVoicePlan(db, workspaceId, id),

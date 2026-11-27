@@ -58,6 +58,20 @@ function appWith(options: {
     readonly meta: Record<string, unknown> | null;
     readonly createdAt: string;
   }>>;
+  topUpBalance?: (
+    workspaceId: string,
+    amountCents: number,
+    meta: Record<string, unknown> | null,
+  ) => Promise<{
+    balance: number | null;
+    entry: {
+      id: string;
+      kind: string;
+      amountCents: number;
+      meta: Record<string, unknown> | null;
+      createdAt: string;
+    };
+  }>;
   listVoices?: (
     workspaceId: string,
   ) => Promise<Array<{
@@ -102,6 +116,7 @@ function appWith(options: {
       findWorkspace: options.findWorkspace ?? (async () => null),
       listCreditLogs: options.listCreditLogs ?? (async () => []),
       listBalanceLogs: options.listBalanceLogs ?? (async () => []),
+      topUpBalance: options.topUpBalance ?? (async () => ({ balance: 0, entry: { id: '', kind: 'topup', amountCents: 0, meta: null, createdAt: '' } })),
       listVoices: options.listVoices ?? (async () => []),
       listSoundEffects: options.listSoundEffects ?? (async () => []),
       listBackgroundVideos: options.listBackgroundVideos ?? (async () => []),
@@ -301,5 +316,58 @@ describe('GET /v1/balance-logs', () => {
     expect(body.logs[0]!.amountCents).toBe(5000);
 
     expect(listBalanceLogs).toHaveBeenCalledWith(WORKSPACE_ID);
+  });
+});
+
+describe('POST /v1/balance/topup', () => {
+  it('answers 401 without a key', async () => {
+    const response = await appWith().raw('/v1/balance/topup', {
+      method: 'POST',
+      body: JSON.stringify({ amountCents: 1000 }),
+    });
+    expect(response.status).toBe(401);
+  });
+
+  it('rejects non-positive amountCents', async () => {
+    const response = await appWith().request('/v1/balance/topup', {
+      method: 'POST',
+      body: JSON.stringify({ amountCents: 0 }),
+    });
+    expect(response.status).toBe(400);
+  });
+
+  it('accepts a valid topup and returns new balance and entry', async () => {
+    const topUpBalance = vi.fn(async (): Promise<{
+      balance: number | null;
+      entry: {
+        id: string;
+        kind: string;
+        amountCents: number;
+        meta: Record<string, unknown> | null;
+        createdAt: string;
+      };
+    }> => ({
+      balance: 6000,
+      entry: {
+        id: '55555555-5555-5555-8555-555555555555',
+        kind: 'topup',
+        amountCents: 1000,
+        meta: { source: 'stripe' },
+        createdAt: '2026-11-09T10:00:00.000Z',
+      },
+    }));
+
+    const response = await appWith({ topUpBalance }).request('/v1/balance/topup', {
+      method: 'POST',
+      body: JSON.stringify({ amountCents: 1000, meta: { source: 'stripe' } }),
+    });
+    expect(response.status).toBe(200);
+
+    const body = await response.json() as { balance: number | null; entry: { kind: string; amountCents: number } };
+    expect(body.balance).toBe(6000);
+    expect(body.entry.kind).toBe('topup');
+    expect(body.entry.amountCents).toBe(1000);
+
+    expect(topUpBalance).toHaveBeenCalledWith(WORKSPACE_ID, 1000, { source: 'stripe' });
   });
 });

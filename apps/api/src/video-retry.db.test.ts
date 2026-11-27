@@ -73,6 +73,8 @@ function app(authWorkspaceId = workspaceId) {
 
 
     listBalanceLogs: async () => [],
+      topUpBalance: async () => ({ balance: 0, entry: { id: '', kind: 'topup', amountCents: 0, meta: null, createdAt: '' } }),
+
     readVideo: (workspaceId, id) => findVideo(db, workspaceId, id),
     readVideoScenes: async () => [],
     readVideoVoicePlan: async () => null,
