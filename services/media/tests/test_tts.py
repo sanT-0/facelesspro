@@ -6,7 +6,12 @@ from typing import ClassVar
 import pytest
 
 import app.tts as tts_module
-from app.tts import EdgeTTSEngine, Synthesis
+from app.tts import (
+    EdgeTTSEngine,
+    Synthesis,
+    TTSConfigurationError,
+    build_tts_engine,
+)
 
 
 class _FakeCommunicate:
@@ -66,3 +71,71 @@ def test_zero_pitch_is_the_same_request_as_no_pitch(
     run(EdgeTTSEngine().synthesize("hello", "en-IN-NeerjaNeural", pitch_percent=0))
 
     assert "pitch" not in _FakeCommunicate.instances[0].kwargs
+
+
+def test_engine_chain_falls_back_to_edge_when_not_licensed() -> None:
+    engine = build_tts_engine(
+        chain="edge,azure,indicf5,piper",
+        require_licensed=False,
+        azure_key="",
+        azure_region="",
+    )
+
+    assert isinstance(engine, EdgeTTSEngine)
+    assert engine.licensed is False
+
+
+def test_require_licensed_skips_edge_and_selects_azure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import app.azure_tts as azure_tts
+
+    class _StubAzure:
+        licensed = True
+
+        def __init__(self, key: str, region: str) -> None:
+            self.key = key
+            self.region = region
+
+    monkeypatch.setattr(azure_tts, "AzureTTSEngine", _StubAzure)
+
+    engine = build_tts_engine(
+        chain="edge,azure",
+        require_licensed=True,
+        azure_key="secret",
+        azure_region="southeastasia",
+    )
+
+    assert isinstance(engine, _StubAzure)
+    assert engine.key == "secret"
+    assert engine.region == "southeastasia"
+
+
+def test_require_licensed_without_azure_credentials_fails() -> None:
+    with pytest.raises(TTSConfigurationError, match="no licensed engine"):
+        build_tts_engine(
+            chain="edge,azure",
+            require_licensed=True,
+            azure_key="",
+            azure_region="",
+        )
+
+
+def test_unknown_engine_name_is_a_configuration_error() -> None:
+    with pytest.raises(TTSConfigurationError, match="unknown TTS engine"):
+        build_tts_engine(
+            chain="nope,edge",
+            require_licensed=False,
+            azure_key="",
+            azure_region="",
+        )
+
+
+def test_a_chain_with_no_available_engine_fails() -> None:
+    with pytest.raises(TTSConfigurationError, match="no TTS engine"):
+        build_tts_engine(
+            chain="azure",
+            require_licensed=False,
+            azure_key="",
+            azure_region="",
+        )

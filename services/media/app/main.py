@@ -33,7 +33,7 @@ from .models import (
     WordTiming,
 )
 from .stitch import Stitcher
-from .tts import EdgeTTSEngine, TTSEngine, TTSError
+from .tts import TTSEngine, TTSError, build_tts_engine
 from .voices import (
     DEFAULT_PAIR_ID,
     UnknownPairError,
@@ -66,6 +66,13 @@ def _engine_name(engine: TTSEngine) -> str:
     return type(inner).__name__ if inner is not None else type(engine).__name__
 
 
+def _engine_licensed(engine: TTSEngine) -> bool:
+    """True when the speaking engine is cleared for a public deployment."""
+    inner = getattr(engine, "inner", None)
+    target = inner if inner is not None else engine
+    return bool(getattr(target, "licensed", False))
+
+
 def create_app(
     engine: TTSEngine | None = None,
     asr: AsrEngine | None = None,
@@ -74,7 +81,7 @@ def create_app(
 ) -> FastAPI:
     """`cache=False` disables it; passing a `SynthesisCache` uses that one."""
     app = FastAPI(title=SERVICE_NAME, version=__version__)
-    base_engine = engine if engine is not None else EdgeTTSEngine()
+    base_engine = engine if engine is not None else build_tts_engine()
     app.state.data_dir = (data_dir or TTS_DIR).resolve()
     app.state.asr = asr if asr is not None else WhisperLocalEngine(ASR_MODEL)
 
@@ -104,6 +111,7 @@ def create_app(
             "service": SERVICE_NAME,
             "version": __version__,
             "engine": _engine_name(app.state.engine),
+            "licensed": _engine_licensed(app.state.engine),
             "cache": app.state.cache is not None,
             "time": datetime.now(UTC).isoformat(),
         }

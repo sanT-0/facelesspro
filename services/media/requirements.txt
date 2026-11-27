@@ -1,4 +1,7 @@
 edge-tts==7.3.1
+# Licensed production TTS path (`TTS=azure`); imported lazily so edge-only
+# installs still run. The package is proprietary, used under Azure terms.
+azure-cognitiveservices-speech==1.53.1
 fastapi==0.162.0
 pydantic==2.14.1
 uvicorn==0.54.0

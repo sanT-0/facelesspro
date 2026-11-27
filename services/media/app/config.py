@@ -17,6 +17,26 @@ DATA_DIR = Path(
 
 TTS_DIR = DATA_DIR / "tts"
 
+# Engine chain, left to right; the first one that can start is used. `edge` is
+# the free dev/self-host engine and is **not licensed for a public deployment**.
+# `azure` is the licensed production path and serves the same `ta-IN-*` voice
+# ids, with `WordBoundary` timings. `indicf5`/`piper` are catalogued but have no
+# adapter yet; they are skipped with a warning rather than failing the chain.
+TTS = os.environ.get("TTS", "edge,azure,indicf5,piper").strip()
+
+# Public deployments set this to 1. It removes `edge` from the chain and fails
+# startup when no licensed engine can start, so the launch blocker cannot ship
+# silently. Self-host keeps the default 0 and may use edge for personal use.
+TTS_REQUIRE_LICENSED = os.environ.get("TTS_REQUIRE_LICENSED", "0").strip().lower() in {
+    "1",
+    "true",
+    "yes",
+    "on",
+}
+
+AZURE_SPEECH_KEY = os.environ.get("AZURE_SPEECH_KEY", "").strip()
+AZURE_SPEECH_REGION = os.environ.get("AZURE_SPEECH_REGION", "").strip()
+
 # Per-run synthesis cache: `(engine, voice, text)` → raw provider audio + words.
 # It stores audio *before* trimming, so stitch settings can change without
 # invalidating it.

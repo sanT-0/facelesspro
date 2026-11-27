@@ -27,7 +27,9 @@ Everything below exists to defeat one of those.
 | Script-aware segmenter + Tanglish lexicon (647 unique words) | `packages/core/src/segmenter.ts` + `data/tanglish.json` | ✅ built, 45 tests |
 | Lexicon loader, morphology, protected list | `packages/core/src/lexicon.ts` | ✅ built, 21 tests |
 | Types (`Lang`, `ScriptKind`, `TextRun`) | `packages/core/src/types.ts` | ✅ |
-| edge-tts engine with `WordBoundary` timings | `services/media/app/tts.py` | ✅ built (7.3.1 pinned; 7.2.8 gets HTTP 403) |
+| edge-tts engine with `WordBoundary` timings (dev/self-host) | `services/media/app/tts.py` | ✅ built (7.3.1 pinned; 7.2.8 gets HTTP 403). Not licensed for public deployment |
+| Azure Speech engine, licensed production path | `services/media/app/azure_tts.py` | ✅ built, fake-SDK unit tests; live key test opt-in (`RUN_LIVE=1`) |
+| Engine chain + fail-closed public guard (`TTS`, `TTS_REQUIRE_LICENSED`) | `services/media/app/tts.py` (`build_tts_engine`) | ✅ built, `/health` reports `licensed` |
 | `/synthesize` endpoint, per-run WAV + `master.wav`/`master.mp3` + `timeline.json` | `services/media/app/main.py` | ✅ built, 91 pytest tests |
 | Transliteration (Tanglish → Tamil script) | `packages/core/src/transliterate.ts` + `data/tanglish-ta.json` | ✅ built, 68 tests |
 | Inline overrides `[[ta:…]]` | `packages/core/src/overrides.ts` | ✅ built, 23 tests |
@@ -450,21 +452,36 @@ reading `2024` as "two zero two four" is instantly wrong.
 
 | Engine | Tamil? | Mixed handling | Word timings | Cost | Use |
 |---|---|---|---|---|---|
-| **edge-tts** (default) | ✅ `ta-IN-*`, `ta-LK-*` | good with our routing | ✅ `WordBoundary` | free, no key | default |
+| **Azure Speech** (licensed default for public) | ✅ same `ta-IN-*` voices | native bilingual | ✅ `WordBoundary` | ~$15 / 1M chars, 0.5M free/month | production |
+| **edge-tts** (dev/self-host only) | ✅ `ta-IN-*`, `ta-LK-*` | good with our routing | ✅ `WordBoundary` | free, no key | dev, personal self-host |
 | **AI4Bharat IndicF5** | ✅ (Indic-strong) | needs per-run prompting | ❌ (align after) | free, local GPU/CPU | quality upgrade, Tamil-first |
 | **Piper** | ✅ (`ta_IN` voices exist) | weak on English | ❌ | free, offline | no-network fallback |
-| **Azure Speech** | ✅ | native bilingual | ✅ | paid | prod-grade option |
 | **ElevenLabs** | ✅ multilingual v2 | strong | ✅ | paid | optional quality upgrade |
 | **Google Chirp3 HD** | ✅ | native | ✅ | paid | alt |
 
-All behind `TTSPort`, selected by `TTS=edge,indicf5,piper`.
+All behind `TTSPort`, selected by `TTS`. The default chain is
+`TTS=edge,azure,indicf5,piper`: left to right, the first engine that can start wins, and an
+engine with no credentials/adaptor is skipped rather than fatal. Adapters are `edge` and
+`azure`; `indicf5` and `piper` are catalogued and reserved.
 
-### ⚠️ Engine licensing / ToS risk (must resolve before public launch)
+**Azure is the licensed production path (decided 2026-11-27).** It serves the *same* voice ids
+the catalogue already pins (`ta-IN-PallaviNeural`, `ta-IN-ValluvarNeural`, the
+`*MultilingualNeural` voices), so switching transport does not re-audition the voices. The
+adapter (`services/media/app/azure_tts.py`) uses the official Speech SDK for real-time
+synthesis and converts `WordBoundary` `audio_offset`/`duration` from 100 ns ticks to
+milliseconds, normalising words to be monotonic and non-overlapping. The SDK is imported
+lazily, so an edge-only install and the unit suite need no native package.
+
+### ⚠️ Engine licensing / ToS risk
 
 - **edge-tts** talks to Microsoft's consumer Edge "read aloud" endpoint. It is **not a public
   API**, has no SLA, and using it for a commercial product is a **licence/ToS risk**. Fine for
-  personal use and development. **Launch blocker to resolve** — see
-  [11-legal-and-compliance.md](./11-legal-and-compliance.md).
+  personal use and development. It is **not** a licensed production path.
+- **Public deployments must set `TTS_REQUIRE_LICENSED=1`.** That drops `edge` from the chain
+  and makes startup fail with `TTSConfigurationError` when no licensed engine can start, so
+  the unlicensed engine cannot ship silently. `GET /health` reports `licensed: true|false`.
+- Azure's Python SDK is a **proprietary** package used under Azure terms; the *service* is the
+  paid, licensed part. Recorded in `THIRD_PARTY_NOTICES.md`.
 - IndicF5 / Piper weights: check each model card's licence before shipping; keep the licence
   text in `THIRD_PARTY_NOTICES.md`.
 - Any *cloned* voice needs documented speaker consent. Non-negotiable.
@@ -521,6 +538,10 @@ test_live_tts.py
   • Tanglish: "vanakkam machan epdi irukka" → routed to Tamil voice,
       transliterated text ≠ input text, output duration 1.5–6 s
   • 60 s Tanglish paragraph: completes < 120 s, no crash, captions words == spoken words
+
+test_live_azure.py        (needs AZURE_SPEECH_KEY + AZURE_SPEECH_REGION)
+  • mixed Tamil/English sentence → audio bytes, ≥1 WordBoundary, monotonic words
+  • proves the licensed transport reaches the pinned `ta-IN-*` voice
 ```
 
 ### 5.4 Listening gate — human, required before phase close
