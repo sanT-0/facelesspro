@@ -71,9 +71,13 @@ FacelessPro, and a server timeout does not invoke ComfyUI's global `/interrupt` 
 
 ### 1.3 TTS
 
-See [05](./05-tts-tamil-mixed.md#4-engines). Summary: `edge-tts` default (free, Tamil +
-WordBoundary), IndicF5 for Tamil-first quality, Piper for fully offline. Licence caveat on
-edge-tts is documented as a launch blocker.
+See [05](./05-tts-tamil-mixed.md#4-engines). The licensed production path is **Azure Speech**
+(same `ta-IN-*` voice ids, `WordBoundary` timings, ~$15 / 1M chars + 0.5M free/month). The
+default chain `TTS=edge,azure,indicf5,piper` keeps `edge` for dev/self-host; public deployments
+must set `TTS_REQUIRE_LICENSED=1` to drop `edge` and fail closed if no licensed engine can start.
+IndicF5 for Tamil-first quality, Piper for fully offline. The `azure-cognitiveservices-speech`
+Python SDK is proprietary (used under Azure terms) and imported lazily so edge-only installs still
+run.
 
 ### 1.4 ASR
 

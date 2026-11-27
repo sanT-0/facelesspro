@@ -101,8 +101,14 @@ services:
       PYTHONUNBUFFERED: 1
       MEDIA_DATA_DIR: /data/media
       MEDIA_SERVICE_URL: http://0.0.0.0:8000
+      # TTS chain; Azure is the licensed production path. Public deployments
+      # must set TTS_REQUIRE_LICENSED=1 and provide AZURE_SPEECH_KEY/REGION.
+      TTS: edge,azure,indicf5,piper
+      TTS_REQUIRE_LICENSED: "0"
       TTS_PAUSE_COMPRESSION: "true"
       TTS_SENTENCE_PAUSE_MS: "150"
+      AZURE_SPEECH_KEY: ""
+      AZURE_SPEECH_REGION: ""
     ports:
       - "8000:8000"
     volumes:

@@ -48,6 +48,7 @@ These are **not** bundled in production images.
 
 | Package | Version | Licence | Repository | Notes |
 |---|---|---|---|---|
+| `azure-cognitiveservices-speech` | 1.53.1 | **Other/Proprietary License** (Microsoft) | https://learn.microsoft.com/azure/ai-services/speech-service/ | Licensed production TTS path. The SDK is proprietary but usable under Azure terms. The *service* is the paid, licensed component. |
 | `edge-tts` | 7.3.1 | MIT | https://github.com/rany2/edge-tts | ⚠️ **Launch blocker** — client talks to Microsoft's consumer Read Aloud endpoint; not a public API. Personal/dev use only. Replace with a licensed engine for public deployment. |
 | `fastapi` | 0.162.0 | MIT | https://github.com/fastapi/fastapi | |
 | `pydantic` | 2.14.1 | MIT | https://github.com/pydantic/pydantic | |
@@ -192,6 +193,7 @@ These are installed in the Docker base images and are not bundled by npm.
 
 | Asset | Source | Licence | Status |
 |---|---|---|---|
+| Azure Speech TTS (`ta-IN-PallaviNeural`, `ta-IN-ValluvarNeural`, `*MultilingualNeural`) | Microsoft Azure AI Speech | Paid service (~$15/1M chars, 0.5M free/month); proprietary SDK | ✅ Licensed production path. Same voice ids as edge-tts. `TTS_REQUIRE_LICENSED=1` enforces it. |
 | Microsoft Edge TTS voices (`ta-IN-ValluvarNeural`, `ta-IN-PallaviNeural`, etc.) | Azure Cognitive Services / Edge Read Aloud | Not a public API; personal use only | ⚠️ **Launch blocker** — must be replaced by a licensed TTS engine (Piper, IndicF5, or commercial) for any public deployment. |
 | Flux-schnell / Flux-dev | Black Forest Labs | Apache-2.0 / Flux-1-dev non-commercial | Not yet enabled; would require GPU. Licence review needed before enabling. |
 | SDXL base / refiner | Stability AI | CreativeML OpenRAIL-M | Not yet enabled; OpenRAIL has use restrictions. |

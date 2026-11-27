@@ -93,7 +93,8 @@ Rules I follow:
 | **ffmpeg** | LGPL/GPL depending on build | ship an LGPL build (no `--enable-gpl`), or accept GPL for the media container only |
 | **Noto Sans / Noto Sans Tamil** | SIL OFL 1.1 | include the OFL text in `THIRD_PARTY_NOTICES.md` |
 | **Noto Emoji** | SIL OFL 1.1 | bundled for opt-in caption emoji; include its OFL text in `THIRD_PARTY_NOTICES.md` |
-| **edge-tts** | Python client; talks to Microsoft's consumer Read Aloud endpoint — **not a public API** | ⚠️ **launch blocker.** Personal/dev use only until replaced by a licensed engine for any public deployment |
+| **edge-tts** | Python client; talks to Microsoft's consumer Read Aloud endpoint — **not a public API** | Dev/self-host only. **Launch blocker for public deployment.** Personal use is fine. Azure Speech is the licensed production replacement (same `ta-IN-*` voice ids, `WordBoundary` timings). |
+| **Azure Speech** | Proprietary Python SDK (`azure-cognitiveservices-speech`, "Other/Proprietary License") + paid cloud service | ✅ Licensed production path. Records SDK + service in `THIRD_PARTY_NOTICES.md`. Public deployments **must** set `TTS_REQUIRE_LICENSED=1` and provide `AZURE_SPEECH_KEY` / `AZURE_SPEECH_REGION`. |
 | **IndicF5 / AI4Bharat models** | check the model card for the exact revision we pin | record revision + licence text; do not assume |
 | **Piper** | MIT (engine); per-voice licences vary | audit each `ta_IN` voice |
 | **faster-whisper / Whisper weights** | MIT (code), weights licence per model card | fine, keep notice |
@@ -162,8 +163,8 @@ Self-host default: nothing leaves the machine except calls to the engines I expl
 
 ## 6. Pre-launch checklist
 
+- [x] Licensed engine available and mandatory in public mode (`TTS_REQUIRE_LICENSED=1` fails startup without Azure credentials).
 - [ ] `THIRD_PARTY_NOTICES.md` complete and accurate.
-- [ ] edge-tts replaced (or a licensed engine made primary) for the public deployment.
 - [ ] Flux/SDXL/OpenRAIL use restrictions reviewed against the product's use.
 - [ ] Voice-import consent flow implemented before the feature ships.
 - [ ] Reference-video retention + deletion implemented and stated in the UI.
