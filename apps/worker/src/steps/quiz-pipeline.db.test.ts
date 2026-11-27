@@ -396,13 +396,9 @@ describe('Quiz Video full pipeline (Postgres + ffmpeg)', () => {
     stored = videoRowSchema.parse(
       (await db.select().from(video).where(eq(video.id, videoId)))[0],
     );
-    // TODO: The quiz pipeline currently advances to 'render' after the images step due to a
-    // double-advance bug in the create-images step (main transaction advances to create-captions,
-    // then quiz-specific block used to advance again to render). The quiz-specific block's
-    // advance was removed but the step is still 'render' - root cause unknown.
-    // Expected: 'create-captions' (correct pipeline order: create-scenes → create-vocal →
-    // create-images → create-captions → render). Current behavior: 'render'.
-    expect(stored.step).toBe('render');
+    // Correct pipeline order: create-scenes → create-vocal → create-images →
+    // create-captions → render. The quiz extras must not advance the step twice.
+    expect(stored.step).toBe('create-captions');
 
     // Every scene got a frame, plus one background and one image per question.
     const imageAssets = await db

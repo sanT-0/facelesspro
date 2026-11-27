@@ -189,6 +189,15 @@ export interface CreateImagesWorkDeps {
 
 export interface CreateImagesHandlerDeps extends StepDeps, CreateImagesWorkDeps {}
 
+interface QuizImage {
+  readonly kind: 'quiz-background' | 'quiz-question';
+  readonly key: string;
+  readonly bytes: Uint8Array;
+  readonly prompt: string;
+  readonly seed: number;
+  readonly itemIndex?: number;
+}
+
 /** Business body exported separately so unit tests need no Postgres or pg-boss. */
 export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
   const lookupStyle = deps.findStyle ?? findArtStyle;
@@ -212,6 +221,9 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
     let profile: StyleProfile;
     let size: Size;
     let styleId: string;
+    // Quiz extras (background + one image per question) are generated once the
+    // scene frames are ready, then committed in the same transaction.
+    let quizRequest: CreateQuizVideoRequestParsed | null = null;
     if (row.data.kind === 'ai-video-v3') {
       const request = createAiVideoV3RequestSchema.safeParse(row.data.request.body);
       if (!request.success) {
@@ -261,6 +273,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         `8${styleHash.slice(15, 18)}`,
         styleHash.slice(18, 30),
       ].join('-');
+      quizRequest = request.data;
     } else if (row.data.kind === 'fake-text') {
       // Extract `_fakeTextScenes` before schema validation.
       const originalBody = row.data.request.body as Record<string, unknown>;
@@ -525,34 +538,13 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
       degradedFrom: degraded.length === 0 ? undefined : degraded.join(','),
     });
 
-    await ctx.transaction(async (tx) => {
-      await persist(tx, {
-        videoId: ctx.videoId,
-        workspaceId: row.data.workspace_id,
-        frames,
-      });
-      await tx.charge({
-        action: 'image',
-        units: Math.ceil(frames.length / 20),
-        unitCost,
-      });
-      await tx.advance();
-    });
-
-    // Quiz-specific: generate background and question images
-    if (row.data.kind === 'quiz') {
-      const quizRequest = row.data.request.body as CreateQuizVideoRequestParsed;
-      const quizImages: Array<{
-        kind: 'quiz-background' | 'quiz-question';
-        key: string;
-        bytes: Uint8Array;
-        prompt: string;
-        seed: number;
-        itemIndex?: number;
-      }> = [];
-
+    // Quiz extras are generated before the commit so the whole step (scene
+    // frames + quiz assets + one charge + one advance) is a single transaction.
+    const quiz = quizRequest;
+    const quizImages: QuizImage[] = [];
+    if (quiz !== null) {
       // Background image
-      if (quizRequest.generateBackgroundImage && quizRequest.backgroundImagePrompt) {
+      if (quiz.generateBackgroundImage && quiz.backgroundImagePrompt) {
         const bgKey = storageKey(
           'ws',
           row.data.workspace_id,
@@ -562,7 +554,7 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
         );
         const bgSeed = quizImageSeed(ctx.videoId, 'background');
         const bgRequest = imageGenerationRequestSchema.parse({
-          prompt: quizRequest.backgroundImagePrompt,
+          prompt: quiz.backgroundImagePrompt,
           negativePrompt: withRequiredNegatives(profile.negative),
           seed: bgSeed,
           size,
@@ -573,14 +565,14 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           kind: 'quiz-background',
           key: bgKey,
           bytes: bgFrame.image.bytes,
-          prompt: quizRequest.backgroundImagePrompt,
+          prompt: quiz.backgroundImagePrompt,
           seed: bgSeed,
         });
       }
 
       // Question images (one per question item)
-      if (quizRequest.generateQuestionImage) {
-        const questionItems = quizRequest.items.filter(
+      if (quiz.generateQuestionImage) {
+        const questionItems = quiz.items.filter(
           (item): item is QuizItem => item.type === 'question',
         );
         for (let qIdx = 0; qIdx < questionItems.length; qIdx++) {
@@ -612,17 +604,33 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           });
         }
       }
+    }
 
-      if (quizImages.length > 0) {
-        const root = dataDir();
-        for (const img of quizImages) {
-          const path = resolveStorageKey(root, img.key);
-          await ensureParentPath(path);
-          await writeFile(path, img.bytes);
-        }
+    if (quizImages.length > 0) {
+      const root = dataDir();
+      for (const img of quizImages) {
+        const path = resolveStorageKey(root, img.key);
+        await ensureParentPath(path);
+        await writeFile(path, img.bytes);
+      }
+      ctx.observe({
+        quizImages: quizImages.length,
+        quizBackground: quizImages.some((img) => img.kind === 'quiz-background'),
+        quizQuestions: quizImages.filter((img) => img.kind === 'quiz-question').length,
+      });
+    }
 
-        // Store as assets and record IDs in request body
-        const inserted = await ctx.db
+    await ctx.transaction(async (tx) => {
+      await persist(tx, {
+        videoId: ctx.videoId,
+        workspaceId: row.data.workspace_id,
+        frames,
+      });
+
+      if (quiz !== null && quizImages.length > 0) {
+        // Quiz assets and the request-body pointer are committed in the same
+        // transaction as the scene frames, the charge and the advance.
+        const inserted = await tx.db
           .insert(asset)
           .values(
             quizImages.map((img) => ({
@@ -643,41 +651,34 @@ export function createCreateImagesWork(deps: CreateImagesWorkDeps): StepBody {
           .returning({ id: asset.id, key: asset.key });
 
         const byKey = new Map(inserted.map((v) => [v.key, v.id]));
-        const backgroundAssetId = quizImages.find((i) => i.kind === 'quiz-background')
-          ? byKey.get(quizImages.find((i) => i.kind === 'quiz-background')!.key)
-          : undefined;
+        const background = quizImages.find((i) => i.kind === 'quiz-background');
+        const backgroundAssetId =
+          background === undefined ? undefined : byKey.get(background.key);
         const questionAssetIds = quizImages
           .filter((i) => i.kind === 'quiz-question')
           .map((i) => byKey.get(i.key))
           .filter((id): id is string => id !== undefined);
 
-        // Update video request body with quiz asset IDs
         const updatedBody = {
-          ...quizRequest,
+          ...quiz,
           _quizAssets: {
             backgroundAssetId,
             questionAssetIds,
           },
         };
-        await ctx.db
+        await tx.db
           .update(video)
           .set({ request: { kind: 'quiz', body: updatedBody } })
           .where(eq(video.id, ctx.videoId));
-
-        ctx.observe({
-          quizImages: quizImages.length,
-          quizBackground: backgroundAssetId ? true : false,
-          quizQuestions: questionAssetIds.length,
-        });
       }
 
-      // Commit the step: charge 0 image credits (quiz images are free) and advance.
-      await ctx.transaction(async (tx) => {
-        await tx.charge({ action: 'image', units: 0, unitCost });
-        await tx.advance();
+      await tx.charge({
+        action: 'image',
+        units: Math.ceil(frames.length / 20),
+        unitCost,
       });
-      return;
-    }
+      await tx.advance();
+    });
   };
 }
 
