@@ -103,14 +103,19 @@ describe('art-style workspace visibility (Postgres)', () => {
   });
 
   it('lists global styles plus the workspace own ready styles only', async () => {
+    const builtinIds = [
+      '00000000-0000-4000-8000-000000000101',
+      '00000000-0000-4000-8000-000000000102',
+      '00000000-0000-4000-8000-000000000103',
+    ];
     const owner = await listVisibleArtStyles(db, ownerId);
     expect(owner.map((row) => row.id).sort()).toEqual(
-      [globalStyleId, ownerPrivateId].sort(),
+      [...builtinIds, globalStyleId, ownerPrivateId].sort(),
     );
 
     const stranger = await listVisibleArtStyles(db, strangerId);
     expect(stranger.map((row) => row.id).sort()).toEqual(
-      [globalStyleId, strangerPrivateId].sort(),
+      [...builtinIds, globalStyleId, strangerPrivateId].sort(),
     );
     expect(stranger.some((row) => row.id === ownerPrivateId)).toBe(false);
     expect(stranger.some((row) => row.id === buildingId)).toBe(false);

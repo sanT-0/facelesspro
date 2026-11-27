@@ -10,7 +10,7 @@
 import { pathToFileURL } from 'node:url';
 
 import type { Database } from './client';
-import { captionTemplate, member, user, workspace } from './schema';
+import { artStyle, captionTemplate, member, user, workspace } from './schema';
 
 /** Fixed ids make the seed re-runnable and keep editor links stable in dev. */
 export const DEV_WORKSPACE_ID = '00000000-0000-4000-8000-000000000001';
@@ -114,8 +114,115 @@ export const BUILTIN_CAPTION_TEMPLATES = [
   },
 ] satisfies readonly (typeof captionTemplate.$inferInsert)[];
 
+/** Built-in art styles with complete StyleProfiles (fixed UUIDs). */
+export const BUILTIN_ART_STYLES = [
+  {
+    id: '00000000-0000-4000-8000-000000000101',
+    workspace_id: null,
+    name: 'Cinematic',
+    published: true,
+    formats: ['landscape', 'portrait'],
+    profile: {
+      version: 1,
+      medium: 'cinematic live action',
+      promptPrefix: 'cinematic shot, professional lighting, depth of field, ',
+      palette: { hex: ['#1a283f', '#f1bf4d', '#fefefe', '#020202', '#e2562d'] },
+      line: { weight: 'medium', color: '#1a283f', texture: 'smooth' },
+      shading: 'cinematic',
+      background: 'cinematic environment with dramatic lighting and atmospheric depth',
+      composition: 'rule of thirds, leading lines, cinematic framing',
+      characters: 'realistic proportions, natural poses, expressive faces',
+      typography: 'clean sans-serif, minimal, high contrast',
+      negative: 'cartoon, illustration, flat, oversaturated, blurry, low quality, watermark, text, logo',
+      seedBase: 123456789,
+      measured: {
+        line: { strokeDensity: 0.65, edgeEnergy: 0.72 },
+        tone: { saturation: { min: 0.2, max: 0.9, mean: 0.55 }, contrast: { min: 0.3, max: 0.95, mean: 0.65 }, brightness: { min: 0.1, max: 0.7, mean: 0.35 } },
+        aspect: { width: 1920, height: 1080, ratio: 1.7777777777777777, orientation: 'landscape' },
+        safeArea: { edgeContentRatio: 0.15, margin: 0.1 },
+        frameCount: 5,
+      },
+      source: { adapter: 'heuristic', degradedFrom: [] },
+    },
+    preview_url: '/art-styles/builtin/cinematic-preview.png',
+    portrait_preview_url: '/art-styles/builtin/cinematic-portrait-preview.png',
+    sample_video_urls: [],
+    status: 'ready',
+    created_at: new Date('2026-10-27T09:00:00.000Z').toISOString(),
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000102',
+    workspace_id: null,
+    name: 'Clean Minimal',
+    published: true,
+    formats: ['landscape', 'portrait'],
+    profile: {
+      version: 1,
+      medium: 'clean vector illustration',
+      promptPrefix: 'minimal flat vector, clean lines, solid colors, ',
+      palette: { hex: ['#ffffff', '#000000', '#0066cc', '#ff6600', '#00cc66'] },
+      line: { weight: 'medium', color: '#000000', texture: 'crisp' },
+      shading: 'flat',
+      background: 'simple geometric background with negative space',
+      composition: 'centered subject, balanced negative space, grid-aligned',
+      characters: 'simplified geometric characters, clear silhouettes',
+      typography: 'geometric sans-serif, bold, high readability',
+      negative: 'photorealistic, 3d, gradient, texture, noise, complex patterns, watermark',
+      seedBase: 987654321,
+      measured: {
+        line: { strokeDensity: 0.35, edgeEnergy: 0.45 },
+        tone: { saturation: { min: 0.1, max: 0.8, mean: 0.4 }, contrast: { min: 0.2, max: 0.9, mean: 0.55 }, brightness: { min: 0.5, max: 1.0, mean: 0.85 } },
+        aspect: { width: 1920, height: 1080, ratio: 1.7777777777777777, orientation: 'landscape' },
+        safeArea: { edgeContentRatio: 0.05, margin: 0.1 },
+        frameCount: 5,
+      },
+      source: { adapter: 'heuristic', degradedFrom: [] },
+    },
+    preview_url: '/art-styles/builtin/clean-minimal-preview.png',
+    portrait_preview_url: '/art-styles/builtin/clean-minimal-portrait-preview.png',
+    sample_video_urls: [],
+    status: 'ready',
+    created_at: new Date('2026-10-27T09:00:00.000Z').toISOString(),
+  },
+  {
+    id: '00000000-0000-4000-8000-000000000103',
+    workspace_id: null,
+    name: 'Vibrant Anime',
+    published: true,
+    formats: ['landscape', 'portrait'],
+    profile: {
+      version: 1,
+      medium: 'anime illustration',
+      promptPrefix: 'anime style, cel shaded, vibrant colors, detailed linework, ',
+      palette: { hex: ['#ff6b9d', '#4ecdc4', '#ffe66d', '#95e1d3', '#f38181'] },
+      line: { weight: 'thin', color: '#2d2d2d', texture: 'clean' },
+      shading: 'cel',
+      background: 'detailed anime background with atmospheric perspective',
+      composition: 'dynamic angle, speed lines, emotional framing',
+      characters: 'anime proportions, large expressive eyes, dynamic poses',
+      typography: 'stylized japanese-inspired, bold outlines',
+      negative: 'photorealistic, western cartoon, muted colors, rough lines, watermark',
+      seedBase: 555555555,
+      measured: {
+        line: { strokeDensity: 0.55, edgeEnergy: 0.6 },
+        tone: { saturation: { min: 0.4, max: 1.0, mean: 0.75 }, contrast: { min: 0.3, max: 0.95, mean: 0.65 }, brightness: { min: 0.3, max: 0.9, mean: 0.6 } },
+        aspect: { width: 1920, height: 1080, ratio: 1.7777777777777777, orientation: 'landscape' },
+        safeArea: { edgeContentRatio: 0.1, margin: 0.1 },
+        frameCount: 5,
+      },
+      source: { adapter: 'heuristic', degradedFrom: [] },
+    },
+    preview_url: '/art-styles/builtin/vibrant-anime-preview.png',
+    portrait_preview_url: '/art-styles/builtin/vibrant-anime-portrait-preview.png',
+    sample_video_urls: [],
+    status: 'ready',
+    created_at: new Date('2026-10-27T09:00:00.000Z').toISOString(),
+  },
+] satisfies readonly (typeof artStyle.$inferInsert)[];
+
 export interface SeedResult {
   templates: number;
+  artStyles: number;
   workspace: boolean;
 }
 
@@ -150,6 +257,12 @@ export async function seedBuiltins(db: Database): Promise<SeedResult> {
     .onConflictDoNothing({ target: captionTemplate.id })
     .returning({ id: captionTemplate.id });
 
+  const artStyles = await db
+    .insert(artStyle)
+    .values([...BUILTIN_ART_STYLES])
+    .onConflictDoNothing({ target: artStyle.id })
+    .returning({ id: artStyle.id });
+
   const workspaces = await db
     .insert(workspace)
     .values(DEV_WORKSPACE)
@@ -163,7 +276,7 @@ export async function seedBuiltins(db: Database): Promise<SeedResult> {
 
   await db.insert(member).values(DEV_MEMBER).onConflictDoNothing();
 
-  return { templates: templates.length, workspace: workspaces.length > 0 };
+  return { templates: templates.length, artStyles: artStyles.length, workspace: workspaces.length > 0 };
 }
 
 async function main(): Promise<void> {
@@ -174,6 +287,7 @@ async function main(): Promise<void> {
     const result = await seedBuiltins(db);
     console.log(
       `seed: ${result.templates} new caption templates, ` +
+        `${result.artStyles} new art styles, ` +
         `workspace ${result.workspace ? 'created' : 'already present'}`,
     );
   } finally {

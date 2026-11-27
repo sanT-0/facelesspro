@@ -125,8 +125,14 @@ function harness(
   const charge = vi.fn(async () => {
     events.push('charge');
   });
+  const mockReturning = vi.fn(async () => [{ id: VIDEO_ID }]);
+  const mockWhere = vi.fn(() => ({ returning: mockReturning }));
+  const mockSet = vi.fn(() => ({ where: mockWhere }));
+  const mockUpdate = vi.fn(() => ({ set: mockSet }));
   const tx: CommitTx = {
-    db: {} as Database,
+    db: {
+      update: mockUpdate,
+    } as unknown as Database,
     videoId: VIDEO_ID,
     attempt: 1,
     setStep: vi.fn(async () => {}),
@@ -350,7 +356,7 @@ describe('createCreateCaptionsWork', () => {
     expect(advance).toHaveBeenCalledOnce();
   });
 
-  it('completes an editable project without enqueueing render when render was omitted', async () => {
+  it('captions a V3 video and advances to render with defaults when render omitted', async () => {
     const events: string[] = [];
     const row = video({ artStyleId: STYLE_ID, script: SCRIPT, captions: true });
     const { work, complete } = deps({ events, foundTemplate: { ...template, id: -1 } });
@@ -358,10 +364,10 @@ describe('createCreateCaptionsWork', () => {
 
     await work(context);
 
-    expect(events).toEqual(['store', 'transaction', 'persist', 'charge', 'complete']);
+    expect(events).toEqual(['store', 'transaction', 'persist', 'charge', 'advance']);
     expect(charge).toHaveBeenCalledOnce();
-    expect(complete).toHaveBeenCalledOnce();
-    expect(advance).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledOnce();
   });
 
   it.each([
@@ -498,7 +504,7 @@ describe('createCreateCaptionsWork', () => {
     expect(transactionCalls).toHaveLength(0);
   });
 
-  it('captions a V2 video without a captions flag using the default template', async () => {
+  it('captions a V2 video and advances to render with defaults when render omitted', async () => {
     const events: string[] = [];
     const { work, findTemplate, store } = deps({
       events,
@@ -514,15 +520,15 @@ describe('createCreateCaptionsWork', () => {
     expect(findTemplate).toHaveBeenCalledWith(context.db, DEFAULT_CAPTION_TEMPLATE_ID);
     expect(store).toHaveBeenCalledOnce();
     expect(charge).toHaveBeenCalledWith({ action: 'subtitles', units: 1, unitCost: 20 });
-    // `render` was omitted, so the project completes as editable without an mp4.
-    expect(advance).not.toHaveBeenCalled();
+    // render defaults to standard settings, so advance to render is called
+    expect(advance).toHaveBeenCalledOnce();
   });
 
-  it('advances a V2 video to render when a render was requested', async () => {
+  it('advances a V2 video to render when a render was explicitly requested', async () => {
     const events: string[] = [];
     const { work, complete } = deps({ events, foundTemplate: { ...template, id: -1 } });
     const { context, advance, charge } = harness(
-      v2Video({ script: SCRIPT, render: {} }),
+      v2Video({ script: SCRIPT, render: { resolution: 1080, frameRate: 30, format: 'standard' } }),
       events,
     );
 

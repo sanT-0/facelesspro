@@ -170,7 +170,8 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         templateId = request.data.captionTemplateId ?? DEFAULT_CAPTION_TEMPLATE_ID;
         captionSpec = request.data.captionSpec;
         size = request.data.size;
-        render = request.data.render;
+        // Default to standard render if not explicitly provided (artwork-first opt-out)
+        render = request.data.render ?? { resolution: 1080, frameRate: 30, format: 'standard' };
         break;
       }
       case 'roblox': {
@@ -189,7 +190,8 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
           emoji: request.data.autoAddEmoji,
         };
         size = 'portrait';
-        render = request.data.render;
+        // Default to standard render if not explicitly provided
+        render = request.data.render ?? { resolution: 1080, frameRate: 30, format: 'standard' };
         break;
       }
       case 'quiz': {
@@ -206,7 +208,8 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         templateId = DEFAULT_CAPTION_TEMPLATE_ID;
         captionSpec = undefined;
         size = request.data.size;
-        render = request.data.render;
+        // Default to standard render if not explicitly provided
+        render = request.data.render ?? { resolution: 1080, frameRate: 30, format: 'standard' };
         break;
       }
       case 'fake-text': {
@@ -223,7 +226,8 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         templateId = DEFAULT_CAPTION_TEMPLATE_ID;
         captionSpec = undefined;
         size = 'portrait';
-        render = request.data.render;
+        // Default to standard render if not explicitly provided
+        render = request.data.render ?? { resolution: 1080, frameRate: 30, format: 'standard' };
         break;
       }
       default: {
@@ -239,13 +243,14 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         templateId = DEFAULT_CAPTION_TEMPLATE_ID;
         captionSpec = undefined;
         size = request.data.size;
-        render = request.data.render;
+        // Default to standard render if not explicitly provided
+        render = request.data.render ?? { resolution: 1080, frameRate: 30, format: 'standard' };
         break;
       }
     }
 
-    // V3 is artwork-first. The stable step remains in the cursor even when the
-    // user opted out, but it produces no artifact and no zero-value charge.
+    // If captions are disabled (V3 artwork-first opt-out), the stable step remains
+    // in the cursor but produces no artifact and no zero-value charge.
     if (!withCaptions) {
       await ctx.transaction(async (tx) => {
         if (render === undefined) {
@@ -319,6 +324,16 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         artifacts,
       });
       await tx.charge({ action: 'subtitles', units: 1, unitCost });
+
+      // Persist the render field to the video's request so the render step can find it
+      if (render !== undefined) {
+        const updatedBody = { ...row.data.request.body, render };
+        await tx.db
+          .update(videoTable)
+          .set({ request: { kind: row.data.kind, body: updatedBody } })
+          .where(eq(videoTable.id, ctx.videoId));
+      }
+
       if (render === undefined) {
         await complete(tx, ctx.videoId);
       } else {
