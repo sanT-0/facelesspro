@@ -11,6 +11,9 @@ as a first-class citizen.
 > Work in progress, built one roadmap task at a time. What is actually true today lives in
 > [docs/PROGRESS.md](./docs/PROGRESS.md), not in this file.
 
+**New here? Read [START-HERE.md](./START-HERE.md)** — copy-paste commands to start, stop, reset and
+open the local stack, plus the URL table and how to mint the first API key.
+
 ## What it does
 
 1. You paste a script (or upload a voiceover).
@@ -49,10 +52,12 @@ curl -X POST localhost:3001/v1/fake-text-videos \
 curl -H "Authorization: Bearer $KEY" localhost:3001/v1/videos/<id>
 ```
 
-`docker compose down -v` resets the database and artifacts; `docker compose logs -f worker`
-follows a job. A cold build takes about 4 minutes on eight threads, and the first Fake Text
-video completes in well under the 15-minute launch gate.
+If you have Node/npm on the host, the same lifecycle is one command each: `npm run up`,
+`npm run down` (keeps data), `npm run reset` (deletes data), `npm run status`, `npm run logs`,
+`npm run key -- --name "local"`. A cold build takes about 4 minutes on eight threads, and the
+first Fake Text video completes in well under the 15-minute launch gate.
 
+Full start/stop/URL/troubleshooting guide: [START-HERE.md](./START-HERE.md).
 Host development (hot reload, `npm run gate`, the media service outside Docker) is documented in
 [docs/10-operations.md](./docs/10-operations.md) §1.
 
@@ -60,6 +65,7 @@ Host development (hot reload, `npm run gate`, the media service outside Docker) 
 
 | Doc | What it covers |
 |---|---|
+| [START-HERE.md](./START-HERE.md) | Start, stop, reset and open the local Docker stack; URLs, first API key, troubleshooting |
 | [plan.md](./plan.md) | Goals, scope, stack, phases, gates, definition of done |
 | [docs/01-product-spec.md](./docs/01-product-spec.md) | Feature-by-feature spec and API field contract |
 | [docs/02-reverse-engineering.md](./docs/02-reverse-engineering.md) | How a reference product was analysed — evidence, what was and wasn't observed |

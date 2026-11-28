@@ -287,9 +287,9 @@ Everything engine-related is env, everything product-related is a row.
 DATABASE_URL=postgresql://faceless:faceless@127.0.0.1:5433/faceless
 PORT=3001
 PGBOSS_SCHEMA=pgboss
-PUBLIC_BASE_URL=http://127.0.0.1:3001
+PUBLIC_BASE_URL=http://localhost:3000   # the studio origin a browser opens
 MEDIA_SERVICE_URL=http://127.0.0.1:8000
-STORAGE=disk                      # disk | s3
+STORAGE=disk                      # disk only today; s3 is reserved
 DATA_DIR=.data
 
 # engines (first healthy wins, left-to-right)
@@ -297,11 +297,11 @@ PLANNER=cloudflare,groq,ollama,heuristic
 IMAGE=cloudflare,pollinations,comfyui,procedural
 STYLE=cloudflare,gemini,heuristic
 TTS=edge,indicf5,piper
-ASR=whisper-local,cloudflare
 
 # voiceover intake (services/media): whisper model name and upload ceiling.
 # faster-whisper is an optional import — without it the service boots and
-# /transcribe answers 503 with the install hint.
+# /transcribe answers 503 with the install hint. There is no ASR chain switch:
+# the worker always calls this service.
 ASR_MODEL=large-v3-turbo
 ASR_MAX_MB=200
 

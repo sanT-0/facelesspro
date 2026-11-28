@@ -8,10 +8,13 @@
 
 import { createDb, databaseUrl, loadEnv } from '@facelesspro/db';
 import { createBoss, consume, stopBoss, WEBHOOK_QUEUE } from '@facelesspro/queue';
+import type { StepHandler } from '@facelesspro/queue';
+import type { VideoStep } from '@facelesspro/contracts';
 import { extractThumbnail, renderVideo } from '@facelesspro/art';
 import { loggerFromEnv } from '@facelesspro/log';
 
 import { join } from 'node:path';
+import { serviceRole } from './role';
 import { startWorker } from './worker';
 import { createArtStyleBuildHandler } from './art-style/runtime';
 import { createPlannerChainFromEnv } from './planner/factory';
@@ -55,6 +58,8 @@ async function main(): Promise<void> {
     log.info('worker.health_listening', { port: healthPort });
   });
 
+  const role = serviceRole(process.env.RENDER_SERVICE);
+
   const schema = process.env.PGBOSS_SCHEMA || undefined;
   const boss = await createBoss({
     connectionString: databaseUrl(),
@@ -62,92 +67,105 @@ async function main(): Promise<void> {
   });
 
   const { db, pool } = createDb();
-  const createScenes = createCreateScenesHandler({
-    db,
-    pool,
-    boss,
-    planner: createPlannerChainFromEnv({
-      env: process.env,
-      logger: warn,
-    }),
-    asr: createMediaAsrPort({
-      baseUrl: process.env.MEDIA_SERVICE_URL,
-      timeoutMs: envNumber(process.env.MEDIA_ASR_TIMEOUT_MS),
-    }),
-    readStorageFile: async (key: string) => {
-      const { readFile } = await import('node:fs/promises');
-      const { dataDir } = await import('./art-style/storage');
-      return readFile(join(dataDir(), key));
-    },
-  });
-  const createVocal = createCreateVocalHandler({
-    db,
-    pool,
-    boss,
-    tts: createMediaTtsPort({
-      baseUrl: process.env.MEDIA_SERVICE_URL,
-      synthesisTimeoutMs: envNumber(process.env.MEDIA_TTS_TIMEOUT_MS),
-    }),
-    defaultPairId: process.env.TTS_PAIR?.trim() || 'valluvar',
-    ttsUnitCost: envNumber(process.env.TTS_UNIT_COST) ?? 0,
-  });
-  const createImages = createCreateImagesHandler({
-    db,
-    pool,
-    boss,
-    image: createImageChainFromEnv({ env: process.env, logger: warn }),
-    imageUnitCost: envNumber(process.env.IMAGE_UNIT_COST) ?? 0,
-  });
-  const createCaptions = createCreateCaptionsHandler({
-    db,
-    pool,
-    boss,
-    subtitleUnitCost:
-      envNumber(process.env.SUBTITLE_UNIT_COST) ?? DEFAULT_SUBTITLE_UNIT_COST,
-  });
-  const render = createCreateRenderHandler({
-    db,
-    pool,
-    boss,
-    renderVideo,
-    extractThumbnail,
-    renderUnitCost: envNumber(process.env.RENDER_UNIT_COST) ?? DEFAULT_RENDER_UNIT_COST,
-  });
+
+  // Build only the handlers this process consumes. The compose stack runs a
+  // pipeline `worker` and a dedicated `render` consumer; a single process with
+  // RENDER_SERVICE unset runs everything. Building an adapter that will never
+  // be called only adds startup warnings and dead configuration.
+  const steps: Partial<Record<VideoStep, StepHandler>> = {};
+
+  if (role !== 'render') {
+    steps['create-scenes'] = createCreateScenesHandler({
+      db,
+      pool,
+      boss,
+      planner: createPlannerChainFromEnv({
+        env: process.env,
+        logger: warn,
+      }),
+      asr: createMediaAsrPort({
+        baseUrl: process.env.MEDIA_SERVICE_URL,
+        timeoutMs: envNumber(process.env.MEDIA_ASR_TIMEOUT_MS),
+      }),
+      readStorageFile: async (key: string) => {
+        const { readFile } = await import('node:fs/promises');
+        const { dataDir } = await import('./art-style/storage');
+        return readFile(join(dataDir(), key));
+      },
+    });
+    steps['create-vocal'] = createCreateVocalHandler({
+      db,
+      pool,
+      boss,
+      tts: createMediaTtsPort({
+        baseUrl: process.env.MEDIA_SERVICE_URL,
+        synthesisTimeoutMs: envNumber(process.env.MEDIA_TTS_TIMEOUT_MS),
+      }),
+      defaultPairId: process.env.TTS_PAIR?.trim() || 'valluvar',
+      ttsUnitCost: envNumber(process.env.TTS_UNIT_COST) ?? 0,
+    });
+    steps['create-images'] = createCreateImagesHandler({
+      db,
+      pool,
+      boss,
+      image: createImageChainFromEnv({ env: process.env, logger: warn }),
+      imageUnitCost: envNumber(process.env.IMAGE_UNIT_COST) ?? 0,
+    });
+    steps['create-captions'] = createCreateCaptionsHandler({
+      db,
+      pool,
+      boss,
+      subtitleUnitCost:
+        envNumber(process.env.SUBTITLE_UNIT_COST) ?? DEFAULT_SUBTITLE_UNIT_COST,
+    });
+  }
+
+  if (role !== 'worker') {
+    steps.render = createCreateRenderHandler({
+      db,
+      pool,
+      boss,
+      renderVideo,
+      extractThumbnail,
+      renderUnitCost: envNumber(process.env.RENDER_UNIT_COST) ?? DEFAULT_RENDER_UNIT_COST,
+    });
+  }
 
   const worker = await startWorker({
     boss,
     log: (line) => log.info('worker.message', { message: line }),
-    artStyle: createArtStyleBuildHandler({
-      db,
-      env: process.env,
-      log: (line) => log.info('art_style.build', { message: line }),
-    }),
-    steps: {
-      'create-scenes': createScenes,
-      'create-vocal': createVocal,
-      'create-images': createImages,
-      'create-captions': createCaptions,
-      render,
-    },
+    ...(role === 'render'
+      ? {}
+      : {
+          artStyle: createArtStyleBuildHandler({
+            db,
+            env: process.env,
+            log: (line) => log.info('art_style.build', { message: line }),
+          }),
+        }),
+    steps,
   });
-  log.info('worker.consuming', { queues: worker.queues });
+  log.info('worker.consuming', { queues: worker.queues, role });
 
   // Webhook delivery: consume jobs from the webhook-delivery queue. Each job
   // carries { videoId, event, payload }; processWebhookDelivery reads the
   // current attempt count, delivers via HTTP, and schedules retries on the
-  // documented backoff schedule.
-  await consume(
-    boss,
-    WEBHOOK_QUEUE,
-    (data) => data,
-    async ({ payload }) => {
-      await processWebhookDelivery(db, boss, payload as {
-        readonly videoId: string;
-        readonly event: 'completed' | 'failed';
-        readonly payload: Record<string, unknown>;
-      });
-    },
-  );
+  // documented backoff schedule. The dedicated render consumer must not also
+  // deliver webhooks, or every event is attempted twice.
+  if (role !== 'render') {
+    await consume(
+      boss,
+      WEBHOOK_QUEUE,
+      (data) => data,
+      async ({ payload }) => {
+        await processWebhookDelivery(db, boss, payload as {
+          readonly videoId: string;
+          readonly event: 'completed' | 'failed';
+          readonly payload: Record<string, unknown>;
+        });
+      },
+    );
+  }
 
   let stopping = false;
 
@@ -156,7 +174,9 @@ async function main(): Promise<void> {
     stopping = true;
     log.info('worker.draining', { signal });
     await worker.stop();
-    await boss.offWork(WEBHOOK_QUEUE).catch(() => undefined);
+    if (role !== 'render') {
+      await boss.offWork(WEBHOOK_QUEUE).catch(() => undefined);
+    }
     await stopBoss(boss);
     await pool.end();
     process.exit(0);

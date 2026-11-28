@@ -31,10 +31,13 @@ services:
       DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
       PGBOSS_SCHEMA: pgboss
       DATA_DIR: /data
-      PUBLIC_BASE_URL: http://localhost:3001
+      # Interpolated from .env. Use the origin clients actually open: it is used
+      # for `editorUrl` and for the absolute, unauthenticated render URL, and the
+      # studio's nginx proxies /v1/* and /files/* to this api.
+      PUBLIC_BASE_URL: "${PUBLIC_BASE_URL:-http://localhost:3003}"
       MEDIA_SERVICE_URL: http://media:8000
-      RATE_LIMIT_KEY_PER_MINUTE: 60
-      RATE_LIMIT_WORKSPACE_PER_MINUTE: 300
+      RATE_LIMIT_KEY_PER_MINUTE: "${RATE_LIMIT_KEY_PER_MINUTE:-60}"
+      RATE_LIMIT_WORKSPACE_PER_MINUTE: "${RATE_LIMIT_WORKSPACE_PER_MINUTE:-300}"
     ports:
       - "3001:3001"
     volumes:
@@ -68,6 +71,41 @@ services:
       DATA_DIR: /data
       MEDIA_SERVICE_URL: http://media:8000
       HEALTH_PORT: 9090
+      # Consume the pipeline steps + webhooks, but never `render`: the `render`
+      # service owns that queue. See serviceRole() in apps/worker/src/main.ts.
+      RENDER_SERVICE: "worker"
+      # --- engine chains (interpolated from the repo-root .env) ---------------
+      # First healthy adapter wins, left to right. A provider with no
+      # credentials is skipped with a warning and the chain continues; the
+      # trailing heuristic/procedural adapters need nothing and always answer.
+      PLANNER: "${PLANNER:-cloudflare,groq,ollama,heuristic}"
+      PLANNER_DESCRIBE: "${PLANNER_DESCRIBE:-}"
+      IMAGE: "${IMAGE:-cloudflare,pollinations,comfyui,procedural}"
+      STYLE: "${STYLE:-cloudflare,gemini,heuristic}"
+      # --- provider credentials (empty = skip that provider) ------------------
+      CLOUDFLARE_ACCOUNT_ID: "${CLOUDFLARE_ACCOUNT_ID:-}"
+      CLOUDFLARE_API_TOKEN: "${CLOUDFLARE_API_TOKEN:-}"
+      POLLINATIONS_API_KEY: "${POLLINATIONS_API_KEY:-}"
+      GROQ_API_KEY: "${GROQ_API_KEY:-}"
+      GEMINI_API_KEY: "${GEMINI_API_KEY:-}"
+      # Ollama/ComfyUI usually run on the host. Inside a container 127.0.0.1 is
+      # the container itself, so these default to the host gateway. Override
+      # with the *_DOCKER names when the service runs on the compose network.
+      OLLAMA_BASE_URL: "${OLLAMA_BASE_URL_DOCKER:-http://host.docker.internal:11434}"
+      OLLAMA_PLANNER_MODEL: "${OLLAMA_PLANNER_MODEL:-}"
+      OLLAMA_DESCRIBE_MODEL: "${OLLAMA_DESCRIBE_MODEL:-}"
+      COMFYUI_URL: "${COMFYUI_URL_DOCKER:-http://host.docker.internal:8188}"
+      COMFYUI_WORKFLOW: "${COMFYUI_WORKFLOW:-}"
+      COMFYUI_OUTPUT_NODE: "${COMFYUI_OUTPUT_NODE:-}"
+      COMFYUI_TIMEOUT_MS: "${COMFYUI_TIMEOUT_MS:-}"
+      # --- optional signing / logging -----------------------------------------
+      # When empty the X-Faceless-Signature header is omitted, not forged.
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
+      LOG_LEVEL: "${LOG_LEVEL:-info}"
+      LOG_SCRIPTS: "${LOG_SCRIPTS:-0}"
+    # Lets the container reach a host-run Ollama/ComfyUI via host.docker.internal.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       - data:/data
       # The media service returns absolute `master_mp3_path`s; the worker reads
@@ -101,14 +139,18 @@ services:
       PYTHONUNBUFFERED: 1
       MEDIA_DATA_DIR: /data/media
       MEDIA_SERVICE_URL: http://0.0.0.0:8000
-      # TTS chain; Azure is the licensed production path. Public deployments
-      # must set TTS_REQUIRE_LICENSED=1 and provide AZURE_SPEECH_KEY/REGION.
-      TTS: edge,azure,indicf5,piper
-      TTS_REQUIRE_LICENSED: "0"
+      # TTS chain interpolated from the repo-root .env. Azure is the licensed
+      # production path; a public deployment sets TTS_REQUIRE_LICENSED=1, which
+      # drops `edge` and refuses to start without a licensed engine.
+      TTS: "${TTS:-edge,azure,indicf5,piper}"
+      TTS_REQUIRE_LICENSED: "${TTS_REQUIRE_LICENSED:-0}"
+      AZURE_SPEECH_KEY: "${AZURE_SPEECH_KEY:-}"
+      AZURE_SPEECH_REGION: "${AZURE_SPEECH_REGION:-}"
+      # Pinned for the container's verified caption timing. Host runs read these
+      # from .env; changing them changes narration pauses, so re-run the
+      # listening gate if you do.
       TTS_PAUSE_COMPRESSION: "true"
       TTS_SENTENCE_PAUSE_MS: "150"
-      AZURE_SPEECH_KEY: ""
-      AZURE_SPEECH_REGION: ""
     ports:
       - "8000:8000"
     volumes:
@@ -169,7 +211,10 @@ services:
       PORT: 3002
       DATABASE_URL: postgresql://faceless:faceless@postgres:5432/faceless
       PGBOSS_SCHEMA: pgboss
-      PUBLIC_BASE_URL: http://localhost:3001
+      # The MCP server forwards tool calls to the api over the compose network.
+      # `localhost` here would be the mcp container itself, so every tool call
+      # would fail with ECONNREFUSED.
+      API_BASE_URL: http://api:3001
     ports:
       - "3002:3002"
     depends_on:
@@ -177,6 +222,12 @@ services:
         condition: service_healthy
       api:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:3002/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
 
   # Web Frontend
   web:

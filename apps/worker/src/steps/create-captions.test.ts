@@ -159,7 +159,18 @@ function harness(
     observe,
     transaction,
   };
-  return { context, tx, transactionCalls, advance, charge, events, observe };
+  return {
+    context,
+    tx,
+    transactionCalls,
+    advance,
+    charge,
+    events,
+    observe,
+    mockUpdate,
+    mockSet,
+    mockWhere,
+  };
 }
 
 interface DepsOptions {
@@ -356,11 +367,37 @@ describe('createCreateCaptionsWork', () => {
     expect(advance).toHaveBeenCalledOnce();
   });
 
+  it('defaults and persists render for an artwork-only video when render is omitted', async () => {
+    const events: string[] = [];
+    const row = video({ artStyleId: STYLE_ID, script: SCRIPT, captions: false });
+    const { work, persist } = deps({ events });
+    const { context, advance, charge, mockUpdate, mockSet } = harness(row, events);
+
+    await work(context);
+
+    expect(events).toEqual(['transaction', 'advance']);
+    expect(persist).not.toHaveBeenCalled();
+    expect(charge).not.toHaveBeenCalled();
+    expect(advance).toHaveBeenCalledOnce();
+    // Without this write-back the render step fails with
+    // "render was enqueued for a video with no render request".
+    expect(mockUpdate).toHaveBeenCalledOnce();
+    expect(mockSet).toHaveBeenCalledWith({
+      request: {
+        kind: 'ai-video-v3',
+        body: {
+          ...row.request.body,
+          render: { resolution: 1080, frameRate: 30, format: 'standard' },
+        },
+      },
+    });
+  });
+
   it('captions a V3 video and advances to render with defaults when render omitted', async () => {
     const events: string[] = [];
     const row = video({ artStyleId: STYLE_ID, script: SCRIPT, captions: true });
     const { work, complete } = deps({ events, foundTemplate: { ...template, id: -1 } });
-    const { context, advance, charge } = harness(row, events);
+    const { context, advance, charge, mockUpdate, mockSet } = harness(row, events);
 
     await work(context);
 
@@ -368,6 +405,17 @@ describe('createCreateCaptionsWork', () => {
     expect(charge).toHaveBeenCalledOnce();
     expect(complete).not.toHaveBeenCalled();
     expect(advance).toHaveBeenCalledOnce();
+    // The defaulted render must be written back, or the render step cannot find it.
+    expect(mockUpdate).toHaveBeenCalledOnce();
+    expect(mockSet).toHaveBeenCalledWith({
+      request: {
+        kind: 'ai-video-v3',
+        body: {
+          ...row.request.body,
+          render: { resolution: 1080, frameRate: 30, format: 'standard' },
+        },
+      },
+    });
   });
 
   it.each([

@@ -6,8 +6,15 @@ Running it, keeping it cheap, and knowing what broke.
 
 ## 1. Local run
 
+For the copy-paste version of this section — start, stop, reset, URLs, first key — see
+[START-HERE.md](../START-HERE.md). Host development:
+
 ```bash
 cp .env.example .env
+# Host dev serves the studio at :3000; compose serves it at :3003. PUBLIC_BASE_URL
+# is the origin a browser opens, so it must match the studio you are running.
+sed -i 's|PUBLIC_BASE_URL=.*|PUBLIC_BASE_URL=http://localhost:3000|' .env
+
 docker compose up -d postgres
 npm install
 npm run db:migrate
@@ -94,21 +101,56 @@ or a custom node. Keep plain HTTP on loopback/private networks; use HTTPS across
 One command builds and starts everything (Postgres, media, api, worker, render, mcp, web):
 
 ```bash
-docker compose up -d --build
-docker compose ps                      # every service must be (healthy)
+npm run up                             # docker compose up -d --build
+npm run status                         # docker compose ps — every service (healthy)
 curl localhost:3001/health             # {"status":"ok","db":"ok","queue":"ok"}
 curl localhost:3003/health             # web + nginx proxy
 ```
+
+| Task | Command | Same as |
+|---|---|---|
+| start / rebuild changed code | `npm run up` | `docker compose up -d --build` |
+| start one service | `npm run up -- worker` | `docker compose up -d --build worker` |
+| stop, keep the database and renders | `npm run down` | `docker compose down` |
+| stop and delete database + renders | `npm run reset` | `docker compose down -v` |
+| status | `npm run status` | `docker compose ps` |
+| follow all logs | `npm run logs` | `docker compose logs -f --tail=100` |
+| follow one service | `docker compose logs -f worker render` | |
+| mint an API key | `npm run key -- --name "local"` | `docker compose exec -T api …create-api-key.ts` |
+
+`npm run up` rebuilds only what changed; the Docker layer cache makes a no-change restart take a
+few seconds. Editing `.env` does **not** need a rebuild — `docker compose up -d` recreates the
+affected containers with the new values.
 
 | Service | Host port | What it is |
 |---|---|---|
 | `postgres` | 5433 → 5432 | dev database (host port 5433 so a local Postgres on 5432 keeps working) |
 | `media` | 8000 | FastAPI TTS/ASR service |
 | `api` | 3001 | Hono API (`/v1`, `/files`, `/health`) |
-| `worker` | — (9090 health) | consumes the five pipeline steps |
-| `render` | — (9091 health) | dedicated render consumer (`RENDER_SERVICE=true`) |
+| `worker` | — (9090 health) | pipeline steps + webhook delivery (`RENDER_SERVICE=worker`) |
+| `render` | — (9091 health) | dedicated render consumer (`RENDER_SERVICE=true` → render only) |
 | `mcp` | 3002 | MCP server |
 | `web` | 3003 → 80 | nginx-served SPA; proxies `/v1/*` and `/files/*` to `api` |
+
+Open the studio at **<http://localhost:3003>**. `PUBLIC_BASE_URL` must be that same origin, because
+it is used for `editorUrl` and for the absolute `videoUrl`; the api's `:3001` also answers requests,
+but it does not serve the editor. `docker-compose.yml` defaults it to `http://localhost:3003`.
+
+**The compose stack reads the repo-root `.env`.** `docker-compose.yml` interpolates the optional
+provider credentials (`CLOUDFLARE_*`, `GROQ_API_KEY`, `GEMINI_API_KEY`, `POLLINATIONS_API_KEY`,
+`AZURE_SPEECH_*`), the engine chains (`PLANNER`, `IMAGE`, `STYLE`, `TTS`), `WEBHOOK_SECRET` and the
+rate limits, so editing `.env` and running `docker compose up -d` is enough — no rebuild. An empty
+credential means "skip that provider"; the chain still ends on a free adapter.
+
+**Ollama and ComfyUI run on the host, not in compose.** Inside a container `127.0.0.1` is the
+container, so compose points `OLLAMA_BASE_URL`/`COMFYUI_URL` at `host.docker.internal` (via
+`extra_hosts: host-gateway`). Override with `OLLAMA_BASE_URL_DOCKER`/`COMFYUI_URL_DOCKER` if the
+service runs on the compose network instead.
+
+**The `worker` and `render` split is real.** `RENDER_SERVICE` selects which queues a process
+consumes: unset = every step + webhooks (single-process dev), `worker` = pipeline steps + webhooks,
+`render`/`true` = the `render` step only. Both consuming every queue made two consumers race for
+each job and deliver every webhook twice.
 
 Mint the first key against the compose database, then use it through the web UI or the API. The
 container command needs no host `npm install`, which is what makes a fresh clone work:
@@ -157,7 +199,11 @@ docker compose start worker render api mcp
 
 ## 2. Storage
 
-| Mode | `STORAGE=disk` | `STORAGE=s3` |
+**Only the local disk backend is implemented.** Files live under `$DATA_DIR` (`./.data`) and the
+api serves them at `/files/*`. The `STORAGE=s3` mode and the `S3_*` variables are reserved for the
+S3/CDN backend; they are not read yet, so setting them changes nothing.
+
+| Mode | `STORAGE=disk` (implemented) | `STORAGE=s3` (reserved) |
 |---|---|---|
 | Where | `$DATA_DIR` (`./.data`) | any S3-compatible bucket (R2/MinIO/S3) |
 | Public URLs | api static route `/files/*` | CDN / bucket public prefix |
@@ -206,7 +252,7 @@ its visible provider watermark remains even when `nologo=true`.
 | Emoji renders as a box or is missing | `NotoEmoji-Variable.ttf` not in `fontsdir`, or a host font shadowed the inline `\fnNoto Emoji` | keep the bundled font in `packages/art/fonts/ttf/`; the emoji render test compares two glyphs, so identical tofu fails loudly |
 | Seam / click between voices | gap calibration or cross-fade length | re-run `sample:tts` and listen |
 | Webhook never arrives | `webhook_event` table | non-2xx or slow receiver; check `attempts`/`next_at` |
-| `402` in self-host | `PLAN=selfhost` not set | set it, or grant credits in the ledger |
+| `402` in self-host | `workspace.plan_id` is not `selfhost` | set the row to `selfhost`, or grant credits via `POST /v1/balance/topup`; there is no `PLAN` env var |
 | `404` for a video or style you know exists | the key belongs to a different workspace | use the owning workspace's key; cross-workspace ids are deliberately indistinguishable from missing ones |
 | `429 rate_limited` from `/v1` | `RATE_LIMIT_KEY_PER_MINUTE` / `RATE_LIMIT_WORKSPACE_PER_MINUTE` | wait for `Retry-After`; raise the limit for trusted automation, or split work across workspaces only when that is actually intended |
 | Render OOM at 4K | filter graph holding frames | raise `ffmpeg` memory, or render in scene chunks then concat |

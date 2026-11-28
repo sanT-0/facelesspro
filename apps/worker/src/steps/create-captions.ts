@@ -251,10 +251,9 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
 
     // If captions are disabled (V3 artwork-first opt-out), the stable step remains
     // in the cursor but produces no artifact and no zero-value charge.
-    // Persist the render field so the render step can find it (applies to both
-    // captioned and artwork-only videos).
     if (!withCaptions) {
       await ctx.transaction(async (tx) => {
+        // Persist the defaulted render field so the render step can find it.
         if (render !== undefined) {
           const updatedBody = { ...row.data.request.body, render };
           await tx.db
@@ -333,6 +332,15 @@ export function createCreateCaptionsWork(deps: CreateCaptionsWorkDeps = {}): Ste
         artifacts,
       });
       await tx.charge({ action: 'subtitles', units: 1, unitCost });
+
+      // Persist the defaulted render field so the render step can find it.
+      if (render !== undefined) {
+        const updatedBody = { ...row.data.request.body, render };
+        await tx.db
+          .update(videoTable)
+          .set({ request: { kind: row.data.kind, body: updatedBody } })
+          .where(eq(videoTable.id, ctx.videoId));
+      }
 
       if (render === undefined) {
         await complete(tx, ctx.videoId);

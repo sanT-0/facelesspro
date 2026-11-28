@@ -3,7 +3,9 @@
 Two front doors, one implementation. **Every MCP tool is one HTTP endpoint** with identical
 validation, identical cost, identical webhooks. If they ever diverge, the MCP layer is wrong.
 
-Base URL (self-host): `${PUBLIC_BASE_URL}` · default `http://127.0.0.1:3001`
+Base URL (self-host): `${PUBLIC_BASE_URL}` · default `http://localhost:3003` in the compose stack
+(the studio origin, which proxies `/v1/*` and `/files/*` to the api). Calling the api directly on
+`:3001` works for requests but returns links on `${PUBLIC_BASE_URL}`.
 Parity base URL shape: `/v1/...`
 
 ---

@@ -34,6 +34,8 @@ COPY packages/art/src packages/art/src
 # `BUNDLED_CAPTION_FONTS_URL` resolves to `packages/art/fonts/ttf/`
 # relative to the package, so the fonts must live there in the image too.
 COPY packages/art/fonts packages/art/fonts
+# `COMFYUI_WORKFLOW` defaults to `fixtures/workflows/...`, resolved from /app.
+COPY fixtures/workflows fixtures/workflows
 COPY apps/worker/src apps/worker/src
 
 # Build TypeScript
@@ -50,6 +52,7 @@ WORKDIR /app
 # Copy built artifacts
 COPY --from=base /app/node_modules ./node_modules
 COPY --from=base /app/packages ./packages
+COPY --from=base /app/fixtures ./fixtures
 COPY --from=base /app/apps/worker ./apps/worker
 
 
