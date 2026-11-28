@@ -36,6 +36,19 @@ export async function renderStudio(_params: Record<string, string>): Promise<HTM
           placeholder="Paste your script here (Tamil, English or Tanglish)…"
         ></textarea>
         <p class="text-muted mt-1">Exactly one of script or voiceover URL is required.</p>
+        <details class="mt-2">
+          <summary class="text-muted cursor-pointer">Production script format (Visual + Voiceover)</summary>
+          <pre class="text-xs mt-1 p-2 bg-muted/30 rounded overflow-auto">
+# TITLE
+
+### [0:00–0:30] SECTION HEADING
+
+**Visual:** What the camera sees. Drives image prompts.
+
+**Voiceover:**
+"Only this text is narrated. Markdown, quotes, emoji and end-screen CTA are removed."
+          </pre>
+        </details>
       </div>
 
       <div class="form-group">

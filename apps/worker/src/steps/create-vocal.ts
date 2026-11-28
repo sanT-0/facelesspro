@@ -25,7 +25,7 @@ import {
   videoRowSchema,
 } from '@facelesspro/contracts';
 import type { NarrationPlan, SceneRow } from '@facelesspro/contracts';
-import { buildNarrationPlan, normalizeScript, planToSegments, voicePitchPercent } from '@facelesspro/core';
+import { buildNarrationPlan, isEnglishOnly, normalizeScript, planToSegments, voicePitchPercent } from '@facelesspro/core';
 import type { NarrationSegment } from '@facelesspro/core';
 import { asset, narration, scene, video } from '@facelesspro/db';
 import type { Database } from '@facelesspro/db';
@@ -86,6 +86,8 @@ export interface CreateVocalWorkDeps {
   readonly tts: TtsPort;
   /** `TTS_PAIR`; used when the request omits `voiceId`. */
   readonly defaultPairId: string;
+  /** `TTS_PAIR_EN`; used when the script is English-only and no voiceId. */
+  readonly englishPairId: string;
   readonly listScenes?: ListScenes;
   readonly storeNarration?: StoreNarration;
   readonly persistNarration?: PersistNarration;
@@ -142,9 +144,10 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
           'stored V3 request has neither a script nor a voiceover',
         );
       }
+      const v3PairId = request.data.voiceId ?? (isEnglishOnly(script) ? deps.englishPairId : deps.defaultPairId);
       await narrate(ctx, {
         script,
-        pairId: request.data.voiceId ?? deps.defaultPairId,
+        pairId: v3PairId,
         workspaceId: row.data.workspace_id,
         revocal: row.data.revocal ?? null,
         scenes: loadScenes,
@@ -160,9 +163,10 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
           cause: request.error,
         });
       }
+      const v2PairId = request.data.voiceId ?? (isEnglishOnly(request.data.script) ? deps.englishPairId : deps.defaultPairId);
       await narrate(ctx, {
         script: request.data.script,
-        pairId: request.data.voiceId ?? deps.defaultPairId,
+        pairId: v2PairId,
         workspaceId: row.data.workspace_id,
         revocal: row.data.revocal ?? null,
         scenes: loadScenes,
@@ -182,9 +186,10 @@ export function createCreateVocalWork(deps: CreateVocalWorkDeps): StepBody {
       // the stored scenes do not reconstruct this exact script.
       const script = buildQuizScript(request.data.items, request.data.answerTemplate);
 
+      const quizPairId = request.data.voiceId ?? (isEnglishOnly(script) ? deps.englishPairId : deps.defaultPairId);
       await narrate(ctx, {
         script,
-        pairId: request.data.voiceId ?? deps.defaultPairId,
+        pairId: quizPairId,
         workspaceId: row.data.workspace_id,
         revocal: row.data.revocal ?? null,
         scenes: loadScenes,

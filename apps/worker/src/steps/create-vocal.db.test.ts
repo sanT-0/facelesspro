@@ -275,6 +275,7 @@ describe('create-vocal step (Postgres)', () => {
       boss,
       tts: tts.port,
       defaultPairId: 'valluvar',
+      englishPairId: 'andrew',
     });
     const job = { jobId: 'manual-create-vocal', videoId, step: 'create-vocal' as const };
 
@@ -422,6 +423,7 @@ describe('create-vocal step (Postgres)', () => {
       boss,
       tts: tts.port,
       defaultPairId: 'valluvar',
+      englishPairId: 'andrew',
     });
     const job = { jobId: 'manual-create-vocal', videoId, step: 'create-vocal' as const };
 

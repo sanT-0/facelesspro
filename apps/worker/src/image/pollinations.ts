@@ -29,7 +29,7 @@ export const POLLINATIONS_IMAGE_CAPABILITIES: ImageCapabilities =
   });
 
 export interface PollinationsImageOptions {
-  readonly apiKey: string;
+  readonly apiKey?: string;
   readonly baseUrl?: string;
   readonly model?: string;
   readonly timeoutMs?: number;
@@ -75,11 +75,9 @@ export function pollinationsImageOptionsFromEnv(
   env: Record<string, string | undefined> = process.env,
 ): PollinationsImageOptions {
   const apiKey = env.POLLINATIONS_API_KEY?.trim();
-  if (!apiKey) {
-    throw new Error('pollinations image is not configured: missing POLLINATIONS_API_KEY');
-  }
+  // Pollinations works without API key (rate limited); key is optional
   return {
-    apiKey,
+    apiKey: apiKey || undefined,
     baseUrl: normalizeBaseUrl(
       env.POLLINATIONS_BASE_URL?.trim() || DEFAULT_POLLINATIONS_BASE_URL,
     ),
@@ -253,8 +251,7 @@ export function createPollinationsImageAdapter(
     options.maxResponseBytes ?? MAX_POLLINATIONS_IMAGE_BYTES,
     'Pollinations response byte limit',
   );
-  const apiKey = options.apiKey.trim();
-  if (apiKey.length === 0) throw new TypeError('Pollinations API key must not be empty');
+  const apiKey = options.apiKey?.trim();
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;
   const normalize = options.normalize ?? normalizeImageToPng;
 
@@ -265,8 +262,10 @@ export function createPollinationsImageAdapter(
       const request = imageGenerationRequestSchema.parse(input);
       const headers: Record<string, string> = {
         Accept: 'image/jpeg, image/png, image/webp',
-        Authorization: `Bearer ${apiKey}`,
       };
+      if (apiKey && apiKey.length > 0) {
+        headers.Authorization = `Bearer ${apiKey}`;
+      }
 
       const providerBytes = await providerImage(
         imageUrl(baseUrl, model, request),

@@ -21,6 +21,7 @@ import { estimateDuration } from '@facelesspro/core';
 import { withWorkspace } from './auth';
 import type { AuthDeps, WorkspaceEnv } from './auth';
 import type { SubmitVideo } from './video-submit';
+import { normaliseV3Request } from './production-script';
 
 export type { SubmitVideo, SubmitVideoInput } from './video-submit';
 
@@ -80,7 +81,18 @@ export function createAiVideosV3Routes(
     const body = parsed.data;
     const workspaceId = c.get('workspaceId');
 
-    // 3. Resolve the art style: visible to this workspace, ready, supports size.
+    // 3. Normalise production script → narration + visualSections.
+    let normalised: ReturnType<typeof normaliseV3Request>;
+    try {
+      normalised = normaliseV3Request(body);
+    } catch (error) {
+      return c.json(
+        apiError('invalid_request', error instanceof Error ? error.message : 'invalid production script'),
+        400,
+      );
+    }
+
+    // 4. Resolve the art style: visible to this workspace, ready, supports size.
     const style = await deps.readArtStyle(workspaceId, body.artStyleId);
     if (style === null) {
       return c.json(apiError('not_found', 'art style not found'), 404);
@@ -103,7 +115,7 @@ export function createAiVideosV3Routes(
     }
 
     // 5. A wordless script has nothing to narrate.
-    if (body.script !== undefined && estimateDuration(body.script).words === 0) {
+    if (normalised.script !== undefined && estimateDuration(normalised.script).words === 0) {
       return c.json(
         apiError('invalid_request', 'script contains no words to speak', 'script'),
         400,
@@ -117,6 +129,8 @@ export function createAiVideosV3Routes(
         kind: 'ai-video-v3',
         body: {
           ...body,
+          script: normalised.script,
+          visualSections: normalised.visualSections,
           captionTemplateId: body.captionTemplateId ?? -1,
         },
       },

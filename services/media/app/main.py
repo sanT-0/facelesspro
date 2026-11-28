@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import json
 import math
 import uuid
@@ -34,6 +35,13 @@ from .models import (
 )
 from .stitch import Stitcher
 from .tts import TTSEngine, TTSError, build_tts_engine
+
+# edge-tts can raise this when the service returns no audio (temporary network issues)
+try:
+    from edge_tts.exceptions import NoAudioReceived
+except ImportError:
+    class NoAudioReceived(Exception):
+        pass
 from .voices import (
     DEFAULT_PAIR_ID,
     UnknownPairError,
@@ -164,12 +172,21 @@ def create_app(
         boundaries: list[str] = []
 
         for index, segment in enumerate(request.segments):
+            if index > 0:
+                # Small delay between segments to avoid edge-tts rate limits
+                await asyncio.sleep(0.3)
             try:
                 synthesis = await app.state.engine.synthesize(
                     segment.text, segment.voice, pitch_percent=request.pitch_percent
                 )
             except TTSError as exc:
                 raise HTTPException(status_code=502, detail=str(exc)) from exc
+            except NoAudioReceived as exc:
+                # edge-tts temporary failure - retryable
+                raise HTTPException(
+                    status_code=502,
+                    detail="tts provider failed: NoAudioReceived (retryable)",
+                ) from exc
             except Exception as exc:
                 raise HTTPException(
                     status_code=502,

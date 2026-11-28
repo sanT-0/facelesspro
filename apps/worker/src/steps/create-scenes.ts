@@ -43,8 +43,8 @@ import type {
 import { eq } from 'drizzle-orm';
 import { writeFile } from 'node:fs/promises';
 
-import { buildFixedPlan, imagePromptFor, MOTION_CYCLE } from '../planner/heuristic';
-import type { FixedSceneSpan } from '../planner/heuristic';
+import { buildFixedPlan, buildSectionPlan, imagePromptFor, MOTION_CYCLE } from '../planner/heuristic';
+import type { FixedSceneSpan, VisualSection } from '../planner/heuristic';
 import type { PlanFn, PlanStyle } from '../ports/planner';
 import { AsrPortError } from '../ports/asr';
 import type { AsrPort, AsrTranscription } from '../ports/asr';
@@ -124,6 +124,7 @@ export function planStyleFromProfile(profile: StyleProfile): PlanStyle {
   const negative = withRequiredNegatives(profile.negative);
 
   return {
+    medium: profile.medium,
     prefix: profile.promptPrefix,
     suffix: [
       `palette ${profile.palette.hex.join(' ')}`,
@@ -149,6 +150,8 @@ interface NormalizedSceneRequest {
   readonly plannedScenes?: readonly PlannedScene[];
   /** Internal: fake-text scene data for create-images/create-vocal. */
   readonly _fakeTextScenes?: unknown;
+  /** Production script sections with visual direction for image prompts. */
+  readonly visualSections?: readonly { text: string; visual: string }[];
 }
 
 /** A pre-planned scene (used by fake-text). */
@@ -248,6 +251,9 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
         size: request.data.size,
         style: planStyleFromProfile(parsedProfile.data),
         strongSwipe: false,
+        ...(request.data.visualSections === undefined
+          ? {}
+          : { visualSections: request.data.visualSections }),
       };
     } else if (row.data.kind === 'ai-video' && row.data.request.kind === 'ai-video') {
       const request = createAiVideoRequestSchema.safeParse(row.data.request.body);
@@ -536,7 +542,34 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
 
     let candidate: ScenePlan;
     try {
-      candidate = await deps.planner.plan({ script, style });
+      if (normalized.visualSections !== undefined && normalized.visualSections.length > 0) {
+        // Production script path: build plan per section with visual cues.
+        const sections: readonly VisualSection[] = normalized.visualSections.map((vs) => ({
+          text: vs.text,
+          visual: vs.visual,
+        }));
+        candidate = buildSectionPlan(sections, {
+          minSeconds: 8,
+          maxSeconds: 20,
+          maxScenes: MAX_SCENES,
+          rates: { ta: 130, en: 150, mixed: 140 },
+          sentencePauseSeconds: 1.0,
+          style: normalized.style,
+        });
+        // Verify the section plan reconstructs the script.
+        const reconstructed = normalizeScript(
+          candidate.scenes.map((planned) => planned.text).join(' '),
+        );
+        if (reconstructed !== normalizeScript(script)) {
+          throw new StepFailure(
+            'upstream_failed',
+            'section plan scene text does not reconstruct the normalized script',
+          );
+        }
+      } else {
+        // Standard path: use the planner chain.
+        candidate = await deps.planner.plan({ script, style });
+      }
     } catch (error) {
       if (error instanceof PlannerChainError) {
         throw new StepFailure('upstream_failed', error.message, {
@@ -554,14 +587,17 @@ export function createCreateScenesWork(deps: CreateScenesWorkDeps): StepBody {
       });
     }
     const plan = applyV2Transition(parsedPlan.data, normalized.strongSwipe);
-    const reconstructed = normalizeScript(
-      plan.scenes.map((planned) => planned.text).join(' '),
-    );
-    if (reconstructed !== normalizeScript(script)) {
-      throw new StepFailure(
-        'upstream_failed',
-        'planner scene text does not reconstruct the normalized script',
+    // Reconstruction check already done for section plan; for planner path it's validated above.
+    if (normalized.visualSections === undefined || normalized.visualSections.length === 0) {
+      const reconstructed = normalizeScript(
+        plan.scenes.map((planned) => planned.text).join(' '),
       );
+      if (reconstructed !== normalizeScript(script)) {
+        throw new StepFailure(
+          'upstream_failed',
+          'planner scene text does not reconstruct the normalized script',
+        );
+      }
     }
 
     ctx.observe({

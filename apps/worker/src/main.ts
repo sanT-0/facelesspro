@@ -102,6 +102,7 @@ async function main(): Promise<void> {
         synthesisTimeoutMs: envNumber(process.env.MEDIA_TTS_TIMEOUT_MS),
       }),
       defaultPairId: process.env.TTS_PAIR?.trim() || 'valluvar',
+      englishPairId: process.env.TTS_PAIR_EN?.trim() || 'andrew',
       ttsUnitCost: envNumber(process.env.TTS_UNIT_COST) ?? 0,
     });
     steps['create-images'] = createCreateImagesHandler({

@@ -118,8 +118,8 @@ export function checkVideoLimits(
   const { plan, currentUsage } = ctx;
   const violations: LimitViolation[] = [];
 
-  // Max video minutes
-  if (request.estimatedMinutes > plan.maxVideoMinutes) {
+  // Max video minutes (null = unlimited)
+  if (plan.maxVideoMinutes !== null && request.estimatedMinutes > plan.maxVideoMinutes) {
     violations.push({
       kind: 'max_video_minutes',
       message: `video exceeds plan maximum of ${plan.maxVideoMinutes} minutes`,
@@ -249,12 +249,12 @@ export class LimitExceededError extends Error {
   }
 }
 
-/** Unit costs per step action (docs/01 §8 table). */
+/** Unit costs per step action — zero for personal/self-host use. */
 export const UNIT_COSTS: Record<string, { readonly units: number; readonly unitCost: number }> = {
-  'create-scenes': { units: 1, unitCost: 1 },
-  'create-vocal': { units: 1, unitCost: 2 }, // per narration segment
-  'create-images': { units: 1, unitCost: 4 }, // per generated image
-  'create-captions': { units: 1, unitCost: 1 },
-  'render': { units: 1, unitCost: 10 },
-  'build-art-style': { units: 1, unitCost: 50 },
+  'create-scenes': { units: 1, unitCost: 0 },
+  'create-vocal': { units: 1, unitCost: 0 },
+  'create-images': { units: 1, unitCost: 0 },
+  'create-captions': { units: 1, unitCost: 0 },
+  'render': { units: 1, unitCost: 0 },
+  'build-art-style': { units: 1, unitCost: 0 },
 } as const;

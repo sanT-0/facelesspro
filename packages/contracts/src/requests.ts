@@ -147,6 +147,13 @@ export const captionVideoUrlSchema = httpsUrlSchema.refine(
 
 // --- §3.1 AI Video V3 -------------------------------------------------------
 
+const visualSectionSchema = z.strictObject({
+  /** The spoken narration for this section. */
+  text: z.string().min(1),
+  /** Visual direction for image generation. */
+  visual: z.string().min(1),
+});
+
 const v3Base = {
   artStyleId: z.uuid(),
   script: z.string().min(1).max(MAX_V3_LANDSCAPE_CHARS).optional(),
@@ -164,6 +171,13 @@ const v3Base = {
   /** Optional music bed mixed under the narration (docs/01 §7). */
   music: musicSchema.optional(),
   webhookUrl: webhookUrlSchema.optional(),
+  /**
+   * Optional pre-parsed production script sections. When present, `script`
+   * must be the joined narration text and each section's `text` must
+   * concatenate (space-separated) to reconstruct `script` after
+   * `normalizeScript()`.
+   */
+  visualSections: z.array(visualSectionSchema).max(MAX_SCENES).optional(),
 };
 
 export const createAiVideoV3RequestSchema = z
@@ -186,6 +200,17 @@ export const createAiVideoV3RequestSchema = z
           code: 'custom',
           path: ['script'],
           message: `script must be at most ${limit} characters for ${value.size}`,
+        });
+      }
+    }
+    // Basic structural validation for visualSections; deep reconstruction
+    // check runs in the API with normalizeScript.
+    if (value.visualSections !== undefined && value.visualSections.length > 0) {
+      if (value.script === undefined) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['script'],
+          message: 'script is required when visualSections is provided',
         });
       }
     }

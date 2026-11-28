@@ -14,14 +14,14 @@ import { creditLedger, workspace } from './schema';
 import { planFor } from './plans';
 import type { CreditAction } from '@facelesspro/contracts';
 
-/** Unit costs per step action (docs/01 §8 table). */
+/** Unit costs per step action — zero for personal/self-host use. */
 export const UNIT_COSTS: Record<string, { readonly units: number; readonly unitCost: number }> = {
-  'create-scenes': { units: 1, unitCost: 1 },
-  'create-vocal': { units: 1, unitCost: 2 },
-  'create-images': { units: 1, unitCost: 4 },
-  'create-captions': { units: 1, unitCost: 1 },
-  'render': { units: 1, unitCost: 10 },
-  'build-art-style': { units: 1, unitCost: 50 },
+  'create-scenes': { units: 1, unitCost: 0 },
+  'create-vocal': { units: 1, unitCost: 0 },
+  'create-images': { units: 1, unitCost: 0 },
+  'create-captions': { units: 1, unitCost: 0 },
+  'render': { units: 1, unitCost: 0 },
+  'build-art-style': { units: 1, unitCost: 0 },
 } as const;
 
 export interface ChargeInput {

@@ -539,7 +539,7 @@ export const planSchema = z.strictObject({
   id: planIdSchema,
   minutesPerMonth: z.number().min(0).nullable(),
   creditsPerMonth: z.number().min(0).nullable(),
-  maxVideoMinutes: z.number().min(0),
+  maxVideoMinutes: z.number().min(0).nullable(),
   maxResolution: resolutionSchema,
   seats: z.int().min(1),
 });

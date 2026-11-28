@@ -505,6 +505,7 @@ describe('kill-and-resume across a committed step (Postgres)', () => {
       boss,
       tts: fakeTts(),
       defaultPairId: PAIR.id,
+      englishPairId: 'andrew',
       ttsUnitCost: TTS_UNIT_COST,
     });
     const images = createCreateImagesHandler({

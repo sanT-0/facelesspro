@@ -10,11 +10,15 @@
  * Pure function over `unknown`: the handler parses JSON defensively and calls
  * this. A request that parses but cannot be planned (blank, wordless, or over
  * the size ceiling) is `400 invalid_request` naming `script`.
+ *
+ * Also accepts a production script (headings, `**Visual:**`, `**Voiceover:**`)
+ * and plans only the narration text.
  */
 
 import { type PlanVideoResponse, planVideoRequestSchema, planVideoResponseSchema } from '@facelesspro/contracts';
 import { apiError } from '@facelesspro/contracts';
 import { EmptyScriptError, estimateScenePlan } from '@facelesspro/core';
+import { parseProductionScript } from '@facelesspro/core';
 
 export function planVideo(input: unknown): {
   status: 200;
@@ -39,9 +43,14 @@ export function planVideo(input: unknown): {
     };
   }
 
+  // Try to parse as a production script first.
+  const script = parsed.data.script;
+  const production = parseProductionScript(script);
+  const narration = production !== null ? production.narration : script;
+
   let plan;
   try {
-    plan = estimateScenePlan(parsed.data.script, {
+    plan = estimateScenePlan(narration, {
       rates: { ta: 130, en: 150, mixed: 140 },
     });
   } catch (error) {

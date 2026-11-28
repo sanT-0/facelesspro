@@ -18,6 +18,8 @@ export type { PlannerAdapter } from '@facelesspro/contracts';
 
 /** Art-style clauses injected into every image prompt (P3 fills these in). */
 export interface PlanStyle {
+  /** The art style medium, e.g. "cinematic live action", "anime illustration", "clean vector illustration". */
+  medium?: string;
   /** Prepended: medium/composition, e.g. "flat vector illustration, wide shot". */
   prefix?: string;
   /** Appended: palette and line clauses. */

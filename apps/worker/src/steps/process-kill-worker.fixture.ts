@@ -155,6 +155,7 @@ async function main(): Promise<void> {
         boss,
         tts: fakeTts(audio, durationMs, mode === 'hang'),
         defaultPairId: PAIR.id,
+        englishPairId: 'andrew',
         ttsUnitCost: 1,
       }),
       'create-images': createCreateImagesHandler({

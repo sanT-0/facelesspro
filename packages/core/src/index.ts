@@ -1,5 +1,5 @@
 export type { Lang, Lexicon, OverrideSpan, ScriptKind, SegmentOptions, TextRun } from './types';
-export { segmentText, DEFAULT_TANGLISH } from './segmenter';
+export { segmentText, DEFAULT_TANGLISH, isEnglishOnly } from './segmenter';
 export {
   DEFAULT_LEXICON,
   TANGLISH_DATA,
@@ -51,6 +51,8 @@ export type {
 export { SAMPLE_ROOT, sampleSetDir } from './samples';
 export { normalizeScript, splitSentences } from './sentences';
 export type { Sentence } from './sentences';
+export { parseProductionScript } from './production-script';
+export type { ProductionScript, ProductionSection } from './production-script';
 export { buildCaptionCues, clusterCount, readableCueText } from './captions';
 export type {
   CaptionCue,

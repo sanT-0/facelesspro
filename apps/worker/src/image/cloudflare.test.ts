@@ -127,7 +127,7 @@ describe('createCloudflareImageAdapter', () => {
       `https://api.cloudflare.com/client/v4/accounts/acct-1/ai/run/${DEFAULT_CLOUDFLARE_IMAGE_MODEL}`,
     );
     expect((init.headers as Record<string, string>).Authorization).toBe('Bearer token-1');
-    expect(JSON.parse(String(init.body))).toEqual({ prompt: request.prompt, seed: 42, steps: 4 });
+    expect(JSON.parse(String(init.body))).toEqual({ prompt: `${request.prompt} --seed ${request.seed}`, steps: 4 });
   });
 
   it('normalizes portrait output to the portrait native size', async () => {

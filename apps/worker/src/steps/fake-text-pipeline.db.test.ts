@@ -312,6 +312,7 @@ describe('Fake Text Video full pipeline (Postgres + ffmpeg)', () => {
       boss,
       tts: ttsFor(live),
       defaultPairId: PAIR.id,
+      englishPairId: 'andrew',
       ttsUnitCost: TTS_UNIT_COST,
     });
     const images = createCreateImagesHandler({

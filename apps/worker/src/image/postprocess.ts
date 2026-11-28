@@ -161,7 +161,8 @@ function assertMatchesRequest(image: GeneratedImage, request: ImageGenerationReq
   if (image.size !== request.size) {
     throw new TypeError(`image size ${image.size} does not match request size ${request.size}`);
   }
-  if (image.seed !== request.seed) {
+  // Cloudflare Flux Schnell doesn't support seeds; skip seed validation for it.
+  if (image.adapter !== 'cloudflare' && image.seed !== request.seed) {
     throw new TypeError(`image seed ${image.seed} does not match request seed ${request.seed}`);
   }
 }

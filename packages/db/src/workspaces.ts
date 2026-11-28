@@ -21,7 +21,7 @@ export interface WorkspaceWithOwner {
     readonly id: string;
     readonly minutesPerMonth: number | null;
     readonly creditsPerMonth: number | null;
-    readonly maxVideoMinutes: number;
+    readonly maxVideoMinutes: number | null;
     readonly maxResolution: 1080 | 1440 | 2160;
     readonly seats: number;
   };

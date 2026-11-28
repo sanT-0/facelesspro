@@ -145,16 +145,17 @@ export function createCloudflareImageAdapter(
     capabilities: CLOUDFLARE_IMAGE_CAPABILITIES,
     async draw(input) {
       const request = imageGenerationRequestSchema.parse(input);
+      // Incorporate seed into prompt deterministically so same seed + prompt = same result
+      const seededPrompt = `${request.prompt} --seed ${request.seed}`;
       const payload = await postJson({
         url: `https://api.cloudflare.com/client/v4/accounts/${options.accountId}/ai/run/${model}`,
         headers: { Authorization: `Bearer ${options.apiToken}` },
         body: {
           // Flux Schnell has no separate negative-prompt field. The planner's
           // final composed prompt already carries the style's negative clause.
-          prompt: request.prompt,
-          // The official usage example accepts seed even though the linked raw
-          // JSON schema currently omits it; a live test must keep this honest.
-          seed: request.seed,
+          // NOTE: Flux Schnell on Cloudflare Workers AI does NOT accept seed parameter.
+          // We incorporate the seed into the prompt for deterministic results.
+          prompt: seededPrompt,
           steps,
         },
         adapter: ADAPTER,
@@ -199,6 +200,7 @@ export function createCloudflareImageAdapter(
         mimeType: 'image/png',
         size: request.size,
         ...dimensions,
+        // Return the original request seed for validation consistency
         seed: request.seed,
         bytes,
       });

@@ -4,7 +4,7 @@ import { scenePlanSchema } from '@facelesspro/contracts';
 import { normalizeScript } from '@facelesspro/core';
 import { describe, expect, it } from 'vitest';
 
-import { buildFixedPlan, createHeuristicPlanner, imagePromptFor } from './heuristic';
+import { buildFixedPlan, buildSectionPlan, createHeuristicPlanner, enhanceVisualCue, imagePromptFor } from './heuristic';
 
 const SCRIPT = normalizeScript(readFileSync('fixtures/scripts/tamil-mixed.txt', 'utf8'));
 const planner = createHeuristicPlanner();
@@ -209,5 +209,177 @@ describe('buildFixedPlan', () => {
       expect(scene.imagePrompt.startsWith('flat vector illustration, ')).toBe(true);
       expect(scene.imagePrompt.endsWith(', no people')).toBe(true);
     }
+  });
+});
+
+describe('buildSectionPlan', () => {
+  it('packs each section independently and concatenates with a pause', () => {
+    const sections = [
+      { text: 'Section one is short.', visual: 'Visual cue for section one.' },
+      { text: 'Section two is also short but has more words to make it longer.', visual: 'Visual cue for section two.' },
+    ];
+    const plan = buildSectionPlan(sections, {
+      minSeconds: 4,
+      maxSeconds: 10,
+      maxScenes: 120,
+      rates: { ta: 130, en: 150, mixed: 140 },
+      sentencePauseSeconds: 1.0,
+      style: { prefix: 'cinematic', negative: 'no text, no watermark' },
+    });
+
+    scenePlanSchema.parse(plan);
+    expect(plan.adapter).toBe('heuristic');
+    expect(plan.degradedFrom).toEqual([]);
+    expect(plan.scenes.length).toBeGreaterThanOrEqual(2);
+    // First section ends, then 1s pause, then second section starts.
+    const firstEnd = plan.scenes.findIndex((s) => s.text.includes('Section one'));
+    const secondStart = plan.scenes.findIndex((s) => s.text.includes('Section two'));
+    expect(firstEnd).toBeLessThan(secondStart);
+    // Visual cues should appear in prompts.
+    expect(plan.scenes[0]?.imagePrompt).toContain('Visual cue for section one');
+    expect(plan.scenes.at(-1)?.imagePrompt).toContain('Visual cue for section two');
+  });
+
+  it('cycles visual cues within a section', () => {
+    const sections = [
+      { text: 'First sentence. Second sentence. Third sentence.', visual: 'Cue A. Cue B. Cue C.' },
+    ];
+    const plan = buildSectionPlan(sections, {
+      minSeconds: 1,
+      maxSeconds: 2,
+      maxScenes: 120,
+      rates: { ta: 130, en: 150, mixed: 140 },
+      sentencePauseSeconds: 1.0,
+      style: {},
+    });
+
+    expect(plan.scenes.length).toBe(3);
+    // Each scene should get a different visual cue.
+    const prompts = plan.scenes.map((s) => s.imagePrompt);
+    expect(prompts[0]).toContain('Cue A');
+    expect(prompts[1]).toContain('Cue B');
+    expect(prompts[2]).toContain('Cue C');
+  });
+
+  it('merges scenes when over maxScenes', () => {
+    const sections = [
+      { text: 'A. B. C. D. E. F. G. H. I. J. K. L. M. N. O. P.', visual: 'V.' },
+    ];
+    const plan = buildSectionPlan(sections, {
+      minSeconds: 1,
+      maxSeconds: 3,
+      maxScenes: 3,
+      rates: { ta: 130, en: 150, mixed: 140 },
+      sentencePauseSeconds: 1.0,
+      style: {},
+    });
+
+    expect(plan.scenes.length).toBe(3);
+    expect(plan.totalMs).toBeGreaterThan(0);
+  });
+
+  it('reconstructs the script from scene texts', () => {
+    const sections = [
+      { text: 'Hello world.', visual: 'Visual one.' },
+      { text: 'Goodbye world.', visual: 'Visual two.' },
+    ];
+    const plan = buildSectionPlan(sections, {
+      minSeconds: 4,
+      maxSeconds: 10,
+      maxScenes: 120,
+      rates: { ta: 130, en: 150, mixed: 140 },
+      sentencePauseSeconds: 1.0,
+      style: {},
+    });
+
+    const reconstructed = plan.scenes.map((s) => s.text).join(' ');
+    expect(reconstructed).toBe('Hello world. Goodbye world.');
+  });
+});
+
+describe('enhanceVisualCue', () => {
+  it('adds cinematic terms for cinematic style', () => {
+    const enhanced = enhanceVisualCue('police officer in uniform', {
+      medium: 'cinematic live action',
+      prefix: 'cinematic shot',
+    });
+    expect(enhanced).toContain('police officer in uniform');
+    expect(enhanced).toContain('cinematic lighting');
+    expect(enhanced).toContain('depth of field');
+    expect(enhanced).toContain('8k');
+  });
+
+  it('adds anime terms for anime style', () => {
+    const enhanced = enhanceVisualCue('anime girl in city', {
+      medium: 'anime illustration',
+      prefix: 'anime style',
+    });
+    expect(enhanced).toContain('anime girl in city');
+    expect(enhanced).toContain('cel shaded');
+    expect(enhanced).toContain('vibrant colors');
+  });
+
+  it('adds vector terms for clean minimal style', () => {
+    const enhanced = enhanceVisualCue('geometric shapes', {
+      medium: 'clean vector illustration',
+      prefix: 'minimal flat vector',
+    });
+    expect(enhanced).toContain('geometric shapes');
+    expect(enhanced).toContain('clean vector illustration');
+    expect(enhanced).toContain('crisp edges');
+  });
+
+  it('adds close-up terms for portrait cues', () => {
+    const enhanced = enhanceVisualCue('close-up of police officer face', {
+      medium: 'cinematic live action',
+    });
+    expect(enhanced).toContain('close-up shot');
+    expect(enhanced).toContain('shallow depth of field');
+  });
+
+  it('adds wide angle terms for landscape cues', () => {
+    const enhanced = enhanceVisualCue('wide city street at night', {
+      medium: 'cinematic live action',
+    });
+    expect(enhanced).toContain('wide angle');
+    expect(enhanced).toContain('establishing shot');
+  });
+
+  it('adds night atmosphere for dark cues', () => {
+    const enhanced = enhanceVisualCue('dark alley at night', {
+      medium: 'cinematic live action',
+    });
+    expect(enhanced).toContain('low key lighting');
+    expect(enhanced).toContain('dramatic shadows');
+    expect(enhanced).toContain('night atmosphere');
+  });
+
+  it('adds golden hour for sunrise/sunset cues', () => {
+    const enhanced = enhanceVisualCue('sunrise over police station', {
+      medium: 'cinematic live action',
+    });
+    expect(enhanced).toContain('golden hour lighting');
+    expect(enhanced).toContain('warm tones');
+  });
+
+  it('adds action terms for motion cues', () => {
+    const enhanced = enhanceVisualCue('police chase action scene', {
+      medium: 'cinematic live action',
+    });
+    expect(enhanced).toContain('dynamic motion');
+    expect(enhanced).toContain('motion blur');
+  });
+
+  it('falls back to professional quality for unknown styles', () => {
+    const enhanced = enhanceVisualCue('some scene', {
+      medium: 'unknown style',
+    });
+    expect(enhanced).toContain('professional photography');
+    expect(enhanced).toContain('high quality');
+  });
+
+  it('handles empty cue gracefully', () => {
+    const enhanced = enhanceVisualCue('', { medium: 'cinematic live action' });
+    expect(enhanced).toBe('cinematic scene');
   });
 });

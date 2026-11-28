@@ -3,6 +3,7 @@
 [![CI](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml/badge.svg?branch=development)](https://github.com/sanT-0/facelesspro/actions/workflows/ci.yml)
 [![Licence: MIT](https://img.shields.io/badge/licence-MIT-blue.svg)](./LICENSE)
 [![Node](https://img.shields.io/badge/node-%E2%89%A522-brightgreen.svg)](package.json)
+[![XERJ Corpus Hub contributor](https://hub.xerj.org/contributors/sanT-0/badge.svg)](https://hub.xerj.org/contributors/sanT-0)
 
 AI faceless video studio — script in, illustrated narrated video out, in a style cloned from
 a reference video. Built to run on free engines, with **Tamil + English code-mixed narration**

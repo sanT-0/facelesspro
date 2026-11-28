@@ -21,7 +21,8 @@ export interface PlanDef {
   readonly minutesPerMonth: number | null;
   /** `null` = unlimited (selfhost). Paid plans always carry a number. */
   readonly creditsPerMonth: number | null;
-  readonly maxVideoMinutes: number;
+  /** `null` = unlimited (selfhost). Paid plans always carry a number. */
+  readonly maxVideoMinutes: number | null;
   readonly maxResolution: 1080 | 1440 | 2160;
   readonly seats: number;
 }
@@ -75,8 +76,8 @@ export const PLAN_DEFINITIONS: readonly PlanDef[] = [
     id: 'selfhost',
     minutesPerMonth: null,
     creditsPerMonth: null,
-    maxVideoMinutes: 30,
-    maxResolution: 1080,
+    maxVideoMinutes: null,
+    maxResolution: 2160,
     seats: 1,
   },
 ];

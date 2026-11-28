@@ -263,6 +263,7 @@ function planner(result: ScenePlan = plan): PlanFn {
 describe('planStyleFromProfile', () => {
   it('maps the stored profile into deterministic planner clauses', () => {
     expect(planStyleFromProfile(profile)).toEqual({
+      medium: 'flat vector illustration',
       prefix: 'flat vector scene, thick clean outlines',
       suffix:
         'palette #14213d #fca311, line colour #14213d, simple geometric background, centred subject with generous safe area',

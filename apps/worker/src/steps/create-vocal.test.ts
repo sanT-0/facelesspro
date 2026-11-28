@@ -191,6 +191,7 @@ function deps(options: {
     mime: string;
   }>;
   defaultPairId?: string;
+  englishPairId?: string;
 }) {
   const tts = options.tts ?? fakeTts();
   const persist =
@@ -205,6 +206,7 @@ function deps(options: {
   const work = createCreateVocalWork({
     tts: tts.port,
     defaultPairId: options.defaultPairId ?? 'valluvar',
+    englishPairId: options.englishPairId ?? 'andrew',
     listScenes: async () =>
       options.scenes ?? [sceneRow(0, TAMIL, 0, 1_200), sceneRow(1, ENGLISH, 1_200, 2_400)],
     storeNarration: store,

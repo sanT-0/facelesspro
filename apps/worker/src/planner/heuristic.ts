@@ -191,3 +191,153 @@ function describe(text: string): string {
   }
   return words.join(' ');
 }
+
+/**
+ * Enhance a raw visual cue into a production-quality image prompt fragment.
+ * Adds cinematic/lighting/composition terms based on the art style medium.
+ */
+export function enhanceVisualCue(cue: string, style: PlanStyle = {}): string {
+  const medium = (style as PlanStyle & { medium?: string }).medium?.toLowerCase() ?? '';
+  const base = cue.trim();
+  if (base.length === 0) return 'cinematic scene';
+
+  const isCinematic = medium.includes('cinematic') || medium.includes('live action') || medium.includes('film');
+  const isAnime = medium.includes('anime') || medium.includes('cel');
+  const isVector = medium.includes('vector') || medium.includes('flat') || medium.includes('minimal');
+
+  // Core enhancement — always add quality terms
+  let enhanced = base;
+
+  // Lighting & atmosphere
+  if (isCinematic) {
+    enhanced += ', cinematic lighting, volumetric fog, depth of field, 8k, highly detailed';
+  } else if (isAnime) {
+    enhanced += ', cel shaded, vibrant colors, detailed linework, anime key visual quality';
+  } else if (isVector) {
+    enhanced += ', clean vector illustration, crisp edges, flat design, professional graphic design';
+  } else {
+    enhanced += ', professional photography, sharp focus, high quality';
+  }
+
+  // Camera & composition hints from cue content
+  const lower = base.toLowerCase();
+  if (lower.includes('close.up') || lower.includes('close up') || lower.includes('face') || lower.includes('portrait')) {
+    enhanced += ', close-up shot, shallow depth of field';
+  } else if (lower.includes('wide') || lower.includes('landscape') || lower.includes('street') || lower.includes('city') || lower.includes('building')) {
+    enhanced += ', wide angle, establishing shot, rule of thirds';
+  } else if (lower.includes('night') || lower.includes('dark') || lower.includes('shadow')) {
+    enhanced += ', low key lighting, dramatic shadows, night atmosphere';
+  } else if (lower.includes('sunrise') || lower.includes('sunset') || lower.includes('golden hour')) {
+    enhanced += ', golden hour lighting, warm tones, cinematic color grading';
+  } else if (lower.includes('action') || lower.includes('running') || lower.includes('chase') || lower.includes('fight')) {
+    enhanced += ', dynamic motion, motion blur, action shot';
+  }
+
+  return enhanced;
+}
+
+export interface VisualSection {
+  readonly text: string;
+  readonly visual: string;
+}
+
+/**
+ * Build a scene plan from pre-parsed visual sections.
+ *
+ * Each section's narration text is packed into scenes independently, then
+ * sections are concatenated with a sentence pause between them. Visual cues
+ * from each section's `visual` field are cycled into the image prompts so
+ * the generated images follow the production directions.
+ */
+export function buildSectionPlan(
+  sections: readonly VisualSection[],
+  options: {
+    minSeconds: number;
+    maxSeconds: number;
+    maxScenes: number;
+    rates: { ta: number; en: number; mixed: number };
+    sentencePauseSeconds: number;
+    style: PlanStyle;
+  },
+): ScenePlan {
+  if (sections.length === 0) {
+    throw new Error('buildSectionPlan needs at least one section');
+  }
+
+  const allScenes: PlannedScene[] = [];
+  let currentTimeMs = 0;
+
+  for (let sectionIndex = 0; sectionIndex < sections.length; sectionIndex++) {
+    const section = sections[sectionIndex]!;
+    const script = normalizeScript(section.text);
+
+    const drafts = packScenes(script, {
+      minSeconds: options.minSeconds,
+      maxSeconds: options.maxSeconds,
+      maxScenes: options.maxScenes,
+      rates: options.rates,
+      sentencePauseSeconds: options.sentencePauseSeconds,
+    });
+
+    // Split the section's visual direction into cues (by . ; ,)
+    const visualCues = section.visual
+      .split(/[.;,]/u)
+      .map((cue) => cue.trim())
+      .filter((cue) => cue.length > 0);
+
+    const sectionScenes: PlannedScene[] = drafts.map((draft, draftIndex) => {
+      const globalIndex = allScenes.length + draftIndex;
+      // Cycle through visual cues; fall back to the section's full visual.
+      const cue = visualCues[globalIndex % Math.max(1, visualCues.length)] ?? section.visual;
+      const description = cue.length > 0 ? cue : section.visual;
+      // Enhance the visual cue with production-quality terms matching the art style.
+      const enhanced = enhanceVisualCue(description, options.style);
+      return {
+        text: draft.text,
+        imagePrompt: composeImagePrompt(enhanced, options.style),
+        motion: MOTION_CYCLE[globalIndex % MOTION_CYCLE.length]!,
+        emphasis: [],
+        startMs: currentTimeMs + draft.startMs,
+        endMs: currentTimeMs + draft.endMs,
+      };
+    });
+
+    if (sectionScenes.length > 0) {
+      currentTimeMs = sectionScenes[sectionScenes.length - 1]!.endMs;
+      // Add a sentence pause between sections (except after the last).
+      if (sectionIndex < sections.length - 1) {
+        currentTimeMs += options.sentencePauseSeconds * 1000;
+      }
+    }
+
+    allScenes.push(...sectionScenes);
+  }
+
+  // If we exceeded maxScenes, merge the cheapest adjacent pairs until under.
+  while (allScenes.length > options.maxScenes) {
+    let bestIdx = 0;
+    let bestCost = Infinity;
+    for (let i = 0; i < allScenes.length - 1; i++) {
+      const a = allScenes[i]!;
+      const b = allScenes[i + 1]!;
+      const cost = (b.endMs - a.startMs) / 1000; // merged duration in seconds
+      if (cost < bestCost) {
+        bestCost = cost;
+        bestIdx = i;
+      }
+    }
+    const merged = {
+      ...allScenes[bestIdx]!,
+      text: allScenes[bestIdx]!.text + ' ' + allScenes[bestIdx + 1]!.text,
+      endMs: allScenes[bestIdx + 1]!.endMs,
+    };
+    allScenes.splice(bestIdx, 2, merged);
+  }
+
+  return scenePlanSchema.parse({
+    scenes: allScenes,
+    adapter: 'heuristic',
+    degradedFrom: [],
+    totalMs: allScenes.at(-1)!.endMs,
+  });
+}

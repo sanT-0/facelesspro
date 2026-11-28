@@ -1,4 +1,6 @@
 edge-tts==7.3.1
+# Local TTS (free, offline, CPU) - `TTS=piper`
+piper-tts==1.8.0
 # Licensed production TTS path (`TTS=azure`); imported lazily so edge-only
 # installs still run. The package is proprietary, used under Azure terms.
 azure-cognitiveservices-speech==1.53.1

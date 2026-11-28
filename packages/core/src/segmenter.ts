@@ -85,6 +85,16 @@ function hasTamilChar(word: string): boolean {
   return false;
 }
 
+/** True when the text contains no Tamil letters (U+0B80–U+0BFF or ZWJ/ZWNJ). */
+export function isEnglishOnly(text: string): boolean {
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    if (cp !== undefined && cp >= 0x0b80 && cp <= 0x0bff) return false;
+    if (ch === '\u200c' || ch === '\u200d') return false;
+  }
+  return true;
+}
+
 /**
  * Script of a forced span. Tamil is written in Tamil script when the span
  * contains Tamil letters, and in Latin letters otherwise — which is exactly

@@ -52,11 +52,16 @@ export function createImageChain(adapters: readonly ImagePort[]): ImageFn {
           const image = await adapter.draw(request);
           // Direct adapters always report an empty list. The chain is the only
           // layer that knows which configured adapters actually failed first.
+          if (failures.length > 0) {
+            console.warn(`[image-chain] adapter ${image.adapter} succeeded after failures: ${failures.map(f => `${f.adapter}: ${f.message}`).join('; ')}`);
+          }
           return { ...image, degradedFrom: failures.map((failure) => failure.adapter) };
         } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          console.warn(`[image-chain] adapter ${adapter.name} failed: ${message}`);
           failures.push({
             adapter: adapter.name,
-            message: error instanceof Error ? error.message : String(error),
+            message,
             retryable: isRetryable(error),
           });
         }
